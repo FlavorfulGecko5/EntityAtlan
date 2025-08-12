@@ -16,6 +16,7 @@ DarkAgesPatcher.def
 
 # Do not include 90 thousand line reflection files in the repository....
 deserializer/src/generated/*
+reserializer/src/generated/*
 
 # User-specific files
 *.rsuser

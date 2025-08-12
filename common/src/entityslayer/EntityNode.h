@@ -108,9 +108,17 @@ class EntNode
 
 	bool HasParent() {return parent != nullptr;}
 
-	EntNode** getChildBuffer() { return children; }
+	EntNode** getChildBuffer() const { return children; }
 
-	int getChildCount() {return childCount;}
+	int getChildCount() const {return childCount;}
+
+	const EntNode ListMapHack() const {
+		EntNode copy;
+		copy.textPtr = textPtr + nameLength;
+		copy.nameLength = 0;
+		copy.valLength = valLength;
+		return copy;
+	}
 
 	/*
 	* Gets the index of a node in this node's child buffer

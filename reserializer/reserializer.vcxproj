@@ -152,6 +152,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\generated\reserialgenerated.cpp" />
     <ClCompile Include="src\ReserialMain.cpp" />
     <ClCompile Include="src\serialcore.cpp" />
   </ItemGroup>
@@ -161,6 +162,7 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\generated\reserialgenerated.h" />
     <ClInclude Include="src\serialcore.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

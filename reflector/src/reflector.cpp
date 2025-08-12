@@ -15,6 +15,16 @@ typedef void dsfunc_t(BinaryReader&, std::string&);
 namespace deserial {
 )";
 
+const char* resHeaderStart =
+R"(
+class BinaryWriter;
+class EntNode;
+
+typedef void rsfunc_t(const EntNode&, BinaryWriter&);
+
+namespace reserial {
+)";
+
 const char* desCppStart =
 R"(#include "deserialgenerated.h"
 #include "deserialcore.h"
@@ -22,6 +32,56 @@ R"(#include "deserialgenerated.h"
 #define dsfunc_m(NAME) void NAME(BinaryReader& reader, std::string& writeTo)
 
 )";
+
+const char* resCppStart =
+R"(#include "reserialgenerated.h"
+#include "serialcore.h"
+
+#define rsfunc_m(NAME) void NAME(const EntNode& property, BinaryWriter& writer)
+
+)";
+
+class StringTee 
+{
+    private:
+    std::string left;
+    std::string right;
+
+    public:
+    StringTee(size_t leftsize, size_t rightsize) 
+    {
+        left.reserve(leftsize);
+        right.reserve(rightsize);
+    }
+
+    void add(const std::string_view leftdata, const std::string_view rightdata)
+    {
+        left.append(leftdata);
+        right.append(rightdata);
+    }
+
+    void both(const std::string_view data) 
+    {
+        left.append(data);
+        right.append(data);
+    }
+
+    void push(const char leftdata, const char rightdata) {
+        left.push_back(leftdata);
+        right.push_back(rightdata);
+    }
+
+    void output(const std::string leftfile, const std::string rightfile)
+    {
+        std::ofstream output(leftfile, std::ios_base::binary);
+        output << left;
+        output.close();
+
+        output.open(rightfile, std::ios_base::binary);
+        output << right;
+        output.close();
+    }
+};
 
 class idlibReflector {
     public:
@@ -33,22 +93,25 @@ class idlibReflector {
         {"idListMap", &idlibReflector::GenerateidListMap },
         {"idTypeInfoPtr", &idlibReflector::GenerateidTypeInfoPtr},
         {"idTypeInfoObjectPtr", &idlibReflector::GenerateidTypeInfoObjectPtr},
-        //{"idTypesafeNumber", &idlibReflector::GenerateidTypesafeNumber},
         {"idManagedClassPtr", &idlibReflector::GenerateidManagedClassPtr},
         {"idLogicEntityPtr", &idlibReflector::GenerateidLogicEntityPtr},
         {"idLogicList", &idlibReflector::GenerateidLogicList},
         {"idRenderModelWeakHandleT", &idlibReflector::GenerateidRenderModelWeakHandleT}
     };
 
+    // LEFT: Deserial; RIGHT: Reserial
+    StringTee headertee = StringTee(1000000, 1000000);
+
+    // LEFT: Deserial; RIGHT: Reserial
+    StringTee srctee = StringTee(8000000, 8000000);
 
     std::unordered_map<std::string, EntNode*> typelib;
-    std::string desheader = desHeaderStart;
-    std::string descpp = desCppStart;
+    //std::string desheader = desHeaderStart;
+    //std::string descpp = desCppStart;
 
     idlibReflector() {
-
-        desheader.reserve(1000000);
-        descpp.reserve(8000000);
+        headertee.add(desHeaderStart, resHeaderStart);
+        srctee.add(desCppStart, resCppStart);
     }
 
     void GenerateEnums(EntNode& enums) {
@@ -62,14 +125,14 @@ class idlibReflector {
             if(&current["INCLUDE"] == EntNode::SEARCH_404)
                 continue;
 
-            desheader.append("\tdsfunc_t ds_");
-            desheader.append(current.getName());
-            desheader.append(";\n");
+            headertee.add("\tdsfunc_t ds_", "\trsfunc_t rs_");
+            headertee.both(current.getName());
+            headertee.both(";\n");
 
-            descpp.append("dsfunc_m(deserial::ds_");
-            descpp.append(current.getName());
-            descpp.append(") {\n");
-            descpp.append("\tconst std::unordered_map<uint64_t, const char*> valueMap = {\n");
+            srctee.add("dsfunc_m(deserial::ds_", "rsfunc_m(reserial::rs_");
+            srctee.both(current.getName());
+            srctee.both(") {\n");
+            srctee.add("\tconst dsenummap_t valueMap = {\n", "\tconst rsenumset_t valueSet = {\n");
 
             EntNode& values = current["values"];
             EntNode** valueArray = values.getChildBuffer();
@@ -80,15 +143,15 @@ class idlibReflector {
                 std::string_view vName = v.getName();
                 uint64_t hash = HashLib::FarmHash64(vName.data(), vName.length());
 
-                descpp.append("\t\t{");
-                descpp.append(std::to_string(hash)); 
-                descpp.append("UL, \"");
-                descpp.append(v.getName());
-                descpp.append("\"},\n");
+                srctee.both("\t\t{");
+                srctee.both(std::to_string(hash)); 
+                srctee.add("UL, \"", "UL},\n"); // Reserializer is only a hash set. Deserializer requires a bit more data
+                srctee.add(v.getName(), "");
+                srctee.add("\"},\n", "");
             }
 
-            descpp.append("\t};\n\tds_enumbase(reader, writeTo, valueMap);\n");
-            descpp.append("}\n");
+            srctee.add("\t};\n\tds_enumbase(reader, writeTo, valueMap);\n", "\t};\n\trs_enumbase(property, writer, valueSet);\n");
+            srctee.both("}\n");
         }
     }
 
@@ -98,10 +161,10 @@ class idlibReflector {
 
         EntNode& pointerfunc = (*iter->second)["pointerfunc"];
         if (&pointerfunc == EntNode::SEARCH_404) {
-            descpp.append("pointerbase");
+            srctee.both("pointerbase");
         }
         else {
-            descpp.append(pointerfunc.getValue());
+            srctee.both(pointerfunc.getValue());
         }
     }
 
@@ -118,14 +181,14 @@ class idlibReflector {
 
             uint64_t hash = HashLib::FarmHash64(v.getValue().data(), v.getValue().length());
 
-            descpp.append("\t\t{");
-            descpp.append(std::to_string(hash));
-            descpp.append(", {&ds_");
+            srctee.both("\t\t{");
+            srctee.both(std::to_string(hash));
+            srctee.add(", {&ds_", ", {&rs_");
 
             /* If a pointer, map to the appropriate pointer function */
             EntNode& pointers = v["pointers"];
             if (&pointers == EntNode::SEARCH_404) {
-                descpp.append(v.getName());
+                srctee.both(v.getName());
             } 
             else {
                 // Double pointer variables in idLists technically aren't flagged for inclusion
@@ -136,17 +199,18 @@ class idlibReflector {
                 WritePointerFunc(v.getName());
             }
 
-            descpp.append(", \"");
-            descpp.append(v.getValue());
-            descpp.append("\"");
+            // Deserializer: Add the value string; Reserializer: Repeat the farmhash
+            srctee.add(", \"", ", "); 
+            srctee.add(v.getValue(), std::to_string(hash)); 
+            srctee.add("\"", "");
 
             if (&v["array"] != EntNode::SEARCH_404) {
-                descpp.append(", ");
-                descpp.append(v["array"].getValue());
+                srctee.both(", ");
+                srctee.both(v["array"].getValue());
             }
 
 
-            descpp.append("}},\n");
+            srctee.both("}},\n");
         }
 
         EntNode& parentName = typeNode["parentName"];
@@ -173,26 +237,26 @@ class idlibReflector {
             if(&current["INCLUDE"] == EntNode::SEARCH_404)
                 continue;
 
-            desheader.append("\tdsfunc_t ds_");
-            desheader.append(current.getName());
-            desheader.append(";\n");
+            headertee.add("\tdsfunc_t ds_", "\trsfunc_t rs_");
+            headertee.both(current.getName());
+            headertee.both(";\n");
             
-            descpp.append("dsfunc_m(deserial::ds_");
-            descpp.append(current.getName());
-            descpp.append(") {\n");
+            srctee.add("dsfunc_m(deserial::ds_", "rsfunc_m(reserial::rs_");
+            srctee.both(current.getName());
+            srctee.both(") {\n");
 
             if (bodyFunction == nullptr) {
                 EntNode& alias = current["alias"];
 
                 if (&alias == EntNode::SEARCH_404) {
-                    descpp.append("\tconst std::unordered_map<uint64_t, deserializer> propMap = {\n");
+                    srctee.add("\tconst dspropmap_t propMap = {\n", "\tconst rspropmap_t propMap = {\n");
                     PopulateStructMap(current);
-                    descpp.append("\t};\n\tds_structbase(reader, writeTo, propMap);\n");
+                    srctee.add("\t};\n\tds_structbase(reader, writeTo, propMap);\n", "\t};\n\trs_structbase(property, writer, propMap);\n");
                 }
                 else {
-                    descpp.append("\tds_");
-                    descpp.append(alias.getValue());
-                    descpp.append("(reader, writeTo);\n");
+                    srctee.add("\tds_", "\trs_");
+                    srctee.both(alias.getValue());
+                    srctee.add("(reader, writeTo);\n", "(property, writer);\n"); 
                 }
 
             }
@@ -200,7 +264,7 @@ class idlibReflector {
                 (this->*bodyFunction)(current);
             }
 
-            descpp.append("}\n");
+            srctee.both("}\n");
         }
         ///* Generate Reflection Code */
 
@@ -228,15 +292,15 @@ class idlibReflector {
             usePointerFunc = pointerCount[0] == '2';
         }
 
-        descpp.append("\tds_idList(reader, writeTo, &ds_");
+        srctee.add("\tds_idList(reader, writeTo, &ds_", "\trs_idList(property, writer, &rs_");
         
         if (usePointerFunc) {
             WritePointerFunc(listType.getName());
         }
         else {
-            descpp.append(listType.getName());
+            srctee.both(listType.getName());
         }
-        descpp.append(");\n");
+        srctee.both(");\n");
 
         //printf("%.*s\n", (int)listType.getName().length(), listType.getName().data());   
     }
@@ -268,15 +332,15 @@ class idlibReflector {
             usePointerFunc = !pointerCount.empty();
         }
 
-        descpp.append("\tds_idList(reader, writeTo, &ds_");
+        srctee.add("\tds_idList(reader, writeTo, &ds_", "\trs_idList(property, writer, &rs_");
 
         if (usePointerFunc) {
             WritePointerFunc(listType.getName());
         }
         else {
-            descpp.append(listType.getName());
+            srctee.both(listType.getName());
         }
-        descpp.append(");\n");
+        srctee.both(");\n");
     }
 
     void GenerateidListMap(EntNode& typenode) {
@@ -284,7 +348,7 @@ class idlibReflector {
         EntNode& keyval = *typenode["values"].ChildAt(0);
         EntNode& valueval = *typenode["values"].ChildAt(1);
 
-        descpp.append("\tds_idListMap(reader, writeTo, &ds_");
+        srctee.add("\tds_idListMap(reader, writeTo, &ds_", "\trs_idListMap(property, writer, &rs_");
 
         // Get key function
         {
@@ -300,13 +364,13 @@ class idlibReflector {
             assert(&keylist["pointers"] != EntNode::SEARCH_404);
             if (keylist["pointers"].getValue()[0] == '2')
                 WritePointerFunc(keylist.getName());
-            else descpp.append(keylist.getName());
+            else srctee.both(keylist.getName());
         }
 
         
 
         // Get value function
-        descpp.append(", &ds_");
+        srctee.add(", &ds_", ", &rs_");
         {
             auto iter = typelib.find(std::string(valueval.getName()));
             assert(iter != typelib.end());
@@ -320,41 +384,30 @@ class idlibReflector {
             assert(&valuelist["pointers"] != EntNode::SEARCH_404);
             if (valuelist["pointers"].getValue()[0] == '2')
                 WritePointerFunc(valuelist.getName());
-            else descpp.append(valuelist.getName());
+            else srctee.both(valuelist.getName());
         }
 
-        descpp.append(");\n");
+        srctee.both(");\n");
     }
 
     void GenerateidTypeInfoPtr(EntNode& typenode) {
-        descpp.append("\tds_idTypeInfoPtr(reader, writeTo);\n");
+        srctee.add("\tds_idTypeInfoPtr(reader, writeTo);\n", "\trs_idTypeInfoPtr(property, writer);\n");
     }
 
     void GenerateidTypeInfoObjectPtr(EntNode& typenode) {
-        descpp.append("\tds_idTypeInfoObjectPtr(reader, writeTo);\n");
-    }
-
-    // DEPRECATED: Must alias these on a case-by-case basis in pass 2 because some
-    // are treated as stems and others and leaves
-    void GenerateidTypesafeNumber(EntNode& typenode) {
-        EntNode& numType = *typenode["values"].ChildAt(0);
-        assert(numType.getValue() == "value");
-
-        descpp.append("\tds_");
-        descpp.append(numType.getName());
-        descpp.append("(reader, writeTo);\n");
+        srctee.add("\tds_idTypeInfoObjectPtr(reader, writeTo);\n", "\trs_idTypeInfoObjectPtr(property, writer);\n");
     }
 
     void GenerateidRenderModelWeakHandleT(EntNode& typenode) {
-        descpp.append("\tds_idRenderModelWeakHandle(reader, writeTo);\n");
+        srctee.add("\tds_idRenderModelWeakHandle(reader, writeTo);\n", "\trs_idRenderModelWeakHandle(property, writer);\n");
     }
 
     void GenerateidManagedClassPtr(EntNode& typenode) {
-        descpp.append("\tds_idStr(reader, writeTo);\n");
+        srctee.add("\tds_idStr(reader, writeTo);\n", "\trs_idStr(property, writer);\n");
     }
 
     void GenerateidLogicEntityPtr(EntNode& typenode) {
-        descpp.append("\tds_idStr(reader, writeTo);\n");
+        srctee.add("\tds_idStr(reader, writeTo);\n", "\trs_idStr(property, writer);\n");
     }
 
 
@@ -366,8 +419,11 @@ class idlibReflector {
     }
 
     void GenerateHashMaps() {
-        descpp.append("const std::unordered_map<uint32_t, deserialTypeInfo> deserial::typeInfoPtrMap = {\n");
+        srctee.add("const std::unordered_map<uint32_t, deserialTypeInfo> deserial::typeInfoPtrMap = {\n", 
+            "const std::unordered_map<uint64_t, reserialTypeInfo> reserial::typeInfoPtrMap = {\n"
+        );
 
+        // FIX: Placing the reflection name into the deserial type map string, should be using the original name
         for (const auto& pair : typelib) {
             EntNode& node = *pair.second;
             if(&node["INCLUDE"] == EntNode::SEARCH_404)
@@ -375,16 +431,23 @@ class idlibReflector {
 
             EntNode& hashNode = node["hash"];
             assert(&hashNode != EntNode::SEARCH_404);
-            descpp.append("\t{");
-            descpp.append(hashNode.getValueUQ());
-            descpp.append("U, { &ds_");
-            descpp.append(pair.first);
-            descpp.append(", \"");
-            descpp.append(pair.first);
-            descpp.append("\"}},\n");
+            EntNode& originalnamenode = node["originalName"];
+            assert(&originalnamenode != EntNode::SEARCH_404);
+
+            std::string_view originalname = originalnamenode.getValueUQ();
+            uint64_t namefarmhash = HashLib::FarmHash64(originalname.data(), originalname.length());
+
+            srctee.both("\t{");
+            srctee.add(hashNode.getValueUQ(), std::to_string(namefarmhash));
+            srctee.add("U, { &ds_", "UL, { &rs_");
+            srctee.both(pair.first);
+            srctee.both(", ");
+            srctee.add(originalnamenode.getValue(), hashNode.getValueUQ());
+            //srctee.add(originalname, hashNode.getValueUQ());
+            srctee.both("}},\n");
         }
 
-        descpp.append("};\n");
+        srctee.both("};\n");
     }
 
     void Generate(EntNode& root) {
@@ -424,18 +487,6 @@ class idlibReflector {
             
         }
     }
-
-    void OutputFiles() {
-        desheader.push_back('}');
-        std::ofstream writer = std::ofstream("../deserializer/src/generated/deserialgenerated.h", std::ios_base::binary);
-
-        writer.write(desheader.data(), desheader.length());
-        writer.close();
-
-        writer.open("../deserializer/src/generated/deserialgenerated.cpp", std::ios_base::binary);
-        writer.write(descpp.data(), descpp.length());
-        writer.close();
-    }
 };
 
 void idlibReflection::Generate() {
@@ -447,5 +498,8 @@ void idlibReflection::Generate() {
     
     idlibReflector reflector;
     reflector.Generate(*root);
-    reflector.OutputFiles();
+
+    reflector.headertee.both("}");
+    reflector.headertee.output("../deserializer/src/generated/deserialgenerated.h", "../reserializer/src/generated/reserialgenerated.h");
+    reflector.srctee.output("../deserializer/src/generated/deserialgenerated.cpp", "../reserializer/src/generated/reserialgenerated.cpp");
 }

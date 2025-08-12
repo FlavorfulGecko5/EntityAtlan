@@ -7,6 +7,7 @@ struct deserializer;
 
 typedef void dsfunc_t(BinaryReader&, std::string&);
 typedef std::unordered_map<uint64_t, deserializer> dspropmap_t;
+typedef std::unordered_map<uint64_t, const char*> dsenummap_t;
 
 struct deserializer {
 	dsfunc_t* callback = nullptr;
@@ -17,7 +18,7 @@ struct deserializer {
 };
 
 struct deserialTypeInfo {
-	void(*callback)(BinaryReader& reader, std::string& writeTo) = nullptr;
+	dsfunc_t* callback = nullptr;
 	const char* name = nullptr;
 };
 
@@ -74,7 +75,7 @@ namespace deserial {
 	dsfunc_t ds_idTypeInfoObjectPtr;
 
 	/* Containers */
-	void ds_enumbase(BinaryReader& reader, std::string& writeTo, const std::unordered_map<uint64_t, const char*>& enumMap);
+	void ds_enumbase(BinaryReader& reader, std::string& writeTo, const dsenummap_t& enumMap);
 	void ds_structbase(BinaryReader& reader, std::string& writeTo, const dspropmap_t& propMap);
 	void ds_idList(BinaryReader& reader, std::string& writeTo, dsfunc_t* callback);
 	void ds_staticList(BinaryReader& reader, std::string& writeTo, deserializer basetype);

@@ -666,7 +666,11 @@ dsfunc_m(deserial::ds_idTypeInfoObjectPtr)
 		LABEL_SKIP_HASH_READ:
 		assert(hash == HASH_object);
 		assert(reader.ReadLE(bytecode));
-		assert(bytecode == 0 || bytecode == 1);
+
+		// These *should* always be braced objects and never primitives.
+		//assert(bytecode == 0 || bytecode == 1);
+		assert(bytecode == 0);
+
 		assert(reader.ReadLE(u32));
 
 
@@ -682,7 +686,7 @@ dsfunc_m(deserial::ds_idTypeInfoObjectPtr)
 	//writeTo.append("}\n");
 }
 
-void deserial::ds_enumbase(BinaryReader& reader, std::string& writeTo, const std::unordered_map<uint64_t, const char*>& enumMap)
+void deserial::ds_enumbase(BinaryReader& reader, std::string& writeTo, const dsenummap_t& enumMap)
 {
 	assert(*(reader.GetBuffer() - 5) == 1); // Leaf node
 
@@ -883,6 +887,7 @@ void deserial::ds_staticList(BinaryReader& reader, std::string& writeTo, deseria
 
 void deserial::ds_idListMap(BinaryReader& reader, std::string& writeTo, dsfunc_t* keyfunc, dsfunc_t* valuefunc)
 {
+	//LogWarning("idListMap");
 	assert(*(reader.GetBuffer() - 5) == 0);
 	writeTo.append("{\n");
 
@@ -1054,6 +1059,7 @@ dsfunc_m(deserial::ds_idRenderModelWeakHandle)
 {
 	// TODO: Monitor this. There is absolutely no way of knowing how these are supposed to be serialized
 	// because their block lengths are 0 in every logic decl
+	assert(*(reader.GetBuffer() - 5) == 1);
 	assert(reader.GetLength() == 0);
 	writeTo.append("\"\";\n");
 }
