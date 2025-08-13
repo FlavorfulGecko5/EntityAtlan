@@ -19,6 +19,12 @@ extractor = {
 	}
 }
 deserializer = {
+	deserialize_entity_defs = 1
+	deserialize_logic_decls = 1
+	deserialize_level_files = 1
+	remove_binary_files = 1
+	add_indentation = 1
+	include_originals = 0
 }
 /********************
 
@@ -34,7 +40,6 @@ Example: output_folder = "D:/DA"
 run_extractor: Set to 0 if you only want to run the deserializer
 
 run_deserializer: Set to 0 if you only want to run the extractor
-(NOTE: The deserializer isn't added yet so this won't do anything for now)
 
 ------
 
@@ -49,5 +54,21 @@ You can exclude any type by commenting it out like this:
 
 WARNING: Adding resource types not officially supported by this extractor
 may lead to undesired behavior! Do this at your own risk.
+
+------
+
+Deserializer Settings: These are primarily for debugging
+
+deserialize_entity_defs: Set to 0 to skip deserializing entitydefs
+
+deserialize_logic_decls: Set to 0 to skip deserializing logic decls
+
+deserialize_level_files: Set to 0 to skip deserializing mapentities
+
+remove_binary_files: Set to 0 to keep the raw binary files after deserializing them. This is useful for running the deserializer multiple times without needing to re-extract the files.
+
+add_indentation: Does a second pass over the deserialized files to properly indent them. Requires rewriting the entire file. This will also validate the syntax.
+
+include_originals: entitydefs and mapentities contain unserialized versions of the edit blocks, attached as strings to the end of the binary data. Setting this to 1 includes these strings in the output files. Editing these won't do anything, but it's useful for comparing the deserializer's output with id's original file. This will roughly double the size of extracted files.
 
 ********************/

@@ -34,6 +34,7 @@ EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "AtlanResourceExtractor", "AtlanResourceExtractor\AtlanResourceExtractor.vcxproj", "{5DE22C8D-38B0-4041-BC0D-AF9751E35DA4}"
 	ProjectSection(ProjectDependencies) = postProject
 		{31BD7844-9C32-4F72-98CB-6E61D74A2828} = {31BD7844-9C32-4F72-98CB-6E61D74A2828}
+		{8E7D2617-9125-4C3F-AB2C-38366457DF34} = {8E7D2617-9125-4C3F-AB2C-38366457DF34}
 	EndProjectSection
 EndProject
 Global

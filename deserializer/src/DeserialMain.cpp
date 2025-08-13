@@ -1,5 +1,3 @@
-#include <iostream>
-#include <iomanip>
 #include <filesystem>
 #include <fstream>
 #include <chrono>
@@ -12,6 +10,8 @@
 #include "deserialcore.h"
 #include "hash/HashLib.h"
 #include "entityslayer/EntityParser.h"
+#include "atlan/AtlanLogger.h"
+#include "DeserialMain.h"
 
 #ifndef _DEBUG
 #undef assert
@@ -34,7 +34,7 @@ void StaticsTest() {
 }
 
 void DeserialInit(const fspath gamedir, const fspath filedir) {
-	std::cout << "Building Decl Farmhash Map\n";
+	atlog << "Building Decl Farmhash Map\n";
 
 	const fspath basepath = gamedir / "base";
 	const fspath entitydir = filedir / "entityDef";
@@ -168,11 +168,7 @@ void DeserialInit(const fspath gamedir, const fspath filedir) {
 		assert(current.second.typehash != 0);
 	}
 
-
-	std::cout << "Decl Hash Map Size: " << deserial::declHashMap.size() << "\n";
-	//for (const auto& pair : deserial::declHashMap) {
-	//	std::cout << pair.second << "\n";
-	//}
+	atlog << "Decl Hash Map Size: " << deserial::declHashMap.size() << "\n";
 }
 
 void AddIndentation(const std::string& path) {
@@ -182,7 +178,7 @@ void AddIndentation(const std::string& path) {
 		parser.WriteToFile(path, false);
 	}
 	catch (...) {
-		std::cout << "ERROR: EntityParser failed to indent " << path << "\n";
+		atlog << "ERROR: EntityParser failed to indent " << path << "\n";
 	}
 }
 
@@ -214,7 +210,7 @@ void DeserializeEntitydefs(bool remove_binaries, bool add_indent) {
 
 			BinaryOpener opener = BinaryOpener(entitydef.second.filepath);
 			if (!opener.Okay()) {
-				std::cout << "ERROR: Failed to read entitydef " << entitydef.second.filepath
+				atlog << "ERROR: Failed to read entitydef " << entitydef.second.filepath
 					<< "\nAborting entitydef extraction\n";
 				return;
 			}
@@ -222,7 +218,7 @@ void DeserializeEntitydefs(bool remove_binaries, bool add_indent) {
 			deserial::ds_start_entitydef(reader, writeto, entitydef.first);
 
 			if (previousWarningCount != deserial::warning_count)
-				std::cout << entitydef.second.filepath << "\n";
+				atlog << entitydef.second.filepath << "\n";
 			totaldeserialized++;
 			entitydef.second.deserialized = true;
 
@@ -243,18 +239,19 @@ void DeserializeEntitydefs(bool remove_binaries, bool add_indent) {
 			}
 		}
 	}
-	std::cout << "Total Warning Count: " << deserial::warning_count << " Files: " << totaldeserialized << "\n";
+	atlog << "EntityDef Warning Count: " << deserial::warning_count << " Files: " << totaldeserialized << "\n";
 }
 
 void DeserializeMapEntities(const fspath filedir, bool remove_binaries, bool add_indent) {
 	deserial::deserialmode = DeserialMode::mapentities;
+	deserial::warning_count = 0;
 
 	std::vector<fspath> binpaths;
 
 	using namespace std::filesystem;
 
 	if (!is_directory(filedir / "mapentities")) {
-		std::cout << "ERROR: mapentities folder does not exist\n";
+		atlog << "ERROR: mapentities folder does not exist\n";
 		return;
 	}
 
@@ -271,7 +268,7 @@ void DeserializeMapEntities(const fspath filedir, bool remove_binaries, bool add
 	outtext.reserve(30000000);
 
 	for (const fspath& file : binpaths) {
-		std::cout << file << "\n";
+		atlog << file.filename() << "\n";
 		outtext.clear();
 
 		BinaryOpener open(file.string());
@@ -281,7 +278,7 @@ void DeserializeMapEntities(const fspath filedir, bool remove_binaries, bool add
 		deserial::ds_start_mapentities(reader, outtext);
 
 		fspath outpath = file;
-		outpath.replace_extension(".entities");
+		outpath.replace_extension(".mapentities");
 		std::ofstream outfile(outpath, std::ios_base::binary);
 		outfile << outtext;
 		outfile.close();
@@ -295,7 +292,7 @@ void DeserializeMapEntities(const fspath filedir, bool remove_binaries, bool add
 		}
 	}
 
-	std::cout << deserial::warning_count;
+	atlog << "Map Entities Warning Count: " << deserial::warning_count << " Files: " << binpaths.size() << "\n";
 }
 
 void DeserializeLogicdecls(const fspath filedir, bool remove_binaries, bool add_indent) {
@@ -319,10 +316,11 @@ void DeserializeLogicdecls(const fspath filedir, bool remove_binaries, bool add_
 		const fspath dir = filedir / logicfolders[lt].foldername;
 
 		if (!is_directory(dir)) {
-			std::cout << "ERROR: " << logicfolders[lt].foldername << " folder does not exist!\n";
+			atlog << "ERROR: " << logicfolders[lt].foldername << " folder does not exist!\n";
 			continue;
 		}
-		std::cout << "Deserializing " << logicfolders[lt].foldername << " Decls\n";
+		atlog << "Deserializing " << logicfolders[lt].foldername << " Decls\n";
+		deserial::warning_count = 0;
 
 		/* Get list of files to deserialize */
 		std::vector<fspath> binpaths;
@@ -350,7 +348,7 @@ void DeserializeLogicdecls(const fspath filedir, bool remove_binaries, bool add_
 
 			int newWarningCount = deserial::warning_count;
 			if(newWarningCount != warningCount)
-				std::cout << filepath << "\n";
+				atlog << filepath << "\n";
 
 			fspath outpath = filepath;
 			outpath.replace_extension(".decl");
@@ -367,67 +365,58 @@ void DeserializeLogicdecls(const fspath filedir, bool remove_binaries, bool add_
 				AddIndentation(outpath.string());
 			}
 		}
+
+		atlog << "Total Warning Count: " << deserial::warning_count << " Files: " << binpaths.size() << "\n";
 	}
 }
 
-
-struct deserialconfig_t
-{
-	bool deserial_entitydefs = true;
-	bool deserial_logicdecls = true;
-	bool deserial_mapentities = true;
-	bool remove_binaries = true;
-	bool include_original = true;
-	bool indent = true;
-};
-
-void DeserialMain(const fspath& gamedir, const fspath& filedir, deserialconfig_t config)
+void Deserializer::DeserialMain(const fspath& gamedir, const fspath& filedir, deserialconfig_t config)
 {
 	DeserialInit(gamedir, filedir);
 	deserial::include_originals = config.include_original;
 
 	if (config.deserial_entitydefs) {
-		std::cout << "Deserializing EntityDefs\n";
+		atlog << "Deserializing EntityDefs\n";
 		DeserializeEntitydefs(config.remove_binaries, config.indent);
-		std::cout << "Finished EntityDefs\n";
+		atlog << "Finished EntityDefs\n";
 	}
 	else {
-		std::cout << "Skipping EntityDefs\n";
+		atlog << "Skipping EntityDefs\n";
 	}
 
 
 	if (config.deserial_logicdecls) {
-		std::cout << "Deserializing Logic Decls\n";
+		atlog << "Deserializing Logic Decls\n";
 		DeserializeLogicdecls(filedir, config.remove_binaries, config.indent);
-		std::cout << "Finished Logic Decls\n";
+		atlog << "Finished Logic Decls\n";
 	}
 	else {
-		std::cout << "Skipping Logic Decls\n";
+		atlog << "Skipping Logic Decls\n";
 	}
 	
 
 	if (config.deserial_mapentities) {
-		std::cout << "Deserializing Map Entities\n";
+		atlog << "Deserializing Map Entities\n";
 		DeserializeMapEntities(filedir, config.remove_binaries, config.indent);
-		std::cout << "Finished Map Entities\n";
+		atlog << "Finished Map Entities\n";
 	}
 	else {
-		std::cout << "Skipping Map Entities\n";
+		atlog << "Skipping Map Entities\n";
 	}
 
 }
 
-int main() {
-
-	deserialconfig_t config;
-	config.deserial_entitydefs  = 1;
-	config.deserial_logicdecls  = 1;
-	config.deserial_mapentities = 1;
-	config.include_original     = 0;
-	config.remove_binaries      = 0;
-	config.indent               = 1;
-
-	DeserialMain("D:/Steam/steamapps/common/DOOMTheDarkAges", "D:/DA/atlan", config);
-
-	return 0;
-}
+//int main() {
+//
+//	deserialconfig_t config;
+//	config.deserial_entitydefs  = 0;
+//	config.deserial_logicdecls  = 0;
+//	config.deserial_mapentities = 0;
+//	config.include_original     = 0;
+//	config.remove_binaries      = 0;
+//	config.indent               = 0;
+//
+//	Deserializer::DeserialMain("D:/Steam/steamapps/common/DOOMTheDarkAges", "D:/DA/atlan", config);
+//
+//	return 0;
+//}

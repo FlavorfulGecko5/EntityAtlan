@@ -93,7 +93,7 @@
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>src/;../common/src/</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src/;../common/src/;../deserializer/src/</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -109,7 +109,7 @@
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>src/;../common/src/</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src/;../common/src/;../deserializer/src/</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -125,7 +125,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>src/;../common/src/</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src/;../common/src/;../deserializer/src/</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -141,7 +141,7 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>src/;../common/src/</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src/;../common/src/;../deserializer/src/</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -156,6 +156,9 @@
   <ItemGroup>
     <ProjectReference Include="..\common\common.vcxproj">
       <Project>{31bd7844-9c32-4f72-98cb-6e61d74a2828}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\deserializer\deserializer.vcxproj">
+      <Project>{8e7d2617-9125-4c3f-ab2c-38366457df34}</Project>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

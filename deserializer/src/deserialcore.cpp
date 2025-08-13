@@ -1,6 +1,7 @@
 #include "deserialcore.h"
 #include "generated/deserialgenerated.h"
 #include "io/BinaryReader.h"
+#include "atlan/AtlanLogger.h"
 #include <set>
 #include <cassert>
 
@@ -42,7 +43,8 @@ void LogWarning(std::string_view msg) {
 	if(!propString.empty())
 		propString.pop_back();
 
-	printf("WARNING: %.*s %.*s\n", (int)propString.length(), propString.data(), (int)msg.length(), msg.data());
+	atlog << "WARNING: " << propString << " " << msg << "\n";
+	//printf("WARNING: %.*s %.*s\n", (int)propString.length(), propString.data(), (int)msg.length(), msg.data());
 	deserial::warning_count++;
 }
 

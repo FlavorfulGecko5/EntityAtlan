@@ -3,6 +3,7 @@
 #include "archives/ResourceStructs.h"
 #include "archives/PackageMapSpec.h"
 #include "atlan/AtlanLogger.h"
+#include "DeserialMain.h"
 #include <iostream>
 #include <fstream>
 #include <set>
@@ -18,6 +19,8 @@ struct configdata_t {
 
 	restypeset_t restypes;
 
+	deserialconfig_t dsconfig;
+
 };
 
 /*
@@ -27,7 +30,7 @@ void ExtractorMain() {
 	/*
 	* REMEMBER TO UPDATE VERSION NUMBER
 	*/
-	atlog << "Atlan Consolidated Resource Extractor v1.3 by FlavorfulGecko5\n";
+	atlog << "Atlan Consolidated Resource Extractor v2.0 by FlavorfulGecko5\n";
 
 	/*
 	* Parse and validate config file
@@ -88,6 +91,29 @@ void ExtractorMain() {
 			config.restypes.insert(std::string(rt.getNameUQ()));
 		}
 		atlog << "Found " << config.restypes.size() << " resource types\n";
+
+		/* Deserialization Settings */
+		EntNode& deserial = root["deserializer"];
+		if(!deserial["deserialize_entity_defs"].ValueBool(config.dsconfig.deserial_entitydefs)) {
+			atlog << "WARNING: Failed to read config bool deserializer/deserialize_entity_defs: assuming default\n";
+		}
+		if(!deserial["deserialize_logic_decls"].ValueBool(config.dsconfig.deserial_logicdecls)) {
+			atlog << "WARNING: Failed to read config bool deserializer/deserialize_logic_decls: assuming default\n";
+		}
+		if(!deserial["deserialize_level_files"].ValueBool(config.dsconfig.deserial_mapentities)) {
+			atlog << "WARNING: Failed to read config bool deserializer/deserialize_level_files: assuming default\n";
+		}
+		if (!deserial["remove_binary_files"].ValueBool(config.dsconfig.remove_binaries)) {
+			atlog << "WARNING: Failed to read config bool deserializer/remove_binary_files: assuming default\n";
+		}
+		if (!deserial["add_indentation"].ValueBool(config.dsconfig.indent)) {
+			atlog << "WARNING: Failed to read config bool deserializer/add_indentation: assuming default\n";
+		}
+		if (!deserial["include_originals"].ValueBool(config.dsconfig.include_original)) {
+			atlog << "WARNING: Failed to read config bool deserializer/include_originals: assuming default\n";
+		}
+
+
 	}
 	catch(...) {
 		atlog << "FATAL ERROR: failed to parse " << configpath << "\n";
@@ -179,6 +205,16 @@ void ExtractorMain() {
 					filecount++;
 				}
 
+				// Hacky fix for logic object descriptors
+				//std::string weirdpathfixup = namestring;
+				//if (strcmp(typestring, "logicObjectDescriptor") == 0) {
+				//	for(char& c : weirdpathfixup) {
+				//		if(c == ':')
+				//			c = '@';
+				//	}
+				//	namestring = weirdpathfixup.data();
+				//}
+
 				// Setup the output path
 				fspath output_path = (config.outputdir / typestring) / namestring;
 				{
@@ -220,6 +256,13 @@ void ExtractorMain() {
 	}
 	else {
 		atlog << "Skipping resource extraction\n";
+	}
+
+	if(config.run_deserializer) {
+		Deserializer::DeserialMain(config.inputdir, config.outputdir, config.dsconfig);
+	}
+	else {
+		atlog << "Skipping deserialization\n";
 	}
 }
 
