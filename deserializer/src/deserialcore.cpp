@@ -5,9 +5,10 @@
 #include <set>
 #include <cassert>
 
+// The responsible thing to do is crash the program instead of allowing it to run on unknown data
 #ifndef _DEBUG
 #undef assert
-#define assert(OP) (OP)
+#define assert(OP) if(!(OP)) {throw std::exception("Deserializer is outdated! Please update AtlanResourceExtractor when a newer version is available!");}
 #endif
 
 #define dsfunc_m(NAME) void NAME(BinaryReader& reader, std::string& writeTo)
