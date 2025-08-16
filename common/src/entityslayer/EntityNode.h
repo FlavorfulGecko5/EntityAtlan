@@ -114,9 +114,9 @@ class EntNode
 
 	const EntNode ListMapHack() const {
 		EntNode copy;
-		copy.textPtr = textPtr + nameLength;
+		copy.textPtr = textPtr;
 		copy.nameLength = 0;
-		copy.valLength = valLength;
+		copy.valLength = nameLength;
 		return copy;
 	}
 

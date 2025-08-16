@@ -272,7 +272,7 @@ class EntityParser {
 	* @param renumberLists If true, perform automatic list renumbering
 	* @param highlightNew If true, the GUI will highlight newly created nodes
 	*/
-	ParseResult EditTree(std::string text, EntNode* parent, int insertionIndex, int removeCount, bool renumberLists, bool highlightNew);
+	ParseResult EditTree(const std::string& text, EntNode* parent, int insertionIndex, int removeCount, bool renumberLists, bool highlightNew);
 
 	/*
 	* Moves a node's child to a different index. The other children are shifted up/down to fill the original slot

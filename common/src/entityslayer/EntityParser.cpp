@@ -176,13 +176,13 @@ int OptimalMaxChildCount(int childCount) {
 	else return childCount;
 }
 
-ParseResult EntityParser::EditTree(std::string text, EntNode* parent, int insertionIndex, int removeCount, bool renumberLists, bool highlightNew)
+ParseResult EntityParser::EditTree(const std::string& text, EntNode* parent, int insertionIndex, int removeCount, bool renumberLists, bool highlightNew)
 {
 	ParseResult outcome;
 
 	// We must ensure the parse is successful before modifying the existing tree
 	EntNode tempRoot(EntNode::NFC_RootNode);
-	text.push_back('\0');
+	//text.push_back('\0');
 	initiateParse(text.data(), &tempRoot, parent, outcome);
 	if(!outcome.success) return outcome;
 

@@ -5,6 +5,7 @@
 #include <set>
 #include "archives/ResourceStructs.h"
 #include "archives/PackageMapSpec.h"
+#include "archives/ResourceEnums.h"
 #include "staticsparser.h"
 #include "io/BinaryReader.h"
 #include "deserialcore.h"
@@ -33,8 +34,9 @@ void StaticsTest() {
 	StaticsParser::Parse(r);
 }
 
-void DeserialInit(const fspath gamedir, const fspath filedir) {
+void Deserializer::DeserialInit(const fspath& gamedir, const fspath& filedir, bool p_include_originals) {
 	atlog << "Building Decl Farmhash Map\n";
+	deserial::include_originals = p_include_originals;
 
 	const fspath basepath = gamedir / "base";
 	const fspath entitydir = filedir / "entityDef";
@@ -300,26 +302,27 @@ void DeserializeLogicdecls(const fspath filedir, bool remove_binaries, bool add_
 
 	struct logicfolder_t {
 		const fspath foldername;
-		const LogicType type;
+		const ResourceType type;
 	};
 
+	#define LT_MAXIMUM 5
 	const logicfolder_t logicfolders[LT_MAXIMUM] = { 
-		{"logicClass", LT_LogicClass},
-		{"logicEntity", LT_LogicEntity},
-		{"logicFX", LT_LogicFX},
-		{"logicLibrary", LT_LogicLibrary},
-		{"logicUIWidget", LT_LogicUIWidget}
+		{"logicClass", rt_logicClass},
+		{"logicEntity", rt_logicEntity},
+		{"logicFX", rt_logicFX},
+		{"logicLibrary", rt_logicLibrary},
+		{"logicUIWidget", rt_logicUIWidget}
 	};
 
-	for (int lt = LT_LogicClass; lt < LT_MAXIMUM; lt++) {
+	for (int i = 0; i < LT_MAXIMUM; i++) {
 		using namespace std::filesystem;
-		const fspath dir = filedir / logicfolders[lt].foldername;
+		const fspath dir = filedir / logicfolders[i].foldername;
 
 		if (!is_directory(dir)) {
-			atlog << "ERROR: " << logicfolders[lt].foldername << " folder does not exist!\n";
+			atlog << "ERROR: " << logicfolders[i].foldername << " folder does not exist!\n";
 			continue;
 		}
-		atlog << "Deserializing " << logicfolders[lt].foldername << " Decls\n";
+		atlog << "Deserializing " << logicfolders[i].foldername << " Decls\n";
 		deserial::warning_count = 0;
 
 		/* Get list of files to deserialize */
@@ -344,7 +347,7 @@ void DeserializeLogicdecls(const fspath filedir, bool remove_binaries, bool add_
 			assert(open.Okay());
 			BinaryReader reader = open.ToReader();
 
-			deserial::ds_start_logicdecl(reader, outputText, logicfolders[lt].type);
+			deserial::ds_start_logicdecl(reader, outputText, logicfolders[i].type);
 
 			int newWarningCount = deserial::warning_count;
 			if(newWarningCount != warningCount)
@@ -370,10 +373,22 @@ void DeserializeLogicdecls(const fspath filedir, bool remove_binaries, bool add_
 	}
 }
 
+void Deserializer::DeserialSingle(BinaryReader& reader, std::string& writeto, ResourceType restype)
+{
+	if (restype == rt_entityDef) {
+		deserial::ds_start_entitydef(reader, writeto, -1); // Assumes all inherited typeinfo has been inlined
+	}
+	else if (restype & rtc_logic_decl) {
+		deserial::ds_start_logicdecl(reader, writeto, restype);
+	}
+	else if (restype == rt_mapentities) {
+		deserial::ds_start_mapentities(reader, writeto);
+	}
+}
+
 void Deserializer::DeserialMain(const fspath& gamedir, const fspath& filedir, deserialconfig_t config)
 {
-	DeserialInit(gamedir, filedir);
-	deserial::include_originals = config.include_original;
+	DeserialInit(gamedir, filedir, config.include_original);
 
 	if (config.deserial_entitydefs) {
 		atlog << "Deserializing EntityDefs\n";
@@ -405,18 +420,3 @@ void Deserializer::DeserialMain(const fspath& gamedir, const fspath& filedir, de
 	}
 
 }
-
-//int main() {
-//
-//	deserialconfig_t config;
-//	config.deserial_entitydefs  = 0;
-//	config.deserial_logicdecls  = 0;
-//	config.deserial_mapentities = 0;
-//	config.include_original     = 0;
-//	config.remove_binaries      = 0;
-//	config.indent               = 0;
-//
-//	Deserializer::DeserialMain("D:/Steam/steamapps/common/DOOMTheDarkAges", "D:/DA/atlan", config);
-//
-//	return 0;
-//}

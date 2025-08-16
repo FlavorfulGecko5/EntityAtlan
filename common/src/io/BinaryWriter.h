@@ -33,6 +33,10 @@ class BinaryWriter
 		return next - buffer;
 	}
 
+	const char* GetBuffer() const {
+		return buffer;
+	}
+
 	/*
 	* RESIZING
 	*/
@@ -84,6 +88,15 @@ class BinaryWriter
 
 	BinaryWriter(const BinaryWriter& b) = delete;
 	void operator=(const BinaryWriter& b) = delete;
+
+	/* Returns and releases ownership of the buffer */
+	char* Finalize() {
+		char* final = buffer;
+		buffer = nullptr;
+		next = nullptr;
+		end = nullptr;
+		return final;
+	}
 
 	/*
 	* NAVIGATION

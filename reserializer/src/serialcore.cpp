@@ -2,13 +2,19 @@
 #include "io/BinaryWriter.h"
 #include "serialcore.h"
 #include "hash/HashLib.h"
+#include "atlan/AtlanLogger.h"
 #include "generated/reserialgenerated.h"
 
 #define rsfunc_m(NAME) void NAME(const EntNode& property, BinaryWriter& writer)
 
-thread_local std::vector<std::string_view> propertyStack;
-thread_local reserialTypeInfo lastAccessedTypeInfo;
-thread_local int warningCount = 0;
+namespace reserial {
+	thread_local std::vector<std::string_view> propertyStack;
+	thread_local reserialTypeInfo lastAccessedTypeInfo;
+
+	void LogWarning(std::string_view msg);
+}
+
+thread_local int reserial::warningcount = 0;
 
 template<typename T>
 bool ParseWholeNumber(const char* ptr, int len, T& writeTo) {
@@ -37,7 +43,7 @@ bool ParseWholeNumber(const char* ptr, int len, T& writeTo) {
 	return true;
 }
 
-void LogWarning(std::string_view msg) {
+void reserial::LogWarning(std::string_view msg) {
 	std::string propString;
 	propString.reserve(200);
 	for (std::string_view s : propertyStack) {
@@ -48,8 +54,9 @@ void LogWarning(std::string_view msg) {
 	if (!propString.empty())
 		propString.pop_back();
 
-	printf("WARNING: %.*s %.*s\n", (int)propString.length(), propString.data(), (int)msg.length(), msg.data());
-	warningCount++;
+	//printf("WARNING: %.*s %.*s\n", (int)propString.length(), propString.data(), (int)msg.length(), msg.data());
+	atlog << "WARNING: " << propString << " " << msg << "\n";
+	reserial::warningcount++;
 }
 
 uint64_t DeclToFarmhash(const char* buffer, const char* max) {
@@ -61,7 +68,7 @@ uint64_t DeclToFarmhash(const char* buffer, const char* max) {
 	}
 
 	if (*delimiter != '/') {
-		LogWarning("Could not find decltype delimiter");
+		reserial::LogWarning("Could not find decltype delimiter");
 		return 0;
 	}
 
@@ -74,7 +81,7 @@ uint64_t DeclToFarmhash(const char* buffer, const char* max) {
 
 void reserializer::Exec(const EntNode& property, BinaryWriter& writer) const
 {
-	propertyStack.emplace_back(property.getName());
+	reserial::propertyStack.emplace_back(property.getName());
 
 	writer << static_cast<uint8_t>(0) << farmhash;
 
@@ -85,7 +92,7 @@ void reserializer::Exec(const EntNode& property, BinaryWriter& writer) const
 		callback(property, writer);
 	}
 
-	propertyStack.pop_back();
+	reserial::propertyStack.pop_back();
 	
 }
 
@@ -354,7 +361,7 @@ void reserial::rs_structbase(const EntNode& property, BinaryWriter& writer, cons
 		}
 		else {
 			std::string msg = "Unknown Property Name ";
-			msg.append(property.getName());
+			msg.append(e->getName());
 			LogWarning(msg);
 		}
 		buffer++;
@@ -696,11 +703,11 @@ __forceinline void rs_wholenumber(const EntNode& property, BinaryWriter& writeTo
 	T val = 0;
 
 	if (property.getFlags() & EntNode::NF_Braces) {
-		LogWarning("Numerical property is an object node");
+		reserial::LogWarning("Numerical property is an object node");
 	}
 
 	if (!ParseWholeNumber(property.ValuePtr(), property.ValueLength(), val)) {
-		LogWarning("Can't parse value as number");
+		reserial::LogWarning("Can't parse value as number");
 	}
 
 	writeTo << static_cast<uint8_t>(1) << static_cast<uint32_t>(sizeof(T)) << val;

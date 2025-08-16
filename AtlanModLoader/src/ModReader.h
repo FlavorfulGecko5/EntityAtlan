@@ -1,34 +1,27 @@
 #pragma once
 #include <filesystem>
 #include <unordered_map>
+#include "archives/ResourceEnums.h"
 
 struct ModDef;
 struct ModFile;
 
 typedef std::filesystem::path fspath;
 
-enum class ModFileType : uint8_t {
-	rs_streamfile,
-	entityDef,
-	mapentities,
-	image
-};
-
-enum resourcetypeflags_t {
-	RTF_None = 0,
-	RTF_NoExtension = 1 << 0,
-	RTF_Disabled = 1 << 1
+enum AllowModFile : uint8_t {
+	allow_mod_no = 0,
+	allow_mod_yes = 1
 };
 
 struct resourcetypeinfo_t {
 	std::string_view typestring;
-	int typeflags; // resourcetypeflags_t
-	ModFileType typeenum;
-
+	ResourceType typeenum;
+	AllowModFile allow;
 };
 
 struct ModDef {
 	int loadPriority = 0;
+	bool IsUnzipped = false; // Is this the global unzipped mod?
 	std::string modName;
 	std::vector<ModFile> modFiles;
 };

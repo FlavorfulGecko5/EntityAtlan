@@ -21,8 +21,8 @@ const std::unordered_map<std::string, resourcetypeinfo_t> ValidResourceTypes = {
 		"rs_streamfile", 
 		{
 			"rs_streamfile",
-			RTF_None,
-			ModFileType::rs_streamfile
+			rt_rs_streamfile,
+			allow_mod_yes
 		}
 	},
 
@@ -30,8 +30,8 @@ const std::unordered_map<std::string, resourcetypeinfo_t> ValidResourceTypes = {
 		"entityDef",
 		{
 			"entityDef",
-			RTF_NoExtension | RTF_Disabled,
-			ModFileType::entityDef
+			rt_entityDef,
+			allow_mod_yes
 		}
 	},
 
@@ -39,8 +39,8 @@ const std::unordered_map<std::string, resourcetypeinfo_t> ValidResourceTypes = {
 		"mapentities",
 		{
 			"mapentities",
-			RTF_NoExtension | RTF_Disabled,
-			ModFileType::mapentities
+			rt_mapentities,
+			allow_mod_no
 		}
 	},
 
@@ -48,8 +48,8 @@ const std::unordered_map<std::string, resourcetypeinfo_t> ValidResourceTypes = {
 		"image",
 		{
 			"image",
-			RTF_None | RTF_Disabled,
-			ModFileType::image
+			rt_image,
+			allow_mod_no
 		}
 	}
 };
@@ -292,7 +292,7 @@ void ReadMod(mz_zip_archive* zptr, ModDef& mod, int argflags)
 				continue;
 			}
 
-			if (iter->second.typeflags & RTF_Disabled) {
+			if (!iter->second.allow) {
 				atlog << "ERROR: Disabled resource type for file \"" << modfile.realPath << "\"\n";
 				continue;
 			}
@@ -313,7 +313,7 @@ void ReadMod(mz_zip_archive* zptr, ModDef& mod, int argflags)
 				break;
 
 				case '.':
-				if (modfile.typedata->typeflags & RTF_NoExtension) {
+				if (modfile.typedata->typeenum & rtc_no_extension) {
 					goto LABEL_EARLY_OUT;
 				}
 				break;

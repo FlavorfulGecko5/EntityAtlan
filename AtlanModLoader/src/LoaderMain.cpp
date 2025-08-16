@@ -4,8 +4,10 @@
 #include "entityslayer/Oodle.h"
 #include "hash/HashLib.h"
 #include "io/BinaryReader.h"
+#include "io/BinaryWriter.h"
 #include "archives/ResourceStructs.h"
 #include "atlan/AtlanLogger.h"
+#include "ReserialMain.h"
 #include <set>
 #include <unordered_map>
 #include <iostream>
@@ -77,7 +79,7 @@ class StringTable {
 };
 
 
-void BuildArchive(const std::vector<const ModFile*>& modfiles, fspath outarchivepath) {
+void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) {
 	ResourceArchive archive;
 	ResourceHeader& h = archive.header;
 	
@@ -145,6 +147,11 @@ void BuildArchive(const std::vector<const ModFile*>& modfiles, fspath outarchive
 	h.dataOffset = archive.idclOffset + archive.idclSize;
 	assert(h.dataOffset % 8 == 0);
 
+	#ifdef DOOMETERNAL
+	h.unknown = 0;
+	h.metaOffset = archive.idclOffset;
+	#endif
+
 
 	/*
 	* Build the resource entries
@@ -176,28 +183,34 @@ void BuildArchive(const std::vector<const ModFile*>& modfiles, fspath outarchive
 		// TODO: Padding? Probably not necessary?
 		e.generationTimeStamp = 0; 
 
+		// Moved from per-resource to global
+		e.depIndices = 0;
+		e.numDependencies = 0;
+		e.dataSize = f.dataLength;
+		e.uncompressedSize = f.dataLength;
+		e.compMode = 0; // TODO: Is the murmur hash ran on the compressed or uncompressed data?
+		e.dataCheckSum = HashLib::ResourceMurmurHash(std::string_view(static_cast<char*>(f.dataBuffer), f.dataLength));
+		e.defaultHash = e.dataCheckSum; // TODO: When we get to resources that require a streamdb hash lookup, set this accordingly
+
+		// TODO: There's a fair bit of padding between each resource data block.
+		// At a minimum, a data block has 8-byte alignment. It's unknown what the implications of ignoring
+		// these practices are
+		e.dataOffset = runningDataOffset;
+		runningDataOffset += e.dataSize;
+		runningDataOffset += 8 - runningDataOffset % 8;
+
 		/*
 		* Set values that vary based on resource type
 		*/
-		if (f.typedata->typeenum == ModFileType::rs_streamfile) {
-			e.depIndices = 0;
+		if (f.typedata->typeenum == rt_rs_streamfile) {
 			e.version = 0;
 			e.flags = 0;
-			e.compMode = 0; 
 			e.variation = 0;
-			e.numDependencies = 0;
-			e.dataSize = f.dataLength;
-			e.uncompressedSize = f.dataLength;
-			e.dataCheckSum = HashLib::ResourceMurmurHash(std::string_view(static_cast<char*>(f.dataBuffer), f.dataLength));
-			e.defaultHash = e.dataCheckSum;
-
-			e.dataOffset = runningDataOffset;
-			runningDataOffset += e.dataSize;
-
-			// TODO: There's a fair bit of padding between each resource data block.
-			// At a minimum, a data block has 8-byte alignment. It's unknown what the implications of ignoring
-			// these practices are
-			runningDataOffset += 8 - runningDataOffset % 8;
+		}
+		else if (f.typedata->typeenum == rt_entityDef) {
+			e.version = 21;
+			e.flags = 2;
+			e.variation = 70;
 		}
 		else {
 			atlog << "\nERROR: Unsupported resource type made it into build";
@@ -293,6 +306,11 @@ void RebuildContainerMask(const fspath metapath, const fspath newarchivepath) {
 
 	// Important file offsets
 	uint32_t* hashCount = reinterpret_cast<uint32_t*>(decomp);
+
+	#ifdef DOOMETERNAL
+	hashCount++; // Skip the compacted timestamp
+	#endif
+
 	uint64_t* newHash = reinterpret_cast<uint64_t*>(decomp + e->uncompressedSize);
 	uint32_t* blobSize = reinterpret_cast<uint32_t*>(decomp + e->uncompressedSize + sizeof(uint64_t));
 	uint64_t* bitmask = reinterpret_cast<uint64_t*>(decomp + e->uncompressedSize + sizeof(uint64_t) + sizeof(uint32_t));
@@ -482,6 +500,7 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 	ModDef* realmods = new ModDef[totalmods];
 
 	realmods[0].loadPriority = -999;
+	realmods[0].IsUnzipped = true;
 	ModReader::ReadLooseMod(realmods[0], modsdir, loosemodpaths, argflags);
 	for (int i = 1; i < totalmods; i++) {
 		ModReader::ReadZipMod(realmods[i], zipmodpaths[i - 1], argflags);
@@ -494,19 +513,33 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 	*/
 	atlog << "\n\nChecking for Conflicts:\n----------\n";
 
-	std::vector<const ModFile*> supermod;
+	std::vector<ModFile*> supermod;
 	{
 		// TODO: May need to make this map<ResourceType, map<string, ModFile*>> when
 		// we support more than just rs_streamfiles
-		std::unordered_map<std::string, const ModFile*> priorityAssets;
+		std::unordered_map<std::string, ModFile*> priorityAssets;
 
 		for(int i = 0; i < totalmods; i++) {
-			const ModDef& current = realmods[i];
+			ModDef& current = realmods[i];
 
-			for(const ModFile& file : current.modFiles) {
+			for(ModFile& file : current.modFiles) {
 
 				auto iter = priorityAssets.find(file.assetPath);
 				if(iter == priorityAssets.end()) {
+
+					/* 
+					* Ensure zipped mod files are serialized 
+					*/
+					if (file.typedata->typeenum & rtc_serialized) {
+						
+						bool isSerialized = Reserializer::IsSerialized((char*)file.dataBuffer, file.dataLength, file.typedata->typeenum);
+						if (!isSerialized && !current.IsUnzipped) {
+							atlog << "ERROR: Zipped file is not serialized! Please use AtlanModPackger to serialize your mod files before distributing them.\n"
+								<< "   Mod: " << current.modName << " - " << file.realPath;
+							continue;
+						}
+					}
+
 					priorityAssets.emplace(file.assetPath, &file);
 				} 
 				else {
@@ -529,6 +562,37 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 			supermod.push_back(pair.second);
 		}
 	}
+
+	/*
+	* COMPILATION STEP
+	* - Reserialize unzipped mod files
+	* - Ensure zipped mod files are serialized
+	*/
+
+	for (ModFile* file : supermod) {
+		if (file->typedata->typeenum & rtc_serialized) {
+
+			bool isSerialized = Reserializer::IsSerialized((char*)file->dataBuffer, file->dataLength, file->typedata->typeenum);
+			if(isSerialized)
+				continue;
+
+			atlog << "Serializing " << file->realPath << "\n";
+
+			BinaryWriter writer(static_cast<size_t>(file->dataLength * 0.5));
+
+			Reserializer::Serialize((char*)file->dataBuffer, file->dataLength, writer, file->typedata->typeenum);
+
+			size_t newsize = writer.GetFilledSize();
+			char* newbuffer = writer.Finalize();
+
+			delete[] file->dataBuffer;
+			file->dataBuffer = newbuffer;
+			file->dataLength = newsize;
+		}
+	}
+
+	
+
 
 	/*
 	* BUILD THE RESOURCE ARCHIVES

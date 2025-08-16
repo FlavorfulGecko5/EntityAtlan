@@ -250,7 +250,7 @@ void Audit_ResourceArchive(const ResourceArchive& r) {
 			assert(e.dataCheckSum == e.defaultHash);
 			assert(e.version == 21);
 			assert(e.flags == 2);
-			//assert(e.compMode == 2 || e.compMode == 0);
+			assert(e.compMode == 2 || e.compMode == 0);
 			assert(e.variation == 70);
 			//assert(e.numDependencies == 0);
 		}
@@ -270,7 +270,7 @@ void Audit_ResourceArchive(const ResourceArchive& r) {
 		else if (strcmp(typeString, "mapentities") == 0) {
 			//if(e.compMode == 0)
 			//	assert(e.dataCheckSum == e.defaultHash);
-			assert(e.version == 80 || e.version == 77);
+			assert(e.version == 81 || e.version == 80 || e.version == 77);
 			assert(e.flags == 2);
 			assert(e.variation == 70);
 		}

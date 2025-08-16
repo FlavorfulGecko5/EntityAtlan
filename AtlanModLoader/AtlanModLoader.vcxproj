@@ -93,7 +93,7 @@
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>src/;../common/src/</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src/;../common/src/;../reserializer/src/</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -110,7 +110,7 @@
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>src/;../common/src/</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src/;../common/src/;../reserializer/src/</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -127,7 +127,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>src/;../common/src/</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src/;../common/src/;../reserializer/src/</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -144,7 +144,7 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>src/;../common/src/</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src/;../common/src/;../reserializer/src/</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -162,6 +162,9 @@
   <ItemGroup>
     <ProjectReference Include="..\common\common.vcxproj">
       <Project>{31bd7844-9c32-4f72-98cb-6e61d74a2828}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\reserializer\reserializer.vcxproj">
+      <Project>{985e6d4f-e6e3-410a-93c4-208b2395b33c}</Project>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>

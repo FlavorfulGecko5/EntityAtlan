@@ -2,6 +2,7 @@
 #include <string>
 #include <unordered_map>
 
+enum ResourceType : unsigned;
 class BinaryReader;
 struct deserializer;
 
@@ -29,15 +30,6 @@ struct entityclass_t {
 	bool deserialized = false;
 };
 
-enum LogicType {
-	LT_LogicClass,
-	LT_LogicEntity,
-	LT_LogicFX,
-	LT_LogicLibrary,
-	LT_LogicUIWidget,
-	LT_MAXIMUM
-};
-
 enum class DeserialMode {
 	entitydef,
 	logic,
@@ -63,7 +55,7 @@ namespace deserial {
 	/* Entry Points */
 	void ds_start_entitydef(BinaryReader& reader, std::string& writeTo, uint64_t entityhash);
 	void ds_start_mapentities(BinaryReader& reader, std::string& writeTo);
-	void ds_start_logicdecl(BinaryReader& reader, std::string& writeTo, LogicType declclass);
+	void ds_start_logicdecl(BinaryReader& reader, std::string& writeTo, ResourceType declclass);
 
 	/* Pointers */
 	dsfunc_t ds_pointerbase;

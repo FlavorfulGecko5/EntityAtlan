@@ -18,65 +18,35 @@
       <Platform>x64</Platform>
     </ProjectConfiguration>
   </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="src\archives\PackageMapSpec.cpp" />
-    <ClCompile Include="src\archives\ResourceStructs.cpp" />
-    <ClCompile Include="src\atlan\AtlanLogger.cpp" />
-    <ClCompile Include="src\entityslayer\EntityLogger.cpp" />
-    <ClCompile Include="src\entityslayer\EntityNode.cpp" />
-    <ClCompile Include="src\entityslayer\EntityParser.cpp" />
-    <ClCompile Include="src\entityslayer\GenericBlockAllocator.cpp" />
-    <ClCompile Include="src\entityslayer\Oodle.cpp" />
-    <ClCompile Include="src\hash\FarmHash.cpp" />
-    <ClCompile Include="src\hash\HashLib.cpp" />
-    <ClCompile Include="src\io\BinaryReader.cpp" />
-    <ClCompile Include="src\io\BinaryWriter.cpp" />
-    <ClCompile Include="src\miniz\miniz.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="src\archives\PackageMapSpec.h" />
-    <ClInclude Include="src\archives\ResourceEnums.h" />
-    <ClInclude Include="src\archives\ResourceStructs.h" />
-    <ClInclude Include="src\atlan\AtlanLogger.h" />
-    <ClInclude Include="src\entityslayer\EntityLogger.h" />
-    <ClInclude Include="src\entityslayer\EntityNode.h" />
-    <ClInclude Include="src\entityslayer\EntityParser.h" />
-    <ClInclude Include="src\entityslayer\GenericBlockAllocator.h" />
-    <ClInclude Include="src\entityslayer\Oodle.h" />
-    <ClInclude Include="src\hash\HashLib.h" />
-    <ClInclude Include="src\io\BinaryReader.h" />
-    <ClInclude Include="src\io\BinaryWriter.h" />
-    <ClInclude Include="src\miniz\miniz.h" />
-  </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{31bd7844-9c32-4f72-98cb-6e61d74a2828}</ProjectGuid>
-    <RootNamespace>common</RootNamespace>
+    <ProjectGuid>{76095ee5-e631-47b0-8ba1-317c7c955949}</ProjectGuid>
+    <RootNamespace>AtlanModPackager</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
-    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
-    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
-    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
-    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
@@ -123,7 +93,7 @@
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>src/</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src;../common/src;../reserializer/src</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -139,7 +109,7 @@
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>src/</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src;../common/src;../reserializer/src</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -155,7 +125,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>src/</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src;../common/src;../reserializer/src</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -171,7 +141,7 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>src/</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src;../common/src;../reserializer/src</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -180,6 +150,17 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
   </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="src\AtlanModPackager.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\common\common.vcxproj">
+      <Project>{31bd7844-9c32-4f72-98cb-6e61d74a2828}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\reserializer\reserializer.vcxproj">
+      <Project>{985e6d4f-e6e3-410a-93c4-208b2395b33c}</Project>
+    </ProjectReference>
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

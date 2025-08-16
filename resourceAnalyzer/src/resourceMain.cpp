@@ -286,7 +286,7 @@ void Test_DumpPriorityManifest()
 	};
 
 	// STL Container happy fun time
-	std::vector<std::string> packages = PackageMapSpec::GetPrioritizedArchiveList("D:/steam/steamapps/common/DOOMTheDarkAges");
+	std::vector<std::string> packages = PackageMapSpec::GetPrioritizedArchiveList("D:/steam/steamapps/common/DOOMTheDarkAges", false);
 	std::unordered_map<std::string, std::vector<PackageManifest>> groupedPackages; // First in vector = higher priority
 	std::vector<std::string> packageNameList;
 
@@ -447,12 +447,13 @@ void Test_DumpPriorityManifest()
 * DUMPS MANIFEST FILES FOR ALL RESOURCE ARCHIVES IN THE GAME
 */
 void Test_DumpManifests(fspath installDir, fspath outputDir) {
-	std::vector<std::string> packages = PackageMapSpec::GetPrioritizedArchiveList(installDir);
+	std::vector<std::string> packages = PackageMapSpec::GetPrioritizedArchiveList(installDir, true);
 	ExtensionData audit;
 
 	for (int i = 0; i < packages.size(); i++) {
 		std::cout << packages[i] << "\n";
-		fspath resourcePath = installDir / "base" / packages[i];
+		//fspath resourcePath = installDir / "base" / packages[i];
+		fspath resourcePath = installDir / "base/modarchives/common_mod.resources";
 		fspath manifestPath = outputDir / "manifests" / resourcePath.stem();
 		manifestPath.concat(".txt");
 
@@ -488,12 +489,26 @@ void Test_DumpManifests(fspath installDir, fspath outputDir) {
 	}
 }
 
-void Test_ContainerMask() {
+void Test_ContainerMask(const fspath gamedir) {
+
 	std::set<uint64_t> maskhashes;
 
-	BinaryOpener opener("../input/container.mask");
-	assert(opener.Okay());
-	BinaryReader r = opener.ToReader();
+	const fspath metapath = gamedir / "base/meta.resources";
+	ResourceArchive archive;
+	Read_ResourceArchive(archive, metapath, RF_ReadEverything);
+	assert(archive.header.numResources == 1);
+
+	char* buffer = nullptr;
+	size_t buffersize = 0;
+	ResourceEntryData_t maskdata = Get_EntryData(archive, archive.entries[0], buffer, buffersize);
+	assert(maskdata.returncode == EntryDataCode::OK);
+
+	BinaryReader r(maskdata.buffer, maskdata.length);
+
+	#ifdef DOOMETERNAL
+	uint32_t compacttimestamp = 0;
+	assert(r.ReadLE(compacttimestamp));
+	#endif
 
 	uint32_t hashCount = 0;
 	assert(r.ReadLE(hashCount));
@@ -517,7 +532,7 @@ void Test_ContainerMask() {
 	{
 		using namespace std::filesystem;
 
-		for(const directory_entry& entry : recursive_directory_iterator("D:/Steam/steamapps/common/DOOMTheDarkAges")) {
+		for(const directory_entry& entry : recursive_directory_iterator(gamedir)) {
 			if(entry.is_directory())
 				continue;
 			if(entry.path().extension() != ".resources")
@@ -525,9 +540,11 @@ void Test_ContainerMask() {
 			
 			uint64_t hash = GetContainerMaskHash(entry.path()).hash;
 			if(maskhashes.count(hash) == 0)
-				std::cout << "Missing Archive: " << entry.path().filename();
+				std::cout << "Missing Archive: " << entry.path().filename() << "\n";
 		}
 	}
+
+	delete[] buffer;
 }
 
 struct entryvariations_t {
@@ -539,7 +556,7 @@ struct entryvariations_t {
 };
 
 void Test_AuditAllArchives(fspath installDir) {
-	std::vector<std::string> packages = PackageMapSpec::GetPrioritizedArchiveList(installDir);
+	std::vector<std::string> packages = PackageMapSpec::GetPrioritizedArchiveList(installDir, false);
 
 	std::unordered_map<std::string, entryvariations_t> variations;
 	variations.reserve(100);
@@ -552,15 +569,15 @@ void Test_AuditAllArchives(fspath installDir) {
 		Read_ResourceArchive(archive, resourcePath, RF_SkipData);
 		Audit_ResourceArchive(archive);
 
-		for(int k = 0; k < archive.header.numResources; k++) {
-			const ResourceEntry& e = archive.entries[k];
+		//for(int k = 0; k < archive.header.numResources; k++) {
+		//	const ResourceEntry& e = archive.entries[k];
 
-			const char* typestring, *namestring;
-			Get_EntryStrings(archive, e, typestring, namestring);
+		//	const char* typestring, *namestring;
+		//	Get_EntryStrings(archive, e, typestring, namestring);
 
-			variations[std::string(typestring)];
+		//	variations[std::string(typestring)];
 
-		}
+		//}
 	}
 }
 
@@ -580,10 +597,47 @@ int main(int argc, char* argv[]) {
 
 	//PackageMapSpec::ToString(gamedir);
 
-	//Test_ContainerMask();
+	//Test_ContainerMask(gamedir);
 	//PackageMapSpec::ToString(gamedir);
 	//Test_DumpContainerMaskHashes(gamedir, outputdir);
 	//Test_DumpManifests(gamedir, outputdir);
 	//Test_DumpAllHeaders(gamedir, outputdir);
 	//Test_DumpPriorityManifest();
+
+
+	std::set<std::string> hashthese = {
+		//"eEncounterSpawnType_t",
+		//"bool",
+		//"int",
+		//"string",
+		//"entity",
+		//"float",
+		//"idCombatStates_t",
+		//"encounterGroupRole_t",
+		//"encounterLogicOperator_t",
+		//"eEncounterEventFlags_t",
+		//"idEmpoweredAIType_t",
+		//"fxCondition_t",
+		//"socialEmotion_t",
+		//"damageCategoryMask_t",
+		//"decl",
+		"soundstate",
+		"rumble",
+		"string",
+		"damage",
+		"soundevent",
+		"gorewounds"
+	};
+
+	//for (std::string s : hashthese) {
+	//	uint64_t farmhash = HashLib::FarmHash64(s.data(), s.length());
+	//	std::cout << s << " " << farmhash << "\n";
+	//}
+
+	std::string_view s = "designerComment";
+	//std::cout << HashLib::FarmHash64(s.data(), s.length());
+	//uint64_t hash = 2109857480204156579;
+	//std::cout << (hash % 0xFFFFFFFF);
+
+	std::cout << 8996494254092855277UL % 0x2FFFFFFFF;
 }

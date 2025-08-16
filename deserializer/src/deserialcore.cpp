@@ -2,6 +2,7 @@
 #include "generated/deserialgenerated.h"
 #include "io/BinaryReader.h"
 #include "atlan/AtlanLogger.h"
+#include "archives/ResourceEnums.h"
 #include <set>
 #include <cassert>
 
@@ -447,7 +448,7 @@ void deserial::ds_start_mapentities(BinaryReader& reader, std::string& writeTo)
 	//printf("%s", stringtable.c_str());
 }
 
-void deserial::ds_start_logicdecl(BinaryReader& reader, std::string& writeTo, LogicType declclass) {
+void deserial::ds_start_logicdecl(BinaryReader& reader, std::string& writeTo, ResourceType declclass) {
 	#define HASH_EDIT 0xC2D0B77C0D10391CUL
 	uint8_t bytecode;
 	uint32_t length;
@@ -484,24 +485,28 @@ void deserial::ds_start_logicdecl(BinaryReader& reader, std::string& writeTo, Lo
 	deserializer editblock = { nullptr, "edit", 0 };
 	
 	switch (declclass) {
-		case LT_LogicClass:
+		case rt_logicClass:
 		editblock.callback = &ds_idDeclLogicClass;
 		break;
 
-		case LT_LogicEntity:
+		case rt_logicEntity:
 		editblock.callback = &ds_idDeclLogicEntity;
 		break;
 
-		case LT_LogicFX:
+		case rt_logicFX:
 		editblock.callback = &ds_idDeclLogicFX;
 		break;
 
-		case LT_LogicLibrary:
+		case rt_logicLibrary:
 		editblock.callback = &ds_idDeclLogicLibrary;
 		break;
 
-		case LT_LogicUIWidget:
+		case rt_logicUIWidget:
 		editblock.callback = &ds_idDeclLogicUIWidget;
+		break;
+
+		default:
+		assert(0);
 		break;
 	}
 	editblock.Exec(reader, writeTo);
@@ -969,33 +974,22 @@ dsfunc_m(deserial::ds_idStr)
 		assert(reader.ReadBytes(bytes, stringLength));
 
 		/*
-		* Logic Entities AND map entities can have multi-line strings and strings with unescaped quotes
+		* ANY Deserialized file can have multi-line strings
 		*/
-		if (deserialmode != DeserialMode::entitydef) 
-		{
-			bool iscomplexstring = false;
-			for (const char* c = bytes, *max = bytes + stringLength; c < max; c++) {
-				if (*c == '\n' || *c == '"') {
-					iscomplexstring = true;
-					break;
-				}
+		bool iscomplexstring = false;
+		for (const char* c = bytes, *max = bytes + stringLength; c < max; c++) {
+			if (*c == '\n' || *c == '"') {
+				iscomplexstring = true;
+				break;
 			}
-
-			if (iscomplexstring) {
-				writeTo.append("<%");
-				writeTo.append(bytes, stringLength);
-				writeTo.append("%>;\n");
-			}
-			else {
-				writeTo.push_back('"');
-				writeTo.append(bytes, stringLength);
-				writeTo.append("\";\n");
-			}
-
-				
 		}
-		else 
-		{
+
+		if (iscomplexstring) {
+			writeTo.append("<%");
+			writeTo.append(bytes, stringLength);
+			writeTo.append("%>;\n");
+		}
+		else {
 			writeTo.push_back('"');
 			writeTo.append(bytes, stringLength);
 			writeTo.append("\";\n");
