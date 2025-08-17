@@ -44,6 +44,9 @@ int Reserializer::Serialize(const EntNode& root, BinaryWriter& writer, ResourceT
 	if (restype == rt_entityDef) {
 		reserial::rs_start_entitydef(root, writer);
 	}
+	else if (restype & rtc_logic_decl) {
+		reserial::rs_start_logicdecl(root, writer, restype);
+	}
 	// TODO: THE OTHER TYPES
 
 	return reserial::warningcount;
@@ -60,6 +63,18 @@ int Reserializer::Serialize(const char* data, size_t length, BinaryWriter& write
 	}
 
 	return Serialize(*parser.getRoot(), writer, restype);
+}
+
+int Reserializer::Serialize(const char* filepath, BinaryWriter& writer, ResourceType restype)
+{
+	try {
+		EntityParser parser(std::string(filepath), ParsingMode::PERMISSIVE);
+		return Serialize(*parser.getRoot(), writer, restype);
+	}
+	catch (...) {
+		atlog << "ERROR: Failed to read file into EntityParser\n";
+		return 1;
+	}
 }
 
 bool Reserializer::IsSerialized(const char* data, size_t length, ResourceType restype)

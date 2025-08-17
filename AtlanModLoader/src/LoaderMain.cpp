@@ -212,6 +212,11 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 			e.flags = 2;
 			e.variation = 70;
 		}
+		else if (f.typedata->typeenum & rtc_logic_decl) {
+			e.version = 4;
+			e.flags = 2;
+			e.variation = 70;
+		}
 		else {
 			atlog << "\nERROR: Unsupported resource type made it into build";
 			continue;
@@ -568,7 +573,7 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 	* - Reserialize unzipped mod files
 	* - Ensure zipped mod files are serialized
 	*/
-
+	atlog << "\n\nCompiling Mod Files:\n----------\n";
 	for (ModFile* file : supermod) {
 		if (file->typedata->typeenum & rtc_serialized) {
 

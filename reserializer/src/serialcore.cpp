@@ -1,3 +1,4 @@
+#include "archives/ResourceEnums.h"
 #include "entityslayer/EntityNode.h"
 #include "io/BinaryWriter.h"
 #include "serialcore.h"
@@ -188,6 +189,53 @@ void reserial::rs_start_entitydef(const EntNode& root, BinaryWriter& writer)
 		writer << static_cast<uint8_t>(0) << static_cast<uint32_t>(0);
 	}
 
+	writer.popSizeStack();
+}
+
+void reserial::rs_start_logicdecl(const EntNode& root, BinaryWriter& writer, ResourceType declclass)
+{
+	writer << static_cast<uint8_t>(0);
+	writer.pushSizeStack();
+	writer << static_cast<uint64_t>(0) << static_cast<uint8_t>(1) << static_cast<uint32_t>(0);
+	writer.pushSizeStack();
+
+	const EntNode& editnode = root["edit"];
+	if (&editnode != EntNode::SEARCH_404) 
+	{
+		reserializer editblock = {nullptr, 0xC2D0B77C0D10391CUL, 0};
+
+		switch (declclass)
+		{
+			case rt_logicClass:
+			editblock.callback = &rs_idDeclLogicClass;
+			break;
+
+			case rt_logicEntity:
+			editblock.callback = &rs_idDeclLogicEntity;
+			break;
+
+			case rt_logicFX:
+			editblock.callback = &rs_idDeclLogicFX;
+			break;
+
+			case rt_logicLibrary:
+			editblock.callback = &rs_idDeclLogicLibrary;
+			break;
+
+			case rt_logicUIWidget:
+			editblock.callback = &rs_idDeclLogicUIWidget;
+			break;
+
+			default:
+			LogWarning("[FATAL]: Unknown Logic Decl Class! Cannot reserialize!");
+			return;
+		}
+
+		editblock.Exec(editnode, writer);
+	}
+
+
+	writer.popSizeStack();
 	writer.popSizeStack();
 }
 

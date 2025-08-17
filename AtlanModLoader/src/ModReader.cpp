@@ -12,6 +12,7 @@
 #define CFG_REQUIREDVERSION "requiredVersion"
 #define CFG_LOADPRIORITY "loadPriority"
 #define CFG_ALIASES "aliasing"
+#define RESTYPE_NOLOAD "noload"
 
 typedef std::filesystem::path fspath;
 
@@ -34,6 +35,12 @@ const std::unordered_map<std::string, resourcetypeinfo_t> ValidResourceTypes = {
 			allow_mod_yes
 		}
 	},
+
+	{"logicClass",    {"logicClass",    rt_logicClass,    allow_mod_yes}},
+	{"logicEntity",   {"logicEntity",   rt_logicEntity,   allow_mod_yes}},
+	{"logicFX",       {"logicFX",       rt_logicFX,       allow_mod_yes}},
+	{"logicLibrary",  {"logicLibrary",  rt_logicLibrary,  allow_mod_yes}},
+	{"logicUIWidget", {"logicUIWidget", rt_logicUIWidget, allow_mod_yes}},
 
 	{
 		"mapentities",
@@ -113,7 +120,16 @@ void ReadConfigData(configData_t& cfg, mz_zip_archive* zptr)
 		EntNode& currentAlias = *aliasNode.ChildAt(i);
 		if(currentAlias.IsComment())
 			continue;
-		cfg.alias.emplace(currentAlias.getNameUQ(), currentAlias.getValueUQ());
+
+		// Need to normalize the separators in the alias name to ensure
+		// they're correctly matched with their files
+		std::string normalizedname(currentAlias.getNameUQ());
+		for (char& c : normalizedname) {
+			if(c == '\\')
+				c = '/';
+		}
+
+		cfg.alias.emplace(normalizedname, currentAlias.getValueUQ());
 	}
 	if(cfg.alias.size() > 0)
 		atlog << "Found " << cfg.alias.size() << " alias definitions\n";
@@ -252,6 +268,12 @@ void ReadMod(mz_zip_archive* zptr, ModDef& mod, int argflags)
 		* If an alias exists for this file name, load it into the name buffer
 		*/
 		{
+			/* Must pre-normalize the separators to ensure an alias can be properly found */
+			for (char& c : modfile.realPath) {
+				if (c == '\\')
+					c = '/';
+			}
+
 			auto iter = cfg.alias.find(modfile.realPath);
 			if(iter != cfg.alias.end()) {
 				const std::string& alias = iter->second;
@@ -280,6 +302,9 @@ void ReadMod(mz_zip_archive* zptr, ModDef& mod, int argflags)
 			continue;
 		}
 		std::string typeString = std::string(nameBuffer, delimiter);
+
+		if(typeString == RESTYPE_NOLOAD)
+			continue;
 
 
 		/*

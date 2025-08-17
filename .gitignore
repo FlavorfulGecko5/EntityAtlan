@@ -7,10 +7,14 @@ common/bin/*
 deserializer/bin/*
 reflector/bin/*
 input/*
+AtlanModPackager/mods/*
 
 oo2core_9_win64.dll
+extractor_config_debug.txt
 extractor_log.txt
 modloader_log.txt
+packager_log.txt
+AtlanPackage.zip
 modloader_cache.bin
 DarkAgesPatcher.def
 

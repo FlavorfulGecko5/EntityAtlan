@@ -35,30 +35,24 @@ void ReserialCompare(EntNode& a, EntNode& b)
 	}
 }
 
-int main()
+void RunTest(const fspath& folder, const fspath& extension, ResourceType restype)
 {
-	const fspath gamedir = "D:/Steam/steamapps/common/DOOMTheDarkAges";
-	const fspath filedir = "D:/DA/atlan";
-
-	/*
-	* This assumes the files were originally deserialized with include_originals = false
-	*/
-	Deserializer::DeserialInit(gamedir, filedir, false);
-
-
-	std::vector<fspath> entitydefs;
 	using namespace std::filesystem;
-	for (const directory_entry& entry : recursive_directory_iterator(filedir / "entityDef")) {
+
+	std::vector<fspath> targetfiles;
+
+	for (const directory_entry& entry : recursive_directory_iterator(folder)) {
 		if(is_directory(entry))
 			continue;
 
-		if(entry.path().extension() == ".decl")
-			entitydefs.push_back(entry.path());
+		if (entry.path().extension() == extension)
+			targetfiles.push_back(entry.path());
 	}
-	std::cout << "Testing " << entitydefs.size() << " entitydefs\n";
+
+	std::cout << "Testing " << targetfiles.size() << " files in " << folder << "\n";
 
 	int i = 0;
-	for (const fspath& entity : entitydefs) {		
+	for (const fspath& entity : targetfiles) {
 
 		/*
 		* Read the deserialized file into an EntityParser
@@ -69,7 +63,7 @@ int main()
 		/*
 		* Serialize the parsed file
 		*/
-		int warnings = Reserializer::Serialize(*original.getRoot(), serialized, rt_entityDef);
+		int warnings = Reserializer::Serialize(*original.getRoot(), serialized, restype);
 		if (warnings != 0) {
 			std::cout << entity << "\n";
 		}
@@ -80,7 +74,7 @@ int main()
 		BinaryReader reader(serialized.GetBuffer(), serialized.GetFilledSize());
 		std::string deserialized;
 		deserialized.reserve(10000);
-		Deserializer::DeserialSingle(reader, deserialized, rt_entityDef);
+		Deserializer::DeserialSingle(reader, deserialized, restype);
 
 		/*
 		* Read our deserialized form into an EntityParser
@@ -93,6 +87,25 @@ int main()
 
 		i++;
 	}
+
+}
+
+int main()
+{
+	const fspath gamedir = "D:/Steam/steamapps/common/DOOMTheDarkAges";
+	const fspath filedir = "D:/DA/atlan";
+
+	/*
+	* This assumes the files were originally deserialized with include_originals = false
+	*/
+	Deserializer::DeserialInit(gamedir, filedir, false);
+
+	RunTest(filedir / "entityDef", ".decl", rt_entityDef);
+	RunTest(filedir / "logicClass", ".decl", rt_logicClass);
+	RunTest(filedir / "logicEntity", ".decl", rt_logicEntity);
+	RunTest(filedir / "logicFX", ".decl", rt_logicFX);
+	RunTest(filedir / "logicLibrary", ".decl", rt_logicLibrary);
+	RunTest(filedir / "logicUIWidget", ".decl", rt_logicUIWidget);
 
 	std::cout << "DONE\n";
 

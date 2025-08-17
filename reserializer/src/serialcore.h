@@ -2,6 +2,7 @@
 #include <unordered_map>
 #include <set>
 
+enum ResourceType : unsigned;
 class EntNode;
 class BinaryWriter;
 struct reserializer;
@@ -33,6 +34,7 @@ namespace reserial {
 
 	/* Entry Points */
 	void rs_start_entitydef(const EntNode& root, BinaryWriter& writer);
+	void rs_start_logicdecl(const EntNode& root, BinaryWriter& writer, ResourceType declclass);
 
 	/* Pointers */
 	rsfunc_t rs_pointerbase;

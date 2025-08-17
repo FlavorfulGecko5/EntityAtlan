@@ -1,6 +1,6 @@
 #pragma once
 
-#define MOD_LOADER_VERSION 1
+#define MOD_LOADER_VERSION 2
 
 enum ArgFlags {
 	argflag_resetvanilla = 1 << 0,

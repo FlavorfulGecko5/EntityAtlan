@@ -3,6 +3,7 @@
 #include "entityslayer/Oodle.h"
 #include <fstream>
 #include <cassert>
+#include <set>
 
 #ifndef _DEBUG
 #undef assert
@@ -169,6 +170,10 @@ void Audit_ResourceHeader(const ResourceHeader& h)
 void Audit_ResourceArchive(const ResourceArchive& r) {
 	Audit_ResourceHeader(r.header);
 
+	const std::set<std::string> logictypes = {
+		"logicClass", "logicEntity", "logicFX", "logicLibrary", "logicUIWidget"
+	};
+
 	// Insure string indices are in-bounds
 	for (uint32_t i = 0; i < r.header.numStringIndices; i++) {
 		uint64_t stringIndex = r.stringIndex[i];
@@ -273,6 +278,17 @@ void Audit_ResourceArchive(const ResourceArchive& r) {
 			assert(e.version == 81 || e.version == 80 || e.version == 77);
 			assert(e.flags == 2);
 			assert(e.variation == 70);
+		}
+		else if (logictypes.count(typeString) > 0) {
+			//printf("%s\n", typeString);
+			assert(e.dataCheckSum == e.defaultHash);
+			assert(e.version == 4);
+			assert(e.flags == 2);
+			assert(e.variation == 70);
+			assert(e.compMode == 0 || e.compMode == 2);
+			
+			// Not true
+			//assert(e.numDependencies == 0);
 		}
 	}
 
