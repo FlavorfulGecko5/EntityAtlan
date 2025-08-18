@@ -569,7 +569,7 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 		for (const auto& pair : priorityAssets) {
 			supermod.push_back(pair.second);
 		}
-	}
+	} 
 
 	/*
 	* COMPILATION STEP
