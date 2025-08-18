@@ -6,8 +6,8 @@ A breakdown of what Atlan Mod Loader supports
 ## What is possible?
 The following file types are supported:
 * Decl files
-* entitydefs - Requires reserialization via [AtlanModPackager](https://github.com/FlavorfulGecko5/EntityAtlan/releases/tag/Packager)
-* Logic Decls - Requires reserialization via [AtlanModPackager](https://github.com/FlavorfulGecko5/EntityAtlan/releases/tag/Packager)
+* entitydefs - Requires reserialization via [AtlanModPackager](https://github.com/FlavorfulGecko5/EntityAtlan/releases/tag/Extractor)
+* Logic Decls - Requires reserialization via [AtlanModPackager](https://github.com/FlavorfulGecko5/EntityAtlan/releases/tag/Extractor)
 	* :warning: Support for modded Logic Decls is tentative and may not work. However, it's still enabled so modders can experiment and see what's possible. If your mod contains logic decls, please thoroughly test for bugs and stability issues before publishing it.
 
 You can replace existing files, or add your own original files. Thanks to the revolutionary advancements of Atlan Mod Loader, all stability issues with adding new assets are eliminated. AssetsInfo JSONs are not needed, and you don't need to care about resource patch priority anymore!
