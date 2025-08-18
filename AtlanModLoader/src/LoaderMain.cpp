@@ -520,8 +520,6 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 
 	std::vector<ModFile*> supermod;
 	{
-		// TODO: May need to make this map<ResourceType, map<string, ModFile*>> when
-		// we support more than just rs_streamfiles
 		std::unordered_map<std::string, ModFile*> priorityAssets;
 
 		for(int i = 0; i < totalmods; i++) {
@@ -529,7 +527,12 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 
 			for(ModFile& file : current.modFiles) {
 
-				auto iter = priorityAssets.find(file.assetPath);
+				// Must do this to prevent false conflicts between files
+				// with the same path but different resource type
+				std::string lookupstring(file.typedata->typestring);
+				lookupstring.append(file.assetPath);
+
+				auto iter = priorityAssets.find(lookupstring);
 				if(iter == priorityAssets.end()) {
 
 					/* 
@@ -545,7 +548,7 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 						}
 					}
 
-					priorityAssets.emplace(file.assetPath, &file);
+					priorityAssets.emplace(lookupstring, &file);
 				} 
 				else {
 					bool replaceMapping = current.loadPriority < iter->second->parentMod->loadPriority;
