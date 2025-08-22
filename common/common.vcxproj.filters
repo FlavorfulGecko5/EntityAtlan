@@ -95,5 +95,8 @@
     <ClInclude Include="src\archives\ResourceEnums.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\entityslayer\ParserConfig.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

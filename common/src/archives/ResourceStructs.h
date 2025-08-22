@@ -88,11 +88,6 @@ struct StringChunk {
 	uint64_t* offsets = nullptr;   // numStrings - Relative to byte after the offset list
 	char* dataBlock = nullptr;
 	uint64_t paddingCount = 0; // Number of padding bytes at end of chunk. Enforces an 8-byte alignment
-
-	~StringChunk() {
-		delete[] offsets;
-		delete[] dataBlock;
-	}
 };
 
 struct ResourceDependency {
@@ -107,6 +102,7 @@ struct ResourceDependency {
 
 struct ResourceArchive {
 	char* bufferData = nullptr;
+	char* compactmeta = nullptr;
 
 	ResourceHeader header;
 
@@ -130,6 +126,8 @@ struct ResourceArchive {
 		delete[] dependencies;
 		delete[] dependencyIndex;
 		delete[] stringIndex;
+		delete[] stringChunk.offsets;
+		delete[] stringChunk.dataBlock;
 	}
 };
 

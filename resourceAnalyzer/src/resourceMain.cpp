@@ -4,6 +4,7 @@
 #include "archives/ResourceStructs.h"
 #include "entityslayer/Oodle.h"
 #include "archives/PackageMapSpec.h"
+#include "entityslayer/EntityParser.h"
 #include <cassert>
 #include <filesystem>
 #include <fstream>
@@ -581,30 +582,115 @@ void Test_AuditAllArchives(fspath installDir) {
 	}
 }
 
+void SearchSceneData(const EntNode& hashed, const EntNode& original, std::unordered_map<std::string, std::string>& hashes)
+{
+	std::string hashedtext;
+	std::string originaltext;
 
-int main(int argc, char* argv[]) {
-	#ifdef DOOMETERNAL
-	fspath gamedir = "D:/Steam/steamapps/common/DOOMEternal";
-	fspath outputdir = "../input/eternal";
-	#else
-	fspath gamedir = "D:/Steam/steamapps/common/DOOMTheDarkAges";
-	fspath outputdir = "../input/darkages";
-	#endif
+	hashed.generateText(hashedtext);
+	original.generateText(originaltext);
 
-	fspath testgamedir = "../input/darkages/injectortest";
+	size_t hashedindex = hashedtext.find("eventDef", 0);
+	size_t originalindex = originaltext.find("eventDef", 0);
 
-	Test_AuditAllArchives(gamedir);
+	while (hashedindex != std::string::npos)
+	{
+		assert(originalindex != std::string::npos);
 
-	//PackageMapSpec::ToString(gamedir);
+		hashedindex += 11; // skip past "eventDef = "
+		originalindex += 11; // Skip's past quote
 
-	//Test_ContainerMask(gamedir);
-	//PackageMapSpec::ToString(gamedir);
-	//Test_DumpContainerMaskHashes(gamedir, outputdir);
-	//Test_DumpManifests(gamedir, outputdir);
-	//Test_DumpAllHeaders(gamedir, outputdir);
-	//Test_DumpPriorityManifest();
+		if (hashedtext[hashedindex] == '"')
+			goto LABEL_SKIP_THIS_FIND; // Already resolved
+
+		{
+			std::string hashresult;
+			std::string originalresult;
+			const char* hashstart = hashedtext.data() + hashedindex;
+			const char* hashend = hashstart;
+			while(*hashend != ';')
+				hashend++;
+
+			const char* originalstart = originaltext.data() + originalindex;
+			const char* originalend = originalstart + 1;
+			while(*originalend != '"')
+				originalend++;
+			originalend++; // include end quote in string
+
+			hashresult = std::string(hashstart, hashend - hashstart);
+			originalresult = std::string(originalstart, originalend - originalstart);
+
+			hashes[hashresult] = originalresult;
+		}
+
+		LABEL_SKIP_THIS_FIND:
+		hashedindex = hashedtext.find("eventDef", hashedindex);
+		originalindex = originaltext.find("eventDef", originalindex);
+	}
+}
+
+// NOTE: This requires mapentities to be exported with the original text blocks included
+void BuildEventCallHashmap()
+{
+	const fspath filedir = "D:/DA/atlan/mapentities";
+
+	std::unordered_map<std::string, std::string> hashes;
+
+	std::vector<fspath> mapentities;
+	using namespace std::filesystem;
+	for (const directory_entry& entry : recursive_directory_iterator(filedir)) {
+		if(is_directory(entry))
+			continue;
+
+		if(entry.path().extension() == ".mapentities")
+			mapentities.push_back(entry.path());
+	}
+
+	typedef EntNode entnode;
+	for (const fspath mapfile : mapentities)
+	{
+		std::cout << mapfile << "\n";
+		EntityParser parser(mapfile.string(), ParsingMode::PERMISSIVE);
+
+		const entnode& root = *parser.getRoot();
+
+		entnode** children = root.getChildBuffer();
+		entnode** maxchildren = children + root.getChildCount();
+
+		children--;
+		while (++children < maxchildren) {
+			const entnode& e = **children;
 
 
+			const entnode& scenedata = e["entityDef"]["edit"]["sceneDirectorData"]["scenesData"];
+			if(&scenedata != entnode::SEARCH_404)
+				SearchSceneData(scenedata, e["entityDef"]["original"]["edit"]["sceneDirectorData"]["scenesData"], hashes);
+				
+
+			const entnode& encounter = e["entityDef"]["edit"]["encounterComponent"]["entityEvents"]["item[0]"]["events"];
+			if(&encounter == entnode::SEARCH_404)
+				continue;
+
+			const entnode& original = e["entityDef"]["original"]["edit"]["encounterComponent"]["entityEvents"]["item[0]"]["events"];
+
+			for(int i = 1; i < encounter.getChildCount(); i++) {
+				std::string_view hashstring = encounter[i]["eventCall"]["eventDef"].getValue();
+				std::string_view realstring = original[i]["eventCall"]["eventDef"].getValue();
+
+				if(hashstring[0] != '"')
+					hashes[std::string(hashstring)] = realstring;
+			}
+		}
+	}
+
+	std::cout << "\n\nDESERIAL MAP\n";
+	for (const auto& pair : hashes) {
+		std::cout << "{" << pair.first << "U, " << pair.second << "},\n";
+	}
+}
+
+void eventarghashes()
+{
 	std::set<std::string> hashthese = {
 		//"eEncounterSpawnType_t",
 		//"bool",
@@ -640,4 +726,42 @@ int main(int argc, char* argv[]) {
 	//std::cout << (hash % 0xFFFFFFFF);
 
 	std::cout << 8996494254092855277UL % 0x2FFFFFFFF;
+}
+
+void eventmaphash()
+{
+	const std::unordered_map<uint32_t, const char*> eventcallmap = {
+		// Deserial eventcall hashmap values go here
+	};
+
+	for (const auto& pair : eventcallmap) {
+		uint64_t farmhash = HashLib::FarmHash64(pair.second, strlen(pair.second));
+
+		std::cout << "{" << farmhash << "UL, " << pair.first << "U},\n";
+	}
+}
+
+int main(int argc, char* argv[]) {
+	#ifdef DOOMETERNAL
+	fspath gamedir = "D:/Steam/steamapps/common/DOOMEternal";
+	fspath outputdir = "../input/eternal";
+	#else
+	fspath gamedir = "D:/Steam/steamapps/common/DOOMTheDarkAges";
+	fspath outputdir = "../input/darkages";
+	#endif
+
+	fspath testgamedir = "../input/darkages/injectortest";
+
+	eventmaphash();
+	//Test_AuditAllArchives(gamedir);
+
+	//PackageMapSpec::ToString(gamedir);
+
+	//Test_ContainerMask(gamedir);
+	//PackageMapSpec::ToString(gamedir);
+	//Test_DumpContainerMaskHashes(gamedir, outputdir);
+	//Test_DumpManifests(gamedir, outputdir);
+	//Test_DumpAllHeaders(gamedir, outputdir);
+	//Test_DumpPriorityManifest();
+
 }

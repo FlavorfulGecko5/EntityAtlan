@@ -190,7 +190,14 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 		e.uncompressedSize = f.dataLength;
 		e.compMode = 0; // TODO: Is the murmur hash ran on the compressed or uncompressed data?
 		e.dataCheckSum = HashLib::ResourceMurmurHash(std::string_view(static_cast<char*>(f.dataBuffer), f.dataLength));
-		e.defaultHash = e.dataCheckSum; // TODO: When we get to resources that require a streamdb hash lookup, set this accordingly
+
+		if (f.typedata->typeenum & rtc_streamdb_hash) {
+			e.defaultHash = f.defaulthash;
+		}
+		else {
+			e.defaultHash = e.dataCheckSum;
+		}
+		
 
 		// TODO: There's a fair bit of padding between each resource data block.
 		// At a minimum, a data block has 8-byte alignment. It's unknown what the implications of ignoring
@@ -214,6 +221,11 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 		}
 		else if (f.typedata->typeenum & rtc_logic_decl) {
 			e.version = 4;
+			e.flags = 2;
+			e.variation = 70;
+		}
+		else if (f.typedata->typeenum == rt_mapentities) {
+			e.version = f.resourceVersion; // mapentities span multiple versions
 			e.flags = 2;
 			e.variation = 70;
 		}
@@ -576,30 +588,78 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 	* - Reserialize unzipped mod files
 	* - Ensure zipped mod files are serialized
 	*/
+	std::unordered_map<std::string, ModFile*> find_defaulthashes;
+
 	atlog << "\n\nCompiling Mod Files:\n----------\n";
 	for (ModFile* file : supermod) {
 		if (file->typedata->typeenum & rtc_serialized) {
 
 			bool isSerialized = Reserializer::IsSerialized((char*)file->dataBuffer, file->dataLength, file->typedata->typeenum);
-			if(isSerialized)
-				continue;
+			if(!isSerialized) {
+				atlog << "Serializing " << file->realPath << "\n";
 
-			atlog << "Serializing " << file->realPath << "\n";
+				BinaryWriter writer(static_cast<size_t>(file->dataLength * 0.5));
 
-			BinaryWriter writer(static_cast<size_t>(file->dataLength * 0.5));
+				Reserializer::Serialize((char*)file->dataBuffer, file->dataLength, writer, file->typedata->typeenum);
 
-			Reserializer::Serialize((char*)file->dataBuffer, file->dataLength, writer, file->typedata->typeenum);
+				size_t newsize = writer.GetFilledSize();
+				char* newbuffer = writer.Finalize();
 
-			size_t newsize = writer.GetFilledSize();
-			char* newbuffer = writer.Finalize();
-
-			delete[] file->dataBuffer;
-			file->dataBuffer = newbuffer;
-			file->dataLength = newsize;
+				delete[] file->dataBuffer;
+				file->dataBuffer = newbuffer;
+				file->dataLength = newsize;
+			}
 		}
+
+		if (file->typedata->typeenum & rtc_streamdb_hash) {
+			std::string lookupstring(file->typedata->typestring);
+			lookupstring.append(file->assetPath);
+			find_defaulthashes[lookupstring] = file;
+		}
+			
 	}
 
-	
+	if(find_defaulthashes.size() > 0) {
+		atlog << "Finding streamdb hashes for " << find_defaulthashes.size() << " mod files\n";
+
+		std::vector<std::string> archivelist = PackageMapSpec::GetPrioritizedArchiveList(gamedir, false);
+
+		std::string lookupstring;
+		for (const std::string& archivepath : archivelist) 
+		{
+			ResourceArchive r;
+			Read_ResourceArchive(r, basedir / archivepath, RF_SkipData);
+
+			for (uint32_t i = 0; i < r.header.numResources; i++) {
+
+				const ResourceEntry& e = r.entries[i];
+				const char* typestring, *namestring;
+				Get_EntryStrings(r, e, typestring, namestring);
+				lookupstring = typestring;
+				lookupstring.append(namestring);
+
+				const auto& iter = find_defaulthashes.find(lookupstring);
+				if (iter != find_defaulthashes.end()) {
+					ModFile* f = iter->second;
+					f->defaulthash = e.defaultHash;
+					f->resourceVersion = e.version;
+
+					find_defaulthashes.erase(lookupstring);
+
+					if(find_defaulthashes.empty())
+						goto LABEL_ALL_HASHES_FOUND;
+				}
+				
+			}
+		}
+		LABEL_ALL_HASHES_FOUND:
+		if (find_defaulthashes.empty()) {
+			atlog << "All hashes found\n";
+		}
+		else {
+			atlog << "POTENTIALLY FATAL ERROR: Could not find one or more hashes for streamdb files\n";
+		}
+	}
 
 
 	/*

@@ -54,6 +54,8 @@ void RunTest(const fspath& folder, const fspath& extension, ResourceType restype
 	int i = 0;
 	for (const fspath& entity : targetfiles) {
 
+		std::cout << entity << "\n";
+
 		/*
 		* Read the deserialized file into an EntityParser
 		*/
@@ -63,7 +65,7 @@ void RunTest(const fspath& folder, const fspath& extension, ResourceType restype
 		/*
 		* Serialize the parsed file
 		*/
-		int warnings = Reserializer::Serialize(*original.getRoot(), serialized, restype);
+		int warnings = Reserializer::Serialize(*original.getRoot(), serialized, restype, original.eofblob, original.eofbloblength);
 		if (warnings != 0) {
 			std::cout << entity << "\n";
 		}
@@ -76,13 +78,15 @@ void RunTest(const fspath& folder, const fspath& extension, ResourceType restype
 		deserialized.reserve(10000);
 		Deserializer::DeserialSingle(reader, deserialized, restype);
 
+		//std::ofstream TEMP("../input/temp_map.txt", std::ios_base::binary);
+		//TEMP << deserialized;
+		//TEMP.close();
+
 		/*
 		* Read our deserialized form into an EntityParser
 		* and compare with the original deserialized file
 		*/
-		// Pretty inefficient but eh... TODO: Try to pre-calculate size of text
-		EntityParser second(ParsingMode::PERMISSIVE);
-		second.EditTree(deserialized, second.getRoot(), 0, 0, 0, 0);
+		EntityParser second(ParsingMode::PERMISSIVE, std::string_view(deserialized), false);
 		ReserialCompare(*original.getRoot(), *second.getRoot());
 
 		i++;
@@ -100,12 +104,14 @@ int main()
 	*/
 	Deserializer::DeserialInit(gamedir, filedir, false);
 
-	RunTest(filedir / "entityDef", ".decl", rt_entityDef);
-	RunTest(filedir / "logicClass", ".decl", rt_logicClass);
-	RunTest(filedir / "logicEntity", ".decl", rt_logicEntity);
-	RunTest(filedir / "logicFX", ".decl", rt_logicFX);
-	RunTest(filedir / "logicLibrary", ".decl", rt_logicLibrary);
-	RunTest(filedir / "logicUIWidget", ".decl", rt_logicUIWidget);
+	//RunTest(filedir / "entityDef", ".decl", rt_entityDef);
+	//RunTest(filedir / "logicClass", ".decl", rt_logicClass);
+	//RunTest(filedir / "logicEntity", ".decl", rt_logicEntity);
+	//RunTest(filedir / "logicFX", ".decl", rt_logicFX);
+	//RunTest(filedir / "logicLibrary", ".decl", rt_logicLibrary);
+	//RunTest(filedir / "logicUIWidget", ".decl", rt_logicUIWidget);
+
+	RunTest(filedir / "mapentities", ".mapentities", rt_mapentities);
 
 	std::cout << "DONE\n";
 

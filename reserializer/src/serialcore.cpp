@@ -116,7 +116,7 @@ void reserial::rs_start_entitydef(const EntNode& root, BinaryWriter& writer)
 
 	// expandInheritance bool
 	{
-		const EntNode& expandinheritance_node = root["expandinheritance"];
+		const EntNode& expandinheritance_node = root["expandInheritance"];
 		bool expandinheritance = true;
 		expandinheritance_node.ValueBool(expandinheritance);
 		writer << expandinheritance;
@@ -190,6 +190,166 @@ void reserial::rs_start_entitydef(const EntNode& root, BinaryWriter& writer)
 	}
 
 	writer.popSizeStack();
+}
+
+void rs_submap(const std::vector<EntNode*> entities, BinaryWriter& layermask, BinaryWriter& entwriter, const BinaryWriter& metadata)
+{
+
+}
+
+void reserial::rs_start_mapentity(const EntNode& root, BinaryWriter& FILEWRITER, const char* eofblob, size_t eofbloblength)
+{
+	if (eofbloblength < 4) {
+		LogWarning("[FATAL]: Missing binary blob at end of file");
+		return;
+	}
+
+	/*
+	* Step 1: Gather the entities and associate them with their submaps
+	*/
+	int32_t submapcount = *reinterpret_cast<const int32_t*>(eofblob);
+	std::vector<std::vector<const EntNode*>> submapnodes;
+	std::vector<uint32_t> newlengths;
+	
+	{
+		submapnodes.resize(submapcount);
+		EntNode** entities = root.getChildBuffer();
+		EntNode** maxents = entities + root.getChildCount();
+		entities--;
+
+		while (++entities < maxents) {
+			const EntNode& e = **entities;
+			if (e.getName() == "entity") {
+				int submapindex = -999;
+				e.ValueInt(submapindex, -999, 999);
+
+				if (submapindex < 0 || submapindex >= submapcount) {
+					LogWarning("Submap index out of range. Skipping entity");
+					continue;
+				}
+				submapnodes[submapindex].push_back(&e);
+			}
+		}
+	}
+
+	/*
+	* Step 2: Rebuild the metadata. (I have no idea whether or not this is important)
+	*/
+	BinaryWriter metawriter(100000);
+	{
+		const EntNode& metanode = root["metadata"];
+
+		metawriter << static_cast<int32_t>(metanode.getChildCount());
+		for (int i = 0; i < metanode.getChildCount(); i++) {
+
+			const EntNode& prop = metanode[i];
+
+			std::string_view propname = prop.getNameUQ();
+			metawriter << static_cast<uint32_t>(propname.length());
+			metawriter.WriteBytes(propname.data(), propname.length());
+
+			std::string_view propval = prop.getValueUQ();
+			metawriter << static_cast<uint32_t>(propval.length());
+			metawriter.WriteBytes(propval.data(), propval.length());
+		}
+	}
+	
+	BinaryWriter layermask(25000, 2.0f); 
+	BinaryWriter entities(1000000, 1.5f); // Will also include the metadata
+
+	
+	FILEWRITER.WriteBytes(eofblob, eofbloblength); // Begin by copying over the header
+
+	for (int i = 0; i < submapcount; i++)
+	{
+		entities << static_cast<uint32_t>(0x0A) << static_cast<uint8_t>(1) << static_cast<uint32_t>(0);
+		entities.WriteBytes(metawriter.GetBuffer(), metawriter.GetFilledSize());
+		entities << static_cast<uint32_t>(0);
+		entities << static_cast<uint32_t>(submapnodes[i].size()); // Entity count
+
+		const EntNode** nodebuffer = submapnodes[i].data();
+		const EntNode** nodemax = nodebuffer + submapnodes[i].size();
+
+		// The entity count occupies the first 4 bytes of the world entity
+		// So we must skip writing those first 4 null bytes for the world entity
+		goto LABEL_SKIP_FIRST_4_BYTES;
+
+		while (nodebuffer < nodemax) {
+			entities << static_cast<uint32_t>(0);
+
+
+			LABEL_SKIP_FIRST_4_BYTES:
+			const EntNode& e = **nodebuffer;
+			nodebuffer++;
+
+			// Write the layer information, if it exists
+			{
+				uint16_t layerindex = 0;
+				const EntNode& layerindnode = e["layerIndex"];
+				if (ParseWholeNumber(layerindnode.ValuePtr(), layerindnode.ValueLength(), layerindex)) {
+					std::string_view layerstring = e["layers"][0].getNameUQ();
+					
+					layermask << layerindex;
+					entities << static_cast<uint32_t>(1) << static_cast<uint32_t>(layerstring.length());
+					entities.WriteBytes(layerstring.data(), layerstring.length());
+				}
+				else {
+					layermask << static_cast<uint16_t>(0);
+					entities << static_cast<uint32_t>(0);
+				}
+			}
+
+			// Write the instance id information, if it exists
+			
+			{
+				const EntNode& instidnode = e["instanceId"];
+				uint32_t instanceid = 0;
+				if (ParseWholeNumber(instidnode.ValuePtr(), instidnode.ValueLength(), instanceid)) {
+					std::string_view originalname = e["originalName"].getValueUQ();
+
+					entities << instanceid << static_cast<uint32_t>(originalname.length());
+					entities.WriteBytes(originalname.data(), originalname.length());
+				}
+				else {
+					entities << static_cast<uint32_t>(0);
+				}
+			}
+
+			const EntNode& defnode = e["entityDef"];
+			std::string_view defname = defnode.getValue();
+			entities << static_cast<uint32_t>(defname.length());
+			entities.WriteBytes(defname.data(), defname.length());
+
+			entities.pushSizeStack();
+			rs_start_entitydef(defnode, entities);
+			entities.popSizeStack();
+		}
+
+
+		entities << static_cast<uint32_t>(0); // Final 4 null bytes of the file
+
+		// Length does NOT include the layer mask
+		newlengths.push_back(static_cast<uint32_t>(entities.GetFilledSize()));
+
+		FILEWRITER.WriteBytes(layermask.GetBuffer(), layermask.GetFilledSize());
+		FILEWRITER.WriteBytes(entities.GetBuffer(), entities.GetFilledSize());
+
+		layermask.Empty();
+		entities.Empty();
+	}
+
+	/*
+	* FINAL STEP: Edit the header chunk to insert the new entity counts + submap chunk lengths
+	*/
+	uint32_t* headerchunk = reinterpret_cast<uint32_t*>(FILEWRITER.GetEditableBuffer());
+	headerchunk += 2; // Align to entity count of first submap
+
+	for (int i = 0; i < submapcount; i++) {
+		*headerchunk = submapnodes[i].size();
+		headerchunk += 4;
+		*headerchunk = newlengths[i];
+		headerchunk += 4;
+	}
 }
 
 void reserial::rs_start_logicdecl(const EntNode& root, BinaryWriter& writer, ResourceType declclass)
@@ -729,6 +889,99 @@ void reserial::rs_idEventArg(const EntNode& property, BinaryWriter& writer)
 		{853223886056435927,   {&rs_idEventArgDeclPtr, 853223886056435927}},
 	};
 	rs_structbase(property, writer, propmap);
+}
+
+void reserial::rs_idHandle_T_short___invalidEvent_t___INVALID_EVENT_HANDLE_T(const EntNode& property, BinaryWriter& writer)
+{
+	writer << static_cast<uint8_t>(1) << static_cast<uint32_t>(4);
+	const std::unordered_map<uint64_t, uint32_t> eventfarmhashmap = {
+		{8248188161417832902UL, 3827960110U},
+		{2109857480204156579UL, 2170781984U},
+		{6415571664240711427UL, 366178093U},
+		{4410992155948922590UL, 3189563753U},
+		{15584193750191743461UL, 790530283U},
+		{9770741314140324433UL, 2315537522U},
+		{14548019107169540402UL, 3782143916U},
+		{16405646107130336984UL, 2911531108U},
+		{2966287703579802728UL, 1589212119U},
+		{137705565029519953UL, 3641717U},
+		{11185747191116934101UL, 2283407587U},
+		{562908257094829007UL, 3567759617U},
+		{11857569377413446612UL, 3980262254U},
+		{5845720768097047282UL, 2638992627U},
+		{15126360066431887869UL, 3434350454U},
+		{7705929248132197465UL, 3691539947U},
+		{8996494254092855277UL, 3215302900U},
+		{10518195503654196271UL, 282079339U},
+		{18233967640724236921UL, 1443709331U},
+		{6394585715533893182UL, 337757762U},
+		{8392483978183738706UL, 436775742U},
+		{16405465818662052419UL, 2298204276U},
+		{12520644373007471042UL, 2036925135U},
+		{10409973160487947131UL, 2805003691U},
+		{15662462824700021712UL, 3605829827U},
+		{3284323763369320333UL, 970877351U},
+		{4421568013563942290UL, 2889435114U},
+		{13563627418281759369UL, 3432109593U},
+		{13497899192977752818UL, 2971674175U},
+		{7204684729085763043UL, 1831891218U},
+		{3448238675064975848UL, 2058148729U},
+		{6984032172513114034UL, 3691386672U},
+		{8884214210353087801UL, 2888484764U},
+		{1940716144195216379UL, 518823962U},
+		{4876600261976561381UL, 2672114346U},
+		{4217994299656347498UL, 1656437212U},
+		{10236610946050535756UL, 875683466U},
+		{151763945243198662UL, 2445197045U},
+		{11165800629310039276UL, 2934010676U},
+		{15524943814860280742UL, 896427543U},
+		{15601512450942142020UL, 3670303506U},
+		{6166243948571753438UL, 1388988171U},
+		{13735283258598169571UL, 3817176023U},
+		{11464323478479206867UL, 2768564828U},
+		{9017725257825890712UL, 736536175U},
+		{1108645465465301745UL, 1668648239U},
+		{1757538575278042548UL, 2139366007U},
+		{10411237168901227013UL, 1897150535U},
+		{8470237300060619866UL, 3003100277U},
+		{7378825872240998922UL, 1639658401U},
+		{2655974084437200140UL, 2397781659U},
+		{2719398353984729572UL, 3408962308U},
+		{1955872362224287007UL, 1610621219U},
+		{4473194300528027155UL, 3241864974U},
+		{6641016699622685766UL, 2867165155U},
+		{2870281429220087389UL, 431157659U},
+		{17484054169336231182UL, 557913161U},
+		{3109389611281178128UL, 257901565U},
+		{5392521589544010385UL, 1647350964U},
+		{3894838091572590299UL, 559693726U},
+		{7849597544453566866UL, 2000607884U},
+		{16333842103008756468UL, 3202370U},
+		{2279261943114212818UL, 3529469U},
+		{3427064307026900384UL, 223182316U},
+		{13479230914755710965UL, 1522967697U},
+		{17133876701988346193UL, 2710602189U},
+		{1831552240648976103UL, 157155686U},
+		{3220465268743889559UL, 810422910U},
+		{11209242449234033121UL, 1671308008U},
+		{13134475738612111920UL, 527782902U},
+		{12549525432628043267UL, 3402897492U},
+	};
+
+	std::string_view eventcall = property.getValueUQ();
+	uint64_t farmhash = HashLib::FarmHash64(eventcall.data(), eventcall.length());
+
+	const auto& iter = eventfarmhashmap.find(farmhash);
+	if (iter == eventfarmhashmap.end()) {
+		std::string msg = "Unknown event name ";
+		msg.append(eventcall);
+		LogWarning(msg);
+
+		writer << static_cast<uint32_t>(0);
+	}
+	else {
+		writer << iter->second;
+	}
 }
 
 void reserial::rs_bool(const EntNode& property, BinaryWriter& writer)

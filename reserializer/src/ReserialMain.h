@@ -8,7 +8,7 @@ namespace Reserializer
 {
 	// Returns the number of warnings thrown when reserializing the file
 	// A return value of 0 means no warnings
-	int Serialize(const EntNode& root, BinaryWriter& writer, ResourceType restype);
+	int Serialize(const EntNode& root, BinaryWriter& writer, ResourceType restype, const char* eofblob, size_t eofbloblength);
 
 	// Returns the number of warnings thrown when reserializing the file
 	// A return value of 0 means no warnings

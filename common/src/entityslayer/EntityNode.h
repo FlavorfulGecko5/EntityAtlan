@@ -1,4 +1,10 @@
 #include <string_view>
+#include <memory>
+#include "ParserConfig.h"
+
+#if entityparser_wxwidgets
+class wxString;
+#endif
 
 class EntNode 
 {
@@ -62,7 +68,7 @@ class EntNode
 
 	uint16_t getFlags() const {return nodeFlags;}
 
-	std::string_view getName() const {return std::string_view(textPtr, nameLength); }
+	std::string_view getName() const  {return std::string_view(textPtr, nameLength); }
 
 	std::string_view getValue() const {return std::string_view(textPtr + nameLength, valLength); }
 
@@ -90,7 +96,16 @@ class EntNode
 		return std::string_view(textPtr + nameLength, valLength);
 	}
 
-	bool IsComment();
+	#if entityparser_wxwidgets
+	wxString getNameWX();
+	wxString getValueWX();
+	wxString getNameWXUQ();
+	wxString getValueWXUQ();
+	#endif
+
+	bool IsComment() const {
+		return nameLength > 0 && *textPtr == '/';
+	}
 
 	bool IsRoot();
 
@@ -104,9 +119,9 @@ class EntNode
 
 	int ValueLength() const { return valLength; }
 
-	EntNode* getParent() { return parent; }
+	EntNode* getParent() const { return parent; }
 
-	bool HasParent() {return parent != nullptr;}
+	bool HasParent() const {return parent != nullptr;}
 
 	EntNode** getChildBuffer() const { return children; }
 
@@ -124,15 +139,19 @@ class EntNode
 	* Gets the index of a node in this node's child buffer
 	* @returns Index of the child, or -1 if the node could not be found.
 	*/
-	int getChildIndex(EntNode* child) {
+	int getChildIndex(const EntNode* child) const {
 		for(int i = 0; i < childCount; i++)
 			if(children[i] == child)
 				return i;
 		return -1;
 	}
 
-	EntNode* ChildAt(int index) {
+	EntNode* ChildAt(int index) const {
 		return children[index];
+	}
+
+	EntNode& operator[](const int index) const {
+		return *children[index];
 	}
 
 	// Checks whether node is filtered out, either by itself or one of it's ancestors
@@ -183,12 +202,12 @@ class EntNode
 	}
 
 	/*
-	* Calling node is assumed to be the root
-	* id should be initialized to 0
+	* Returns a dynamically allocated list of indices. Provides a list
+	* of node child indices you can trace through to find the node this was called on
 	*/
-	bool findPositionalID(EntNode* n, int& id);
+	std::shared_ptr<int> TracePosition(int& nodeDepth) const;
 
-	EntNode* nodeFromPositionalID(int& decrementor);
+	static EntNode* FromPositionTrace(EntNode* root, const int* indices, const int nodeDepth);
 
 
 	/*
@@ -223,9 +242,8 @@ class EntNode
 	* 
 	* @writeTo if the value can be interpreted as a boolean, write it here
 	*/
-	bool ValueBool(bool& writeTo) const
-	{
-		if (valLength == 0) return false;
+	bool ValueBool(bool& writeTo) const {
+		if(valLength == 0) return false;
 
 		const char* ptr = textPtr + nameLength;
 
@@ -308,7 +326,7 @@ class EntNode
 		return buffer;
 	}
 
-	void generateText(std::string& buffer, int wsIndex = 0);
+	void generateText(std::string& buffer, int wsIndex = 0) const;
 
 
 	/*
@@ -320,5 +338,5 @@ class EntNode
 	* @param debug_logTime If true, output execution time data.
 	* @return The uncompressed file size
 	*/
-	size_t writeToFile(const std::string filepath, const size_t sizeHint, const bool oodleCompress, const bool debug_logTime = false);
+	size_t writeToFile(const std::string filepath, const size_t sizeHint, const bool oodleCompress, const char* eofblob, size_t eofbloblength, const bool debug_logTime = false);
 };

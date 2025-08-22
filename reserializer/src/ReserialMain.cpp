@@ -1,4 +1,5 @@
 #include "serialcore.h"
+#include <string_view>
 #include "io/BinaryWriter.h"
 #include "entityslayer/EntityParser.h"
 #include "archives/ResourceEnums.h"
@@ -38,7 +39,7 @@
 	//return 0;
 //}
 
-int Reserializer::Serialize(const EntNode& root, BinaryWriter& writer, ResourceType restype)
+int Reserializer::Serialize(const EntNode& root, BinaryWriter& writer, ResourceType restype, const char* eofblob, size_t eofbloblength)
 {
 	reserial::warningcount = 0;
 	if (restype == rt_entityDef) {
@@ -47,29 +48,29 @@ int Reserializer::Serialize(const EntNode& root, BinaryWriter& writer, ResourceT
 	else if (restype & rtc_logic_decl) {
 		reserial::rs_start_logicdecl(root, writer, restype);
 	}
-	// TODO: THE OTHER TYPES
-
+	else if (restype & rt_mapentities) {
+		reserial::rs_start_mapentity(root, writer, eofblob, eofbloblength);
+	}
 	return reserial::warningcount;
 }
 
 int Reserializer::Serialize(const char* data, size_t length, BinaryWriter& writer, ResourceType restype)
 {
-	EntityParser parser(ParsingMode::PERMISSIVE);
-
-	ParseResult result = parser.EditTree(std::string(data, length), parser.getRoot(), 0, 0, 0, 0);
-	if (!result.success) {
-		atlog << "ERROR: Failed to read file into EntityParser\n";
+	try {
+		EntityParser parser(ParsingMode::PERMISSIVE, std::string_view(data, length), false);
+		return Serialize(*parser.getRoot(), writer, restype, parser.eofblob, parser.eofbloblength);
+	}
+	catch (...) {
+		atlog << "ERROR: Failed to read data stream into EntityParser\n";
 		return 1;
 	}
-
-	return Serialize(*parser.getRoot(), writer, restype);
 }
 
 int Reserializer::Serialize(const char* filepath, BinaryWriter& writer, ResourceType restype)
 {
 	try {
 		EntityParser parser(std::string(filepath), ParsingMode::PERMISSIVE);
-		return Serialize(*parser.getRoot(), writer, restype);
+		return Serialize(*parser.getRoot(), writer, restype, parser.eofblob, parser.eofbloblength);
 	}
 	catch (...) {
 		atlog << "ERROR: Failed to read file into EntityParser\n";

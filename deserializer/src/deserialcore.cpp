@@ -246,9 +246,9 @@ void ds_submapentity(BinaryReader& reader, std::string& writeTo)
 
 }
 
-void ds_submap(BinaryReader& reader, BinaryReader& shortmask, std::string& writeTo, std::string& StringTable, bool BuildStringTable)
+void ds_submap(BinaryReader& reader, BinaryReader& shortmask, std::string& writeTo, std::string& StringTable, bool BuildStringTable, int submapindex)
 {
-	writeTo.append("submap {\n");
+	//writeTo.append("submap {\n");
 	uint8_t bytecode;
 	uint32_t len;
 
@@ -290,6 +290,7 @@ void ds_submap(BinaryReader& reader, BinaryReader& shortmask, std::string& write
 		temptable.append("}\n");
 		if (BuildStringTable) {
 			StringTable = temptable;
+			writeTo.append(StringTable);
 		}
 		else {
 			assert(StringTable == temptable);
@@ -317,7 +318,10 @@ void ds_submap(BinaryReader& reader, BinaryReader& shortmask, std::string& write
 		assert(len == 0);
 
 		LABEL_SKIP_FIRST_4_BYTES:
-		writeTo.append("entity {\n");
+		//writeTo.append("entity {\n");
+		writeTo.append("entity ");
+		writeTo.append(std::to_string(submapindex));
+		writeTo.append("{\n");
 
 		// Seems to correlate with a layer being defined.
 		// Some sort of layer id? 
@@ -325,7 +329,7 @@ void ds_submap(BinaryReader& reader, BinaryReader& shortmask, std::string& write
 		uint16_t shortmaskvalue;
 		assert(shortmask.ReadLE(shortmaskvalue));
 		if (shortmaskvalue != 0) {
-			writeTo.append("layerID = ");
+			writeTo.append("layerIndex = ");
 			writeTo.append(std::to_string(shortmaskvalue));
 			writeTo.append(";\n");
 		}
@@ -341,9 +345,9 @@ void ds_submap(BinaryReader& reader, BinaryReader& shortmask, std::string& write
 			assert(reader.ReadLE(namelength));
 			assert(reader.ReadBytes(entname, namelength));
 
-			writeTo.append("layer = \"");
+			writeTo.append("layers = {\n\"");
 			writeTo.append(entname, namelength);
-			writeTo.append("\";\n");
+			writeTo.append("\"\n}\n");
 		}
 		else {
 			assert(shortmaskvalue == 0);
@@ -372,9 +376,12 @@ void ds_submap(BinaryReader& reader, BinaryReader& shortmask, std::string& write
 			assert(reader.ReadBytes(entname, namelength));
 		}
 
-		writeTo.append("name = \"");
+		//writeTo.append("name = \"");
+		//writeTo.append(entname, namelength);
+		//writeTo.append("\";\n");
+		writeTo.append("entityDef ");
 		writeTo.append(entname, namelength);
-		writeTo.append("\";\n");
+		writeTo.append(" {\n");
 
 		debug_lastent = entname;
 		//printf("%.*s\n", entname, namelength);
@@ -385,7 +392,7 @@ void ds_submap(BinaryReader& reader, BinaryReader& shortmask, std::string& write
 
 		assert(reader.GoRight(len));
 
-		writeTo.append("}\n");
+		writeTo.append("}\n}\n");
 
 		currententity++;
 	}
@@ -395,11 +402,12 @@ void ds_submap(BinaryReader& reader, BinaryReader& shortmask, std::string& write
 	assert(reader.ReachedEOF());
 	assert(shortmask.ReachedEOF());
 
-	writeTo.append("}\n");
+	//writeTo.append("}\n");
 }
 
 void deserial::ds_start_mapentities(BinaryReader& reader, std::string& writeTo)
 {
+	deserialmode = DeserialMode::mapentities;
 	int totalmaps;
 	assert(reader.ReadLE(totalmaps));
 	assert(reader.Goto(0x8)); // Position of the entity count of the first submap
@@ -439,10 +447,16 @@ void deserial::ds_start_mapentities(BinaryReader& reader, std::string& writeTo)
 
 
 	for (int i = 0; i < totalmaps; i++) {
-		ds_submap(submapheaders[i].mapreader, submapheaders[i].shortmask, writeTo, stringtable, i == 0);
+		ds_submap(submapheaders[i].mapreader, submapheaders[i].shortmask, writeTo, stringtable, i == 0, i);
 	}
 
-	writeTo.append(stringtable);
+	//writeTo.append(stringtable);
+
+	// Append the raw header binary to the end of the file
+	writeTo.push_back('\0');
+	const char* headerEnd = submapheaders[0].shortmask.GetBuffer();
+	size_t headerLength = headerEnd - reader.GetBuffer();
+	writeTo.append(reader.GetBuffer(), headerLength);
 
 	delete[] submapheaders;
 	//printf("%s", stringtable.c_str());
@@ -1137,6 +1151,102 @@ dsfunc_m(deserial::ds_idEventArg)
 		{853223886056435927, {&ds_idEventArgDeclPtr, "decl"}},
 	};
 	ds_structbase(reader, writeTo, propMap);
+}
+
+dsfunc_m(deserial::ds_idHandle_T_short___invalidEvent_t___INVALID_EVENT_HANDLE_T)
+{
+	assert(*(reader.GetBuffer() - 5) == 1);
+	assert(reader.GetLength() == 4);
+	const std::unordered_map<uint32_t, const char*> eventcallmap = {
+		{2170781984U, "makeAIAwareOfPlayer"},
+		{2315537522U, "waitForEventFlag"},
+		{3980262254U, "setMusicState"},
+		{3827960110U, "spawnStoredAIDataList"},
+		{3434350454U, "setFactionRelation"},
+		{3215302900U, "designerComment"},
+		{3641717U, "wait"},
+		{2911531108U, "activateTarget"},
+		{1443709331U, "setGlobalAudioStates"},
+		{337757762U, "maintainAICount_InitialDelay"},
+		{436775742U, "maintainStoredAIDataList"},
+		{2036925135U, "startLockdown"},
+		{2805003691U, "createWaitAndRespondEvent"},
+		{2058148729U, "waitMaintainComplete"},
+		{2888484764U, "clearCombatRoles"},
+		{3432109593U, "waitAIRemaining"},
+		{2672114346U, "activateCombatFormation"},
+		{1656437212U, "maintainAICount"},
+		{875683466U, "maintainLeaderFormationAICount"},
+		{366178093U, "spawnAIWithRoleInFormation"},
+		{2934010676U, "forceAIToFlee"},
+		{896427543U, "setMixState"},
+		{3670303506U, "stopMaintainingAICount"},
+		{970877351U, "staggeredAISpawn"},
+		{1388988171U, "spawnSingleAI"},
+		{3567759617U, "spawnSingleAIInFormation"},
+		{2768564828U, "waitKillCount"},
+		{2283407587U, "spawnAI"},
+		{1831891218U, "setNextScriptIndex"},
+		{3691539947U, "waitAIHealthLevel"},
+		{736536175U, "stopLockdown"},
+		{282079339U, "forceChargeOnAllAI"},
+		{2445197045U, "changeRoleOfAIInGroup"},
+		{2139366007U, "allowFormationBreak"},
+		{1668648239U, "linkFormationToEnforcerFormation"},
+		{2971674175U, "addFormationToLeaderMaintain"},
+		{1897150535U, "waitMulitpleConditions"},
+		{1639658401U, "maintainFormationAICount"},
+		{518823962U, "startFormationScript"},
+		{3189563753U, "spawnEmpoweredAI"},
+		{1589212119U, "damageAI"},
+		{1610621219U, "removeWaitAndRespondEvent"},
+		{3605829827U, "waitNumRemainingResponds"},
+		{3241864974U, "spawnAIFormation"},
+		{2889435114U, "activateCombatGrouping"},
+		{3408962308U, "setFallbackGlobalAudioIntensity"},
+		{2867165155U, "spawnAIFromAllGroupSpawns"},
+		{3691386672U, "triggerEarlyRespondEvent"},
+		{431157659U, "startFormationPatrol"},
+		{3782143916U, "removeAI"},
+		{3817176023U, "setDamageMitigationFlags"},
+		{557913161U, "clearChargeOnAllAI"},
+		{257901565U, "waitStaggeredSpawnComplete"},
+		{1647350964U, "setAIMemoryKey"},
+		{3003100277U, "setNextScriptIndexRandom"},
+		{2638992627U, "activate"},
+		{559693726U, "takeColorGradingScreenshot"},
+		{2298204276U, "deactivate"},
+		{2000607884U, "cinematic_SetMusicState"},
+		{2397781659U, "startVO"},
+		{3202370U, "hide"},
+		{790530283U, "playControllerRumbleDecl"},
+		{3529469U, "show"},
+		{223182316U, "hideShowMesh"},
+		{1522967697U, "hideRenderModel"},
+		{2710602189U, "startSound"},
+		{157155686U, "musicEntity_SetState"},
+		{810422910U, "goreEnable"},
+		{1671308008U, "disable"},
+		{527782902U, "showRenderModel"},
+		{3402897492U, "stopFX"},
+	};
+
+	uint32_t hash;
+	assert(reader.ReadLE(hash));
+
+	const auto& iter = eventcallmap.find(hash);
+	if (iter == eventcallmap.end())
+	{
+		LogWarning("Unknown eventcall hash");
+		writeTo.append(std::to_string(hash));
+		writeTo.append(";\n");
+	}
+	else 
+	{
+		writeTo.push_back('"');
+		writeTo.append(iter->second);
+		writeTo.append("\";\n");
+	}
 }
 
 dsfunc_m(deserial::ds_bool)

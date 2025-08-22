@@ -28,7 +28,10 @@ const std::set<std::string> ForcedExclusions = {
 	"idLogicProperties",
 	"attachParent_t",
 	"idRenderModelWeakHandle",
-	"idEventArg"
+	"idEventArg",
+
+	// TODO: These are for eventcalls. Must get these hashes
+	"idHandle_T_short___invalidEvent_t___INVALID_EVENT_HANDLE_T",
 };
 
 // For any structs that weren't included for whatever reason, but need to be
@@ -66,9 +69,6 @@ const std::unordered_map<std::string, const char*> AliasStructs = {
 	{"idTypesafeNumber_T_float___RadiusUnique_t_T", "float"},
 	{"idTypesafeNumber_T_float___SphereUnique_t_T", "float"},
 	{"idTypesafeNumber_T_float___LightUnitsUnique_t_T", "float"},
-
-	// TODO: These are for eventcalls. Must get these hashes
-	{"idHandle_T_short___invalidEvent_t___INVALID_EVENT_HANDLE_T", "unsigned_int"},
 
 	// TODO: Monitor. Same issue as idRenderModelWeakHandle - block is always empty 
 	{"idFxHandle", "idRenderModelWeakHandle"}
@@ -189,7 +189,6 @@ void idlibCleaner2::CheckInheritance(std::string_view type) {
 		if (parentPair == typelib.end()) {
 			
 			parser.EditText("UNDEFINED_PARENTtrue", parent, 16, false);
-			parser.PushGroupCommand();
 			//printf("UNKNOWN PARENT: %s\n", std::string(parentString).c_str());
 			return;
 		}
@@ -559,7 +558,6 @@ void idlibCleaner2::Build() {
 			parser.EditTree("INCLUDE", pair.second.node, 0, 0, false, false);
 		}
 		
-		parser.PushGroupCommand();
 	}
 	printf("%d types out of %zu should be included \n", includeCount, typelib.size());
 }

@@ -34,6 +34,7 @@ namespace reserial {
 
 	/* Entry Points */
 	void rs_start_entitydef(const EntNode& root, BinaryWriter& writer);
+	void rs_start_mapentity(const EntNode& root, BinaryWriter& writer, const char* eofblob, size_t eofbloblength);
 	void rs_start_logicdecl(const EntNode& root, BinaryWriter& writer, ResourceType declclass);
 
 	/* Pointers */
@@ -58,6 +59,7 @@ namespace reserial {
 	rsfunc_t rs_idRenderModelWeakHandle;
 	rsfunc_t rs_idLogicProperties;
 	rsfunc_t rs_idEventArg;
+	rsfunc_t rs_idHandle_T_short___invalidEvent_t___INVALID_EVENT_HANDLE_T;
 
 	/* Primitive Types */
 	rsfunc_t rs_bool;

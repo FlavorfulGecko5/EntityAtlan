@@ -33,6 +33,8 @@ struct ModFile {
 	size_t dataLength = 0;
 	std::string realPath;   // The verbatim path from the zip file or mods folder
 	std::string assetPath;  // Path that will be used as the resource name
+	uint64_t defaulthash;     // For resources types with a streamdb hash 
+	uint32_t resourceVersion; // For mapentities since they span multiple versions
 };
 
 inline void ModFile_Free(ModFile& mfile) {

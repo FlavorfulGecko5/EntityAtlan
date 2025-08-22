@@ -2,6 +2,11 @@
 #include "Oodle.h"
 #include "EntityLogger.h"
 #include "EntityNode.h"
+
+#if entityparser_wxwidgets
+#include "wx/string.h"
+#endif
+
 /*
 * This file should be used to define any fields or functions
 * that can't be defined in the header files
@@ -11,15 +16,21 @@ EntNode _404;
 
 EntNode* EntNode::SEARCH_404 = &_404;
 
-bool EntNode::IsComment() {
-	if (childCount == 0 && nameLength > 1) {
-		if (textPtr[0] == '/' && textPtr[1] == '/')
-			return true;
-		if (textPtr[0] == '/' && textPtr[1] == '*')
-			return true;
-	}
-	return false;
+#if entityparser_wxwidgets
+wxString EntNode::getNameWX() { return wxString(textPtr, nameLength); }
+
+wxString EntNode::getValueWX() { return wxString(textPtr + nameLength, valLength); }
+
+wxString EntNode::getNameWXUQ() {
+	std::string_view nameuq = getNameUQ();
+	return wxString(nameuq.data(), nameuq.length());
 }
+
+wxString EntNode::getValueWXUQ() {
+	std::string_view valueuq = getValueUQ();
+	return wxString(valueuq.data(), valueuq.length());
+}
+#endif
 
 bool EntNode::IsRoot() {
 	return parent == nullptr && nodeFlags == NFC_RootNode;
@@ -62,27 +73,41 @@ bool EntNode::ValueInt(int& writeTo, int clampMin, int clampMax) const {
 	return true;
 }
 
-bool EntNode::findPositionalID(EntNode* n, int& id)
+std::shared_ptr<int> EntNode::TracePosition(int& nodeDepth) const
 {
-	// We're not doing any undo/redo here, and this function is slowing everything down
-	return 0;
-	if (this == n) return true;
-	id++;
+	// Get the depth so we know how much space to allocat
+	int depth = 0;
+	const EntNode* currentParent = parent;
+	while (currentParent) {
+		depth++;
+		currentParent = currentParent->parent;
+	}
 
-	for (int i = 0; i < childCount; i++)
-		if (children[i]->findPositionalID(n, id)) return true;
-	return false;
+	if (depth == 0) {
+		nodeDepth = 0;
+		return nullptr;
+	}
+
+	int* indices = new int[depth];
+	currentParent = parent;
+	const EntNode* lastParent = this;
+	for (int i = depth - 1; i > -1; i--) {
+		indices[i] = currentParent->getChildIndex(lastParent);
+		lastParent = currentParent;
+		currentParent = currentParent->parent;
+	}
+
+	nodeDepth = depth;
+	std::shared_ptr<int> sptr(indices, [](int* p) {delete p;});
+	return sptr;
 }
 
-EntNode* EntNode::nodeFromPositionalID(int& decrementor)
+EntNode* EntNode::FromPositionTrace(EntNode* root, const int* nodeIndices, const int nodeDepth) 
 {
-	if (decrementor == 0) return this;
-	for (int i = 0; i < childCount; i++)
-	{
-		EntNode* result = children[i]->nodeFromPositionalID(--decrementor);
-		if (result != nullptr) return result;
+	for (int i = 0; i < nodeDepth; i++) {
+		root = root->children[nodeIndices[i]];
 	}
-	return nullptr;
+	return root;
 }
 
 bool EntNode::searchText(const std::string& key, const bool caseSensitive, const bool exactLength)
@@ -202,7 +227,7 @@ EntNode* EntNode::searchUpwardsLocal(const std::string& key, const bool caseSens
 	return SEARCH_404;
 }
 
-void EntNode::generateText(std::string& buffer, int wsIndex)
+void EntNode::generateText(std::string& buffer, int wsIndex) const
 {
 	buffer.append(wsIndex, '\t');
 	buffer.append(textPtr, nameLength);
@@ -245,7 +270,7 @@ void EntNode::generateText(std::string& buffer, int wsIndex)
 		buffer.push_back(',');
 }
 
-size_t EntNode::writeToFile(const std::string filepath, const size_t sizeHint, const bool oodleCompress, const bool debug_logTime)
+size_t EntNode::writeToFile(const std::string filepath, const size_t sizeHint, const bool oodleCompress, const char* eofblob, size_t eofbloblength, const bool debug_logTime)
 {
 	auto timeStart = std::chrono::high_resolution_clock::now();
 	// 25% of time spent writing to output buffer, 75% on generateText
@@ -258,6 +283,12 @@ size_t EntNode::writeToFile(const std::string filepath, const size_t sizeHint, c
 		EntityLogger::logTimeStamps("Generate Text Duration: ", timeStart);
 
 	timeStart = std::chrono::high_resolution_clock::now();
+
+	if (eofbloblength > 0) {
+		raw.push_back('\0');
+		raw.append(eofblob, eofbloblength);
+	}
+		
 
 	std::ofstream output(filepath, std::ios_base::binary);
 

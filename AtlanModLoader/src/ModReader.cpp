@@ -47,7 +47,7 @@ const std::unordered_map<std::string, resourcetypeinfo_t> ValidResourceTypes = {
 		{
 			"mapentities",
 			rt_mapentities,
-			allow_mod_no
+			allow_mod_yes
 		}
 	},
 

@@ -79,6 +79,7 @@ namespace deserial {
 	dsfunc_t ds_idRenderModelWeakHandle;
 	dsfunc_t ds_idLogicProperties;
 	dsfunc_t ds_idEventArg;
+	dsfunc_t ds_idHandle_T_short___invalidEvent_t___INVALID_EVENT_HANDLE_T;
 
 	/* Primitive Types */
 	dsfunc_t ds_bool;

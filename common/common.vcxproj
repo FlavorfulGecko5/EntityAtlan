@@ -43,6 +43,7 @@
     <ClInclude Include="src\entityslayer\EntityParser.h" />
     <ClInclude Include="src\entityslayer\GenericBlockAllocator.h" />
     <ClInclude Include="src\entityslayer\Oodle.h" />
+    <ClInclude Include="src\entityslayer\ParserConfig.h" />
     <ClInclude Include="src\hash\HashLib.h" />
     <ClInclude Include="src\io\BinaryReader.h" />
     <ClInclude Include="src\io\BinaryWriter.h" />

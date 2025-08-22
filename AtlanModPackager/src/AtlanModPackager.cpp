@@ -17,7 +17,7 @@ void PackagerMain()
 {
 	using namespace std::filesystem;
 
-	atlog << "Atlan Mod Packager v1.0 by FlavorfulGecko5\n";
+	atlog << "Atlan Mod Packager v1.0.1 by FlavorfulGecko5\n";
 
 	const std::unordered_map<std::string, ResourceType> serialtypes = {
 		{"entityDef",     rt_entityDef},
@@ -25,7 +25,8 @@ void PackagerMain()
 		{"logicEntity",   rt_logicEntity},
 		{"logicFX",       rt_logicFX},
 		{"logicLibrary",  rt_logicLibrary},
-		{"logicUIWidget", rt_logicUIWidget}
+		{"logicUIWidget", rt_logicUIWidget},
+		{"mapentities",   rt_mapentities}
 	};
 
 	std::unordered_map<std::string, std::string> configaliases;

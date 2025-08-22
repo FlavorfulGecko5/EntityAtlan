@@ -37,6 +37,10 @@ class BinaryWriter
 		return buffer;
 	}
 
+	char* GetEditableBuffer() {
+		return buffer;
+	}
+
 	/*
 	* RESIZING
 	*/
@@ -95,7 +99,13 @@ class BinaryWriter
 		buffer = nullptr;
 		next = nullptr;
 		end = nullptr;
+		sizeStack.clear();
 		return final;
+	}
+
+	void Empty() {
+		next = buffer;
+		sizeStack.clear();
 	}
 
 	/*
