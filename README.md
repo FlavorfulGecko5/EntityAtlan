@@ -9,17 +9,19 @@ An entirely new mod loader with vast improvements over the DOOM Eternal mod load
 
 A limited resource extractor intended for files that control game logic. Available on the [Releases Page](https://github.com/FlavorfulGecko5/EntityAtlan/releases/tag/Extractor)
 
-## EntityAtlan
+## Atlan Mod Packager
 
-### This tool is a work-in-progress. No release build is published yet.
+A tool for packaging your mods into a ZIP file ready for publishing. This process includes reserializing your entity files. Available on the [Releases Page](https://github.com/FlavorfulGecko5/EntityAtlan/releases/tag/Extractor)
 
-EntityAtlan is a tool for deserializing and reserializing DOOM: The Dark Ages entity files. Unlike in DOOM Eternal, these files are pre-serialized into a binary format. For level modding to be achievable, it's critical that a tool exists to decode these files, and re-encode our modded ones.
+## Technical Details
 
-To accomplish this goal, EntityAtlan is a 2-step program.
+Unlike in DOOM Eternal, map entities are pre-serialized into a binary format. For level modding to be achievable, it's critical that a tool exists to decode these files, and re-encode our modded ones.
+
+Atlan Modding Tools accomplish this goal in 2 steps:
 * Step 1: Parse the Runtime Type Information (RTTI) dumped from DOOM: The Dark Ages' executable file to generate reflection code.
 * Step 2: Use this reflection code to deserialize and reserialize entity files.
 
-As a modder and normal user of EntityAtlan, you won't need to worry about Step 1.
+Atlan Resource Extractor contains the deserializer, and Atlan Mod Packager contains the reserializer. Together they represent Atlan Modding Tools' crowning achievement: a reflection code generator for idTech RTTI.
 
 ## Credits
 * FlavorfulGecko5 - Author of the Atlan Modding Tools
