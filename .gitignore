@@ -18,9 +18,18 @@ AtlanPackage.zip
 modloader_cache.bin
 DarkAgesPatcher.def
 
-# Do not include 90 thousand line reflection files in the repository....
-deserializer/src/generated/*
-reserializer/src/generated/*
+# Reflector Files
+reflector/*.zip
+reflector/idlib.json
+reflector/idlib.h
+reflector/idlibcleaned_pass1.txt
+reflector/idlibcleaned.txt
+
+# Do not include 100 thousand line reflection files in the repository....
+reserializer/src/reserialgenerated.h
+reserializer/src/reserialgenerated.cpp
+deserializer/src/deserialgenerated.h
+deserializer/src/deserialgenerated.cpp
 
 # User-specific files
 *.rsuser

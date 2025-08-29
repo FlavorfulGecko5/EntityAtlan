@@ -24,7 +24,7 @@
     <ClCompile Include="src\staticsparser.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\generated\deserialgenerated.cpp">
+    <ClCompile Include="src\deserialgenerated.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -35,10 +35,10 @@
     <ClInclude Include="src\staticsparser.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\generated\deserialgenerated.h">
+    <ClInclude Include="src\DeserialMain.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\DeserialMain.h">
+    <ClInclude Include="src\deserialgenerated.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

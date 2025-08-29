@@ -146,7 +146,7 @@ class idlibCleaner {
 };
 
 idlibCleaner::idlibCleaner() {
-	std::ifstream fstream = std::ifstream("../input/idlib.h", std::ios_base::binary);
+	std::ifstream fstream = std::ifstream("idlib.h", std::ios_base::binary);
 	if (!fstream.is_open()) {
 		printf("Could not open idlib\n");
 		assert(0);
@@ -298,7 +298,7 @@ ParsedToken idlibCleaner::Tokenize() {
             switch (*++ch)
             {
                 case '<':
-                if (*(ch + 1) == '<') { // Indiana Jones and the Template of Bitwise Bullshit
+                if (*(ch + 1) == '<') { // Templates with extremely long bitwise math as parameters
                     ch++;
                 }
                 else {
@@ -762,7 +762,7 @@ void idlibCleaner::Build() {
 }
 
 void idlibCleaner::Write() {
-    std::ofstream writer = std::ofstream("../input/idlibcleaned_pass1.txt", std::ios_base::binary);
+    std::ofstream writer = std::ofstream("idlibcleaned_pass1.txt", std::ios_base::binary);
 
 	cleanenums.append("}\n");
     writer.write(cleanenums.data(), cleanenums.length());

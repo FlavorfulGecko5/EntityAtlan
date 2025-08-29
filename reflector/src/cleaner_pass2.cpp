@@ -131,7 +131,7 @@ struct inheritanceFlags {
 class idlibCleaner2 
 {
 	private:
-	EntityParser parser = EntityParser("../input/idlibcleaned_pass1.txt", ParsingMode::PERMISSIVE);
+	EntityParser parser = EntityParser("idlibcleaned_pass1.txt", ParsingMode::PERMISSIVE);
 	std::unordered_map<std::string, TypeMap> typelib;
 
 	public:
@@ -563,7 +563,7 @@ void idlibCleaner2::Build() {
 }
 
 void idlibCleaner2::Output() {
-	parser.WriteToFile("../input/idlibcleaned.txt", false);
+	parser.WriteToFile("idlibcleaned.txt", false);
 }
 
 void idlibCleaning::Pass2()

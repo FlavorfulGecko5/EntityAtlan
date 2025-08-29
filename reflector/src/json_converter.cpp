@@ -245,7 +245,7 @@ void idlibCleaning::JsonToHeader()
 	std::string writeto;
 	writeto.reserve(15000000);
 
-	EntityParser parser("../input/idlib.json", ParsingMode::JSON);
+	EntityParser parser("idlib.json", ParsingMode::JSON);
 	entnode& root = *parser.getRoot();
 	assert(root.getChildCount() == 1);
 
@@ -277,7 +277,7 @@ void idlibCleaning::JsonToHeader()
 	}
 
 
-	std::ofstream output("../input/idlib.h", std::ios_base::binary);
+	std::ofstream output("idlib.h", std::ios_base::binary);
 	output << writeto;
 	output.close();
 }

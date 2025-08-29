@@ -153,14 +153,14 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\deserialcore.cpp" />
+    <ClCompile Include="src\deserialgenerated.cpp" />
     <ClCompile Include="src\DeserialMain.cpp" />
-    <ClCompile Include="src\generated\deserialgenerated.cpp" />
     <ClCompile Include="src\staticsparser.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\deserialcore.h" />
+    <ClInclude Include="src\deserialgenerated.h" />
     <ClInclude Include="src\DeserialMain.h" />
-    <ClInclude Include="src\generated\deserialgenerated.h" />
     <ClInclude Include="src\staticsparser.h" />
   </ItemGroup>
   <ItemGroup>

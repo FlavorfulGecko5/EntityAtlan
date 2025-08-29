@@ -492,7 +492,7 @@ class idlibReflector {
 void idlibReflection::Generate() {
 
     printf("Engaging idlib Reflector shields\n");
-    EntityParser parser = EntityParser("../input/idlibcleaned.txt", ParsingMode::PERMISSIVE);
+    EntityParser parser = EntityParser("idlibcleaned.txt", ParsingMode::PERMISSIVE);
     EntNode* root = parser.getRoot();
 
     
@@ -500,6 +500,6 @@ void idlibReflection::Generate() {
     reflector.Generate(*root);
 
     reflector.headertee.both("}");
-    reflector.headertee.output("../deserializer/src/generated/deserialgenerated.h", "../reserializer/src/generated/reserialgenerated.h");
-    reflector.srctee.output("../deserializer/src/generated/deserialgenerated.cpp", "../reserializer/src/generated/reserialgenerated.cpp");
+    reflector.headertee.output("../deserializer/src/deserialgenerated.h", "../reserializer/src/reserialgenerated.h");
+    reflector.srctee.output("../deserializer/src/deserialgenerated.cpp", "../reserializer/src/reserialgenerated.cpp");
 }

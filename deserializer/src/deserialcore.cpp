@@ -1,5 +1,5 @@
 #include "deserialcore.h"
-#include "generated/deserialgenerated.h"
+#include "deserialgenerated.h"
 #include "io/BinaryReader.h"
 #include "atlan/AtlanLogger.h"
 #include "archives/ResourceEnums.h"

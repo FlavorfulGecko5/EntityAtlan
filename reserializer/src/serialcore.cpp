@@ -4,7 +4,7 @@
 #include "serialcore.h"
 #include "hash/HashLib.h"
 #include "atlan/AtlanLogger.h"
-#include "generated/reserialgenerated.h"
+#include "reserialgenerated.h"
 
 #define rsfunc_m(NAME) void NAME(const EntNode& property, BinaryWriter& writer)
 
