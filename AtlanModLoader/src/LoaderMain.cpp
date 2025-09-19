@@ -1,6 +1,7 @@
 #include "GlobalConfig.h"
 #include "ModReader.h"
 #include "archives/PackageMapSpec.h"
+#include "atlan/AtlanOodle.h"
 #include "entityslayer/Oodle.h"
 #include "hash/HashLib.h"
 #include "io/BinaryReader.h"
@@ -188,8 +189,10 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 		e.numDependencies = 0;
 		e.dataSize = f.dataLength;
 		e.uncompressedSize = f.dataLength;
-		e.compMode = 0; // TODO: Is the murmur hash ran on the compressed or uncompressed data?
-		e.dataCheckSum = HashLib::ResourceMurmurHash(std::string_view(static_cast<char*>(f.dataBuffer), f.dataLength));
+		e.compMode = 0; // TODO: Is the murmur hash ran on the compressed or uncompressed data? (Answer: It's the uncompressed data)
+		
+		e.dataCheckSum = -1; // Executable patcher disables these checksum verifications
+		//e.dataCheckSum = HashLib::ResourceMurmurHash(std::string_view(static_cast<char*>(f.dataBuffer), f.dataLength));
 
 		if (f.typedata->typeenum & rtc_streamdb_hash) {
 			e.defaultHash = f.defaulthash;
@@ -428,18 +431,11 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 				copy_file(original, backup, copy_options::none, lastCode);
 			}
 			else {
-				// The game updated, and the file isn't modded. This means either:
-				// 1. An updated version was downloaded
-				// 2. meThe file wasn't updated, but is still vanilla
-				// Either way, replace the original backup with this new version
-				if ((argflags & argflag_gameupdated) && !IsModded[i]) {
+				// If the file is vanilla, override the existing backup
+				// (Do this to ensure backups are kept accurate across game updates)
+				if (!IsModded[i]) {
 					copy_file(original, backup, copy_options::overwrite_existing, lastCode);
 				}
-
-				// If this triggers, either:
-				// 1. There's no game update detected
-				// 2. There's a game update, but the file is modded. This means a new version
-				// wasn't downloaded. Hence, we restore from our existing backup
 				else {
 					copy_file(backup, original, copy_options::overwrite_existing, lastCode);
 				}
@@ -717,6 +713,11 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 			argflags |= argflag_nolaunch;
 		}
 
+		else if (arg == "--neverpatch") {
+			atlog << "ARGS: Executable patcher will never run. This should only be used for debugging!\n";
+			argflags |= argflag_neverpatch;
+		}
+
 		else if (arg == "--forceload") {
 			atlog << "ARGS: Mod loading will proceed if DarkAgesPatcher fails\n"
 				<< "WARNING: Loading mods when DarkAgesPatcher fails may cause the game to permanently crash on startup.\n"
@@ -735,15 +736,13 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 
 		else {
 			LABEL_EXIT_HELP:
-			atlog << "AtlanModLoader.exe [--verbose] [--nolaunch] [--forceload] [--gamedir <Dark Ages Installation Folder>]\n";
+			atlog << "AtlanModLoader.exe [--verbose] [--nolaunch] [--forceload] [--neverpatch] [--gamedir <Dark Ages Installation Folder>]\n";
 			return;
 		}
 	}
 
-	const fspath configpath = "./modloader_config.txt";
-	const fspath oo2corepath = "./oo2core_9_win64.dll";
-	const fspath cachepath = "./modloader_cache.bin";
-	const fspath manifestpath = gamedirectory / "base/build-manifest.bin";
+	const fspath cachepath       = gamedirectory / "modloader_cache.bin";
+	const fspath manifestpath    = gamedirectory / "base/build-manifest.bin";
 
 	struct LoaderCache_t {
 		uint64_t manifesthash = -1;
@@ -793,40 +792,25 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 	}
 
 	/*
-	* Download Oodle Compression dll if it doesn't exist
-	* No need to do this with every first time setup
+	* Initialize Oodle Compression library
 	*/
-
-	if(!std::filesystem::exists(oo2corepath)) {
-		// Because nobody ever needed a simple STL function to convert a string to a wide string....
-		#define OODLE_URL    "https://github.com/WorkingRobot/OodleUE/raw/refs/heads/main/Engine/Source/Programs/Shared/EpicGames.Oodle/Sdk/2.9.10/win/redist/oo2core_9_win64.dll"
-		#define OODLE_URL_W L"https://github.com/WorkingRobot/OodleUE/raw/refs/heads/main/Engine/Source/Programs/Shared/EpicGames.Oodle/Sdk/2.9.10/win/redist/oo2core_9_win64.dll"
-		atlog << "Downloading " << oo2corepath << " from " << OODLE_URL << "\n";
-
-		bool success = Oodle::Download(OODLE_URL_W, oo2corepath.wstring().c_str());
-		if (!success) {
-			atlog << "FATAL ERROR: Failed to download " << oo2corepath << "\n";
-			return;
-		}
-		atlog << "Download Complete (Oodle is a file decompression library)\n";
-	}
-	if (!Oodle::init()) {
-		atlog << "FATAL ERROR: Failed to initialize " << oo2corepath << "\n";
+	if(!Oodle::AtlanOodleInit(gamedirectory))
 		return;
-	}
-
-
-	bool gameUpdated = newcache.manifesthash != loadercache.manifesthash;
-	if (gameUpdated) {
-		argflags |= argflag_gameupdated;
-		atlog << "Game has been updated, or mod loader cache file could not be found. Performing update operations\n";
-	}
-
-	bool runPatcher = gameUpdated || loadercache.patchersucceeded == 0;
 
 	/*
 	* Run Proteh's Dark Ages Patcher
 	*/
+
+	bool gameUpdated = newcache.manifesthash != loadercache.manifesthash;
+	if (gameUpdated) {
+		//argflags |= argflag_gameupdated;
+		atlog << "Game has been updated, or mod loader cache file could not be found. Performing update operations\n";
+	}
+
+	bool runPatcher = gameUpdated || loadercache.patchersucceeded == 0;
+	if(argflags & argflag_neverpatch)
+		runPatcher = false;
+
 	if(runPatcher)
 	{
 		// Do not put slashes in any string literals here
@@ -890,7 +874,9 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 		newcache.patchersucceeded = patchsuccess;
 	}
 	else {
-		newcache.patchersucceeded = loadercache.patchersucceeded;
+		// If we're bypassing the patcher when there's a game update, ensure we
+		// re-run the patcher on future executions
+		newcache.patchersucceeded = gameUpdated ? 0 : loadercache.patchersucceeded;
 	}
 
 	/*

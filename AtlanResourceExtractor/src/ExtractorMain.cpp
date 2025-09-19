@@ -1,8 +1,8 @@
-#include "entityslayer/Oodle.h"
 #include "entityslayer/EntityParser.h"
 #include "archives/ResourceStructs.h"
 #include "archives/PackageMapSpec.h"
 #include "atlan/AtlanLogger.h"
+#include "atlan/AtlanOodle.h"
 #include "DeserialMain.h"
 #include <iostream>
 #include <fstream>
@@ -141,25 +141,8 @@ void ExtractorMain() {
 	* Download and load Oodle
 	* (Do it here so it doesn't get downloaded to the wrong folder if install folder is input wrong)
 	*/
-	const fspath oo2corepath = config.inputdir / "oo2core_9_win64.dll";
-	if(!std::filesystem::exists(oo2corepath)) {
-		// Because nobody ever needed a simple STL function to convert a string to a wide string....
-		#define OODLE_URL    "https://github.com/WorkingRobot/OodleUE/raw/refs/heads/main/Engine/Source/Programs/Shared/EpicGames.Oodle/Sdk/2.9.10/win/redist/oo2core_9_win64.dll"
-		#define OODLE_URL_W L"https://github.com/WorkingRobot/OodleUE/raw/refs/heads/main/Engine/Source/Programs/Shared/EpicGames.Oodle/Sdk/2.9.10/win/redist/oo2core_9_win64.dll"
-		atlog << "Downloading " << oo2corepath << " from " << OODLE_URL << "\n";
-
-		bool success = Oodle::Download(OODLE_URL_W, oo2corepath.wstring().c_str());
-		if (!success) {
-			atlog << "FATAL ERROR: Failed to download " << oo2corepath << "\n";
-			return;
-		}
-		atlog << "Download Complete (Oodle is a file decompression library)\n";
-	}
-	if (!Oodle::init(oo2corepath.string().c_str())) {
-		atlog << "FATAL ERROR: Failed to initialize " << oo2corepath << "\n";
+	if(!Oodle::AtlanOodleInit(config.inputdir));
 		return;
-	}
-
 
 	if (config.run_extractor) {
 		atlog << "Performing resource extraction\n";
