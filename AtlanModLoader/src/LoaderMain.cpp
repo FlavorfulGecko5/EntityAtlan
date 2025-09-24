@@ -88,7 +88,7 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 	* Header Constants
 	*/
 	h.magic[0] = 'I'; h.magic[1] = 'D'; h.magic[2] = 'C'; h.magic[3] = 'L';
-	h.version = ARCHIVE_VERSION;
+	h.version = g_archiveversion;
 	h.flags = 0;
 	h.numSegments = 1;
 	h.segmentSize = 1099511627775UL;
@@ -96,11 +96,11 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 	h.numSpecialHashes = 0;
 	h.numMetaEntries = 0;
 	h.metaEntriesSize = 0;
-	h.resourceEntriesOffset = sizeof(ResourceHeader);
+	h.resourceEntriesOffset = sizeof(ResourceHeader) + (g_archiveversion < 13 ? sizeof(ResourceMetaHeader) : 0);
 	h.numResources = static_cast<uint32_t>(modfiles.size());
 	h.stringTableOffset = h.resourceEntriesOffset + h.numResources * sizeof(ResourceEntry);
 	
-
+	
 	StringTable stable;
 
 	/*
@@ -148,10 +148,8 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 	h.dataOffset = archive.idclOffset + archive.idclSize;
 	assert(h.dataOffset % 8 == 0);
 
-	#ifdef DOOMETERNAL
-	h.unknown = 0;
-	h.metaOffset = archive.idclOffset;
-	#endif
+	archive.metaheader.unknown = 0;
+	archive.metaheader.metaOffset = archive.idclOffset;
 
 
 	/*
@@ -247,6 +245,11 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 
 	std::ofstream writer(outarchivepath, std::ios_base::binary);
 	writer.write(rc(&archive.header), sizeof(ResourceHeader));
+
+	if (g_archiveversion < 13) {
+		writer.write(rc(&archive.metaheader), sizeof(ResourceMetaHeader));
+	}
+
 	writer.write(rc(archive.entries), sizeof(ResourceEntry) * h.numResources);
 
 	// String Chunk
@@ -290,7 +293,7 @@ void RebuildContainerMask(const fspath metapath, const fspath newarchivepath) {
 	// Get addresses of relevant data pieces
 	char* archive = const_cast<char*>(open.ToReader().GetBuffer());
 	ResourceHeader* h = reinterpret_cast<ResourceHeader*>(archive);
-	ResourceEntry* e = reinterpret_cast<ResourceEntry*>(archive + sizeof(ResourceHeader));
+	ResourceEntry* e = reinterpret_cast<ResourceEntry*>(archive + sizeof(ResourceHeader) + (h->version < 13 ? sizeof(ResourceMetaHeader) : 0));
 	char* compressed = archive + e->dataOffset;
 
 	// A few checks to ensure everything is normal
@@ -327,9 +330,8 @@ void RebuildContainerMask(const fspath metapath, const fspath newarchivepath) {
 	// Important file offsets
 	uint32_t* hashCount = reinterpret_cast<uint32_t*>(decomp);
 
-	#ifdef DOOMETERNAL
-	hashCount++; // Skip the compacted timestamp
-	#endif
+	if(*hashCount & 0xFFFFF000)
+		hashCount++; // Skip the compacted timestamp (idTech7 container masks only)
 
 	uint64_t* newHash = reinterpret_cast<uint64_t*>(decomp + e->uncompressedSize);
 	uint32_t* blobSize = reinterpret_cast<uint32_t*>(decomp + e->uncompressedSize + sizeof(uint64_t));
@@ -378,13 +380,9 @@ bool IsModded_MapSpec(const fspath& path) {
 }
 
 bool IsModded_Meta(const fspath& path) {
-	ResourceEntry e;
-
-	std::ifstream reader(path, std::ios_base::binary);
-	reader.seekg(sizeof(ResourceHeader), std::ios_base::beg);
-	reader.read(reinterpret_cast<char*>(&e), sizeof(ResourceEntry));
-
-	return e.generationTimeStamp == MODDED_TIMESTAMP;
+	ResourceArchive meta;
+	Read_ResourceArchive(meta, path, RF_StopAfterEntries);
+	return meta.entries[0].generationTimeStamp == MODDED_TIMESTAMP;
 }
 
 void InjectorLoadMods(const fspath gamedir, const int argflags) {
@@ -754,6 +752,30 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 	if (!std::filesystem::exists(gamedirectory) || !std::filesystem::is_directory(gamedirectory)) {
 		atlog << "FATAL ERROR: " << gamedirectory << " is not a valid directory";
 		return;
+	}
+
+	/* Identify the version for the archive we must build */
+	{
+		const fspath metapath = (gamedirectory / "base") / "meta.resources";
+		if (!exists(metapath)) {
+			atlog << "FATAL ERROR: Failed to find " << metapath << "\n";
+			return;
+		}
+
+		ResourceArchive metaarchive;
+		Read_ResourceArchive(metaarchive, metapath, RF_HeaderOnly);
+		g_archiveversion = metaarchive.header.version;
+
+		if (g_archiveversion != 12 && g_archiveversion != 13) {
+			atlog << "FATAL ERROR: Unsupported resource archive version " << g_archiveversion << "\n";
+			return;
+		}
+
+		// Incase of future, mod-breaking game updates...
+		if (metaarchive.header.numResources != 1) {
+			atlog << "FATAL ERROR: meta.resources has " << metaarchive.header.numResources << " files instead of 1!\n";
+			return;
+		}
 	}
 
 	/*

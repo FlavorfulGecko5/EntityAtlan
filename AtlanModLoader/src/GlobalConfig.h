@@ -10,3 +10,6 @@ enum ArgFlags {
 	argflag_forceload = 1 << 4,
 	argflag_neverpatch = 1 << 5
 };
+
+// What version the output resource archive should be
+inline int g_archiveversion = -1;

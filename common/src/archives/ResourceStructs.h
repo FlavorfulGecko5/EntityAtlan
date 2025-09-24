@@ -4,23 +4,12 @@
 
 typedef std::filesystem::path fspath;
 
-//#define DOOMETERNAL
-
-#ifdef DOOMETERNAL
-#define ARCHIVE_VERSION 12
-#else
-#define ARCHIVE_VERSION 13
-#endif
-
 typedef unsigned char uint8_t;
 typedef unsigned short uint16_t;
 typedef unsigned uint32_t;
 typedef long long int64_t;
 typedef unsigned long long uint64_t;
 
-#ifdef DOOMETERNAL
-#pragma pack(push, 1)
-#endif
 struct ResourceHeader {
     char      magic[4];                    
     uint32_t  version;					 
@@ -42,14 +31,17 @@ struct ResourceHeader {
     uint64_t  resourceDepsOffset;
     uint64_t  resourceSpecialHashOffset; 
     uint64_t  dataOffset;
-	#ifdef DOOMETERNAL
-	uint32_t unknown; // Creates 4 bytes of wasted space with default alignment
-	uint64_t metaOffset;
-	#endif
 };
-#ifdef DOOMETERNAL
+
+// This is a tightly packed structure in the files
+// but the default alignment creates 4 bytes of padding
+// May also wish to consider: splitting metaOffset into an integer pair.
+#pragma pack(push, 1)
+struct ResourceMetaHeader {
+	uint32_t unknown;          // Always 0
+	uint64_t metaOffset;       // Address of the 'I' char in the second "IDCL" magic
+};
 #pragma pack(pop)
-#endif
 
 struct ResourceEntry
 {
@@ -102,15 +94,11 @@ struct ResourceDependency {
 
 struct ResourceArchive {
 	char* bufferData = nullptr;
-	char* compactmeta = nullptr;
 
-	ResourceHeader header;
-
-	//FSeek(header.resourceEntriesOffset);
-	ResourceEntry* entries = nullptr; // header.numResources
-
-	//FSeek(header.stringTableOffset);
-	StringChunk stringChunk;
+	ResourceHeader     header;
+	ResourceMetaHeader metaheader;    // Not present in archive version 13
+	ResourceEntry* entries = nullptr; // Offset: header.resourceEntriesOffset; Size: header.numResources
+	StringChunk stringChunk;          // Offset: header.stringTableOffset
 
 	//FSeek(header.resourceDepsOffset);
 	ResourceDependency* dependencies = nullptr; // header.numDependencies
@@ -138,16 +126,24 @@ struct containerMaskEntry_t {
 
 containerMaskEntry_t GetContainerMaskHash(const fspath archivepath);
 
-void Audit_ResourceHeader(const ResourceHeader& h);
+void Audit_ResourceHeader(const ResourceHeader& h, const ResourceMetaHeader& metaheader);
 void Audit_ResourceArchive(const ResourceArchive& r);
 
 enum ResourceFlags {
 	RF_ReadEverything = 0,
 	RF_SkipData = 1 << 0,
-	RF_HeaderOnly = 1 << 1
+	RF_HeaderOnly = 1 << 1,
+	RF_StopAfterEntries = 1 << 2
 };
 
 void Read_ResourceArchive(ResourceArchive& r, const fspath pathString, int flags);
+
+
+/*
+* Writes the given archive to a file
+* @param entries A list of buffers, one per resource entry. If nullptr, will write out the archive's data buffer instead
+*/
+//void Write_ResourceArchive(const ResourceArchive& r, const fspath outpath, char** entries);
 
 void Get_EntryStrings(const ResourceArchive& r, const ResourceEntry& e, const char*& typeString, const char*& nameString);
 

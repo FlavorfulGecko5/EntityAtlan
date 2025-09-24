@@ -83,6 +83,20 @@ void Read_ResourceArchive(ResourceArchive& r, const fspath pathString, int flags
 	std::ifstream opener(pathString, std::ios_base::binary);
 	assert(opener.good());
 	opener.read(reinterpret_cast<char*>(&r.header), sizeof(ResourceHeader));
+
+	switch(r.header.version)
+	{
+		case 13:
+		break;
+
+		case 12:
+		opener.read(reinterpret_cast<char*>(&r.metaheader), sizeof(ResourceMetaHeader));
+		break;
+
+		default:
+		assert(0);
+	}
+
 	if (flags & RF_HeaderOnly)
 		return;
 
@@ -91,6 +105,8 @@ void Read_ResourceArchive(ResourceArchive& r, const fspath pathString, int flags
 	r.entries = new ResourceEntry[r.header.numResources];
 	opener.seekg(r.header.resourceEntriesOffset);
 	opener.read(reinterpret_cast<char*>(r.entries), r.header.numResources * sizeof(ResourceEntry));
+	if(flags & RF_StopAfterEntries)
+		return;
 
 
 	// Read the String Chunk
@@ -139,15 +155,21 @@ void Read_ResourceArchive(ResourceArchive& r, const fspath pathString, int flags
 	opener.read(r.bufferData, fileLength - r.header.dataOffset);
 }
 
-void Audit_ResourceHeader(const ResourceHeader& h)
+void Audit_ResourceHeader(const ResourceHeader& h, const ResourceMetaHeader& metaheader)
 {
 	assert(h.magic[0] == 'I' && h.magic[1] == 'D' && h.magic[2] == 'C' && h.magic[3] == 'L');
-	assert(h.version == ARCHIVE_VERSION);
-	
-	#ifdef DOOMETERNAL
-	assert(h.unknown == 0);
-	assert(h.metaOffset == h.resourceDepsOffset + h.numDependencies * sizeof(ResourceDependency) + h.numDepIndices * sizeof(uint32_t) + h.numStringIndices * sizeof(uint64_t));
-	#endif
+
+	// Version-Dependent Data
+	if (h.version == 12) {
+		assert(metaheader.unknown == 0);
+		assert(metaheader.metaOffset == h.resourceDepsOffset + h.numDependencies * sizeof(ResourceDependency) + h.numDepIndices * sizeof(uint32_t) + h.numStringIndices * sizeof(uint64_t));
+		assert(h.resourceEntriesOffset == sizeof(ResourceHeader) + sizeof(ResourceMetaHeader));
+	}
+	else if (h.version == 13) {
+		assert(h.resourceEntriesOffset == sizeof(ResourceHeader));
+	}
+	else assert(0);
+
 
 	// Constants
 	assert(h.flags == 0);
@@ -159,7 +181,6 @@ void Audit_ResourceHeader(const ResourceHeader& h)
 	assert(h.metaEntriesSize == 0);
 	
 	// Size Arithmetic
-	assert(h.resourceEntriesOffset == sizeof(ResourceHeader));
 	assert(h.resourceEntriesOffset + h.numResources * sizeof(ResourceEntry) == h.stringTableOffset);
 	assert(h.stringTableSize % 8 == 0);
 	assert(h.stringTableOffset + h.stringTableSize == h.resourceDepsOffset);
@@ -168,7 +189,7 @@ void Audit_ResourceHeader(const ResourceHeader& h)
 }
 
 void Audit_ResourceArchive(const ResourceArchive& r) {
-	Audit_ResourceHeader(r.header);
+	Audit_ResourceHeader(r.header, r.metaheader);
 
 	const std::set<std::string> logictypes = {
 		"logicClass", "logicEntity", "logicFX", "logicLibrary", "logicUIWidget"
@@ -187,9 +208,10 @@ void Audit_ResourceArchive(const ResourceArchive& r) {
 		assert(d.name < r.stringChunk.numStrings);
 	}
 
-	// Audit String Chunk
-	{
-		const StringChunk& sc = r.stringChunk;
+	// Insure string chunk offsets are sorted in ascending order
+	// Start with the second offset, and compare with the previous offset
+	for (uint64_t* ptr = r.stringChunk.offsets + 1, *max = r.stringChunk.offsets + r.stringChunk.numStrings; ptr < max; ptr++) {
+		assert(*ptr > *(ptr - 1));
 	}
 
 	// Audit Entries
@@ -300,11 +322,12 @@ containerMaskEntry_t GetContainerMaskHash(const fspath archivepath) {
 	ResourceHeader h;
 	input.read(reinterpret_cast<char*>(&h), sizeof(ResourceHeader));
 
-	size_t start = sizeof(ResourceHeader);
+	size_t start = h.resourceEntriesOffset; // Assumes entries follow the header 
 	size_t end = h.resourceDepsOffset + h.numDependencies * sizeof(ResourceDependency) + h.numDepIndices * sizeof(uint32_t) + h.numStringIndices * sizeof(uint64_t) + 4;
 	size_t len = end - start;
 	char* buffer = new char[len];
 
+	input.seekg(start, std::ios_base::beg);
 	input.read(buffer, len);
 	assert(buffer[len - 1] == 'L');
 	assert(buffer[len - 2] == 'C');

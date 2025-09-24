@@ -76,7 +76,7 @@ void Get_ExtensionData(const ResourceArchive& r, ExtensionData& log) {
 
 #define ts(NAME) writeTo.append(#NAME); writeTo.append(" = "); writeTo.append(std::to_string(h.NAME)); writeTo.append(";\n");
 
-void String_ResourceHeader(const ResourceHeader& h, std::string& writeTo) {
+void String_ResourceHeader(const ResourceHeader& h, const ResourceMetaHeader& meta, std::string& writeTo) {
 	writeTo.append("header = {\n");
 
 	writeTo.append("magic = \"");
@@ -108,10 +108,11 @@ void String_ResourceHeader(const ResourceHeader& h, std::string& writeTo) {
 
 	ts(dataOffset);
 
-	#ifdef DOOMETERNAL
-	ts(unknown);
-	ts(metaOffset);
-	#endif
+	#define ms(NAME) writeTo.append(#NAME); writeTo.append(" = "); writeTo.append(std::to_string(meta.NAME)); writeTo.append(";\n");
+	if (h.version < 13) {
+		ms(unknown);
+		ms(metaOffset);
+	}
 
 	writeTo.append("}\n");
 }
@@ -131,7 +132,7 @@ void String_StringChunk(const StringChunk& s, std::string& writeTo) {
 }
 
 void String_ResourceArchive(const ResourceArchive& r, std::string& writeTo) {
-	String_ResourceHeader(r.header, writeTo);
+	String_ResourceHeader(r.header, r.metaheader, writeTo);
 	String_StringChunk(r.stringChunk, writeTo);
 
 	writeTo.append("files = {\n");
@@ -238,7 +239,7 @@ void Test_DumpAllHeaders(const fspath gamedir, const fspath outdir) {
 
 		ResourceArchive archive;
 		Read_ResourceArchive(archive, entry.path().string(), RF_HeaderOnly);
-		String_ResourceHeader(archive.header, text);
+		String_ResourceHeader(archive.header, archive.metaheader, text);
 		text.append("}\n");
 	}
 	text.append("}\n");
@@ -492,6 +493,7 @@ void Test_DumpManifests(fspath installDir, fspath outputDir) {
 
 void Test_ContainerMask(const fspath gamedir) {
 
+	std::unordered_map<uint64_t, const char*> maskmap;
 	std::set<uint64_t> maskhashes;
 
 	const fspath metapath = gamedir / "base/meta.resources";
@@ -506,13 +508,17 @@ void Test_ContainerMask(const fspath gamedir) {
 
 	BinaryReader r(maskdata.buffer, maskdata.length);
 
-	#ifdef DOOMETERNAL
-	uint32_t compacttimestamp = 0;
-	assert(r.ReadLE(compacttimestamp));
-	#endif
 
+	uint32_t compacttimestamp = 0;
 	uint32_t hashCount = 0;
+
+	// idTech7 container masks only
 	assert(r.ReadLE(hashCount));
+	if(hashCount & 0xFFFFF000) {
+		compacttimestamp = hashCount;
+		assert(r.ReadLE(hashCount));
+	}
+
 
 	for(uint32_t i = 0; i < hashCount; i++) {
 		uint64_t hash;
@@ -526,10 +532,13 @@ void Test_ContainerMask(const fspath gamedir) {
 		//std::cout << r.GetRemaining() << "\n";
 
 		maskhashes.insert(hash);
+		maskmap[hash] = padding;
 	}
 	assert(r.GetRemaining() == 0);
 
 	
+	std::string bulklist;
+	bulklist.reserve(1000000);
 	{
 		using namespace std::filesystem;
 
@@ -540,10 +549,44 @@ void Test_ContainerMask(const fspath gamedir) {
 				continue;
 			
 			uint64_t hash = GetContainerMaskHash(entry.path()).hash;
-			if(maskhashes.count(hash) == 0)
+			if (maskhashes.count(hash) == 0) {
 				std::cout << "Missing Archive: " << entry.path().filename() << "\n";
+				continue;
+			}
+
+			ResourceArchive currentarchive;
+			Read_ResourceArchive(currentarchive, entry.path(), RF_SkipData);
+
+			const auto& iter = maskmap.find(hash);
+			assert(iter != maskmap.end());
+			const char* maskstart = iter->second;
+
+			bulklist.append(entry.path().filename().string());
+			bulklist.append("\n------\n");
+			for(int i = 0; i < currentarchive.header.numResources; i++) {
+				const ResourceEntry& e = currentarchive.entries[i];
+
+				const char* typestring, *namestring;
+				Get_EntryStrings(currentarchive, e, typestring, namestring);
+
+				const char* maskbyte = maskstart + i / 8;
+				int maskbit = i % 8;
+
+				bool isloaded = (*maskbyte & static_cast<uint8_t>(1 << maskbit));
+				bulklist.append(std::to_string(isloaded));
+				bulklist.append(" \"");
+				bulklist.append(typestring);
+				bulklist.push_back('/');
+				bulklist.append(namestring);
+				bulklist.append("\"\n");
+
+			}
 		}
 	}
+
+	std::ofstream outstream("../input/maskloadlist.txt", std::ios_base::binary);
+	outstream << bulklist;
+	outstream.close();
 
 	delete[] buffer;
 }
@@ -742,6 +785,8 @@ void eventmaphash()
 }
 
 int main(int argc, char* argv[]) {
+	//#define DOOMETERNAL
+
 	#ifdef DOOMETERNAL
 	fspath gamedir = "D:/Steam/steamapps/common/DOOMEternal";
 	fspath outputdir = "../input/eternal";
@@ -752,9 +797,11 @@ int main(int argc, char* argv[]) {
 
 	fspath testgamedir = "../input/darkages/injectortest";
 
-	eventmaphash();
-	//Test_AuditAllArchives(gamedir);
+	//eventmaphash();
+	Test_AuditAllArchives(gamedir);
 
+
+	//std::cout << sizeof(ResourceMetaHeader);
 	//PackageMapSpec::ToString(gamedir);
 
 	//Test_ContainerMask(gamedir);
@@ -763,5 +810,4 @@ int main(int argc, char* argv[]) {
 	//Test_DumpManifests(gamedir, outputdir);
 	//Test_DumpAllHeaders(gamedir, outputdir);
 	//Test_DumpPriorityManifest();
-
 }
