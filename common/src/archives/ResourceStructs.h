@@ -105,9 +105,6 @@ struct ResourceArchive {
 	uint32_t* dependencyIndex = nullptr; // header.numDepIndices
 	uint64_t* stringIndex = nullptr; // header.numStringIndices
 
-	uint64_t idclOffset; // Eternal archive already tells us this
-	uint64_t idclSize; // Size of IDCL block before data. 
-
 	~ResourceArchive() {
 		delete[] bufferData;
 		delete[] entries;
@@ -146,6 +143,23 @@ void Read_ResourceArchive(ResourceArchive& r, const fspath pathString, int flags
 //void Write_ResourceArchive(const ResourceArchive& r, const fspath outpath, char** entries);
 
 void Get_EntryStrings(const ResourceArchive& r, const ResourceEntry& e, const char*& typeString, const char*& nameString);
+
+// Returns the offset where we *should* find the magic "IDCL" that denotes
+// the end of the meta section. Returned value is the offset of the 'I' character
+inline uint64_t Get_ExpectedMetaOffset(const ResourceHeader& h)
+{
+	return h.resourceDepsOffset
+		+ h.numDependencies  * sizeof(ResourceDependency)
+		+ h.numDepIndices    * sizeof(uint32_t)
+		+ h.numStringIndices * sizeof(uint64_t);
+}
+
+// Returns the byte size of the gap between the archive's meta chunk and data chunk
+// Starts at the 'I' in the "IDCL" magic and exclusively ends at the start of the data chunk
+inline uint64_t Get_GapSize(const ResourceHeader& h)
+{
+	return h.dataOffset - Get_ExpectedMetaOffset(h);
+}
 
 
 enum class EntryDataCode {

@@ -162,7 +162,7 @@ void Audit_ResourceHeader(const ResourceHeader& h, const ResourceMetaHeader& met
 	// Version-Dependent Data
 	if (h.version == 12) {
 		assert(metaheader.unknown == 0);
-		assert(metaheader.metaOffset == h.resourceDepsOffset + h.numDependencies * sizeof(ResourceDependency) + h.numDepIndices * sizeof(uint32_t) + h.numStringIndices * sizeof(uint64_t));
+		assert(metaheader.metaOffset == Get_ExpectedMetaOffset(h));
 		assert(h.resourceEntriesOffset == sizeof(ResourceHeader) + sizeof(ResourceMetaHeader));
 	}
 	else if (h.version == 13) {
@@ -322,8 +322,8 @@ containerMaskEntry_t GetContainerMaskHash(const fspath archivepath) {
 	ResourceHeader h;
 	input.read(reinterpret_cast<char*>(&h), sizeof(ResourceHeader));
 
-	size_t start = h.resourceEntriesOffset; // Assumes entries follow the header 
-	size_t end = h.resourceDepsOffset + h.numDependencies * sizeof(ResourceDependency) + h.numDepIndices * sizeof(uint32_t) + h.numStringIndices * sizeof(uint64_t) + 4;
+	size_t start = h.resourceEntriesOffset; // Assumes entries follow the header
+	size_t end = Get_ExpectedMetaOffset(h) + 4;
 	size_t len = end - start;
 	char* buffer = new char[len];
 

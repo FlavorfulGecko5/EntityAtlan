@@ -121,13 +121,10 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 		}
 	}
 
-	// Todo: Must move this further down when we start adding dependencies
 	stable.finalize(archive.stringChunk, h.stringTableSize);
 
 	/*
-	* Build Dependencies
-	* TODO: This section (and likely the string table) will need to be heavily revised.
-	* For now it's fine, since rs_streamfiles have no dependencies. But entitydefs do
+	* "Build" Dependencies - seems to be unnecessary. Dependencies only used by idStudio?
 	*/
 
 	h.resourceDepsOffset = h.stringTableOffset + h.stringTableSize;
@@ -140,16 +137,12 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 	/*
 	* Configure IDCL Size and Data Offset
 	*/
-	archive.idclOffset = h.resourceDepsOffset + h.numDependencies * sizeof(ResourceDependency) 
-		+ h.numDepIndices * sizeof(uint32_t) + h.numStringIndices * sizeof(uint64_t);
-	archive.idclSize = 4;
-	if(archive.idclOffset % 8 == 0) // Ensure the data offset has an 8 byte alignment
-		archive.idclSize += 4;
-	h.dataOffset = archive.idclOffset + archive.idclSize;
-	assert(h.dataOffset % 8 == 0);
 
 	archive.metaheader.unknown = 0;
-	archive.metaheader.metaOffset = archive.idclOffset;
+	archive.metaheader.metaOffset = Get_ExpectedMetaOffset(h);
+	uint64_t idclsize = 4 + (archive.metaheader.metaOffset + 4) % 8; // Ensure data offset has an 8 byte alignment
+	h.dataOffset = archive.metaheader.metaOffset + idclsize;
+	assert(h.dataOffset % 8 == 0);
 
 
 	/*
@@ -267,7 +260,7 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 
 	// IDCL
 	writer.write("IDCL", 4);
-	for(int i = 0; i < archive.idclSize - 4; i++);
+	for(int i = 0; i < idclsize - 4; i++);
 		writer.put('\0');
 
 	// Write data chunks
