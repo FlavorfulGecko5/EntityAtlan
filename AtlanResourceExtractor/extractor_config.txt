@@ -16,6 +16,7 @@ extractor = {
 		mapentities
 		binarymd6def
 		file
+		logicObjectDescriptor
 	}
 }
 deserializer = {

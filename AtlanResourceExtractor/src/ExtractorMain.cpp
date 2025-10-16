@@ -30,7 +30,7 @@ void ExtractorMain() {
 	/*
 	* REMEMBER TO UPDATE VERSION NUMBER
 	*/
-	atlog << "Atlan Consolidated Resource Extractor v2.1 by FlavorfulGecko5\n";
+	atlog << "Atlan Consolidated Resource Extractor v2.2 by FlavorfulGecko5\n";
 
 	/*
 	* Parse and validate config file
@@ -141,7 +141,7 @@ void ExtractorMain() {
 	* Download and load Oodle
 	* (Do it here so it doesn't get downloaded to the wrong folder if install folder is input wrong)
 	*/
-	if(!Oodle::AtlanOodleInit(config.inputdir));
+	if(!Oodle::AtlanOodleInit(config.inputdir))
 		return;
 
 	if (config.run_extractor) {
@@ -154,6 +154,16 @@ void ExtractorMain() {
 		size_t decompsize = 24000;
 		char* compbuffer = new char[compsize];
 		char* decompbuffer = new char[decompsize];
+
+		// Aliasing system for logic object descriptors
+		// Many of their filenames are too long to export verbatim.
+		// Plus, all of them use invalid path characters like ':'
+		struct {
+			std::string aliases;
+			int total = 0;
+		} descriptorData;
+
+		descriptorData.aliases.reserve(500000);
 
 		for(size_t i = 0; i < packages.size(); i++) {
 			fspath respath = basepath / packages[i];
@@ -188,18 +198,30 @@ void ExtractorMain() {
 					filecount++;
 				}
 
-				// Hacky fix for logic object descriptors
-				//std::string weirdpathfixup = namestring;
-				//if (strcmp(typestring, "logicObjectDescriptor") == 0) {
-				//	for(char& c : weirdpathfixup) {
-				//		if(c == ':')
-				//			c = '@';
-				//	}
-				//	namestring = weirdpathfixup.data();
-				//}
+				// Make adjustments to the output name string depending on the resource type
+				std::string adjustedNameString;
+				if (strcmp(typestring, "mapentities") == 0) {
+					adjustedNameString = namestring;
+					for (char& c : adjustedNameString) {
+						if(c == '/')
+							c = '@';
+					}
+				}
+				else if(strcmp( typestring, "logicObjectDescriptor") == 0) {
+					adjustedNameString = "logicObjectDescriptor_";
+					adjustedNameString.append(std::to_string(descriptorData.total));
+					adjustedNameString.append(".bin");
+
+					descriptorData.total++;
+					descriptorData.aliases.push_back('"');
+					descriptorData.aliases.append(adjustedNameString);
+					descriptorData.aliases.append("\" = \"logicObjectDescriptor/");
+					descriptorData.aliases.append(namestring);
+					descriptorData.aliases.append("\"\n");
+				}
 
 				// Setup the output path
-				fspath output_path = (config.outputdir / typestring) / namestring;
+				fspath output_path = (config.outputdir / typestring) / (adjustedNameString.empty() ? namestring : adjustedNameString.c_str());
 				{
 					if (!output_path.has_extension()) {
 						output_path.replace_extension(".bin");
@@ -234,6 +256,13 @@ void ExtractorMain() {
 
 		delete[] compbuffer;
 		delete[] decompbuffer;
+
+		// Write the LogicObjectDescriptor alias file, if it's populated
+		if(descriptorData.total > 0) {
+			std::ofstream descriptorwriter(config.outputdir / "logicObjectDescriptor/aliases.txt", std::ios_base::binary);
+			descriptorwriter << descriptorData.aliases;
+			descriptorwriter.close();
+		}
 
 		atlog << "Extraction Complete: " << extractedfiles.size() << " files extracted in total\n";
 	}
