@@ -378,6 +378,80 @@ bool IsModded_Meta(const fspath& path) {
 	return meta.entries[0].generationTimeStamp == MODDED_TIMESTAMP;
 }
 
+/*
+* CREATE / RESTORE BACKUPS; CLEANUP PREVIOUS INJECTION FILES
+* If returned false, a fatal error was encountered and program should abort
+*/
+bool CleanupLastLoad(const fspath gamedir) 	
+{
+	using namespace std::filesystem;
+
+	fspath modsdir = gamedir / "mods";
+	fspath basedir = gamedir / "base";
+	fspath outdir = basedir / "modarchives";
+	fspath outarchivepath = outdir / "common_mod.resources";
+	fspath pmspath = basedir / "packagemapspec.json";
+	fspath metapath = basedir / "meta.resources";
+
+	std::error_code lastCode;
+	//atlog << "Managing backups and cleaning up previous injection files.\n";
+
+	#define NUM_BACKUPS 2
+	const fspath backedupfiles[NUM_BACKUPS] = {pmspath, metapath};
+	bool IsModded[NUM_BACKUPS] = { IsModded_MapSpec(pmspath), IsModded_Meta(metapath)};
+
+	// Handle backups
+	for(int i = 0; i < NUM_BACKUPS; i++) {
+		const fspath& original = backedupfiles[i];
+		const fspath backup = original.string() + ".backup";
+
+		// Ensure the original file exists
+		if (!exists(original)) {
+			atlog << "ERROR: Could not find " << absolute(original);
+			return false;
+		}
+
+		// If the backup doesn't exist, assume this is a first time setup
+		// and copy it no matter what
+		if (!exists(backup)) {
+			copy_file(original, backup, copy_options::none, lastCode);
+		}
+		else {
+			// If the file is vanilla, override the existing backup
+			// (Do this to ensure backups are kept accurate across game updates)
+			if (!IsModded[i]) {
+				copy_file(original, backup, copy_options::overwrite_existing, lastCode);
+			}
+			else {
+				copy_file(backup, original, copy_options::overwrite_existing, lastCode);
+			}
+		}
+	}
+
+	// Create input/output directories if they don't exist yet
+	if (!exists(modsdir))
+		create_directory(modsdir, lastCode);
+	if(!exists(outdir))
+		create_directory(outdir, lastCode);
+
+	// Delete archives created from previous injections
+	std::vector<fspath> filesToDelete;
+	filesToDelete.reserve(10);
+	for (const directory_entry& dirEntry : directory_iterator(outdir)) {
+		if(dirEntry.is_directory())
+			continue;
+
+		if(dirEntry.path().extension() == ".resources") {
+			filesToDelete.push_back(dirEntry.path());
+		}
+	}
+	for (const fspath& fp : filesToDelete) {
+		remove(fp, lastCode);
+	}
+
+	return true;
+}
+
 void InjectorLoadMods(const fspath gamedir, const int argflags) {
 	fspath modsdir = gamedir / "mods";
 	fspath basedir = gamedir / "base";
@@ -390,70 +464,6 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 	std::vector<fspath> zipmodpaths;
 	loosemodpaths.reserve(20);
 	zipmodpaths.reserve(20);
-
-
-	/*
-	* CREATE / RESTORE BACKUPS; CLEANUP PREVIOUS INJECTION FILES
-	*/
-	{
-		using namespace std::filesystem;
-
-		std::error_code lastCode;
-		//atlog << "Managing backups and cleaning up previous injection files.\n";
-
-		#define NUM_BACKUPS 2
-		const fspath backedupfiles[NUM_BACKUPS] = {pmspath, metapath};
-		bool IsModded[NUM_BACKUPS] = { IsModded_MapSpec(pmspath), IsModded_Meta(metapath)};
-
-		// Handle backups
-		for(int i = 0; i < NUM_BACKUPS; i++) {
-			const fspath& original = backedupfiles[i];
-			const fspath backup = original.string() + ".backup";
-
-			// Ensure the original file exists
-			if (!exists(original)) {
-				atlog << "ERROR: Could not find " << absolute(original);
-				return;
-			}
-
-			// If the backup doesn't exist, assume this is a first time setup
-			// and copy it no matter what
-			if (!exists(backup)) {
-				copy_file(original, backup, copy_options::none, lastCode);
-			}
-			else {
-				// If the file is vanilla, override the existing backup
-				// (Do this to ensure backups are kept accurate across game updates)
-				if (!IsModded[i]) {
-					copy_file(original, backup, copy_options::overwrite_existing, lastCode);
-				}
-				else {
-					copy_file(backup, original, copy_options::overwrite_existing, lastCode);
-				}
-			}
-		}
-
-		// Create input/output directories if they don't exist yet
-		if (!exists(modsdir))
-			create_directory(modsdir, lastCode);
-		if(!exists(outdir))
-			create_directory(outdir, lastCode);
-
-		// Delete archives created from previous injections
-		std::vector<fspath> filesToDelete;
-		filesToDelete.reserve(10);
-		for (const directory_entry& dirEntry : directory_iterator(outdir)) {
-			if(dirEntry.is_directory())
-				continue;
-
-			if(dirEntry.path().extension() == ".resources") {
-				filesToDelete.push_back(dirEntry.path());
-			}
-		}
-		for (const fspath& fp : filesToDelete) {
-			remove(fp, lastCode);
-		}
-	}
 
 	if(argflags & argflag_resetvanilla) {
 		atlog << "Uninstalled all mods\n";
@@ -484,12 +494,6 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 				loosemodpaths.push_back(dirEntry.path());
 		}
 
-		//atlog << "\nZipped Paths\n";
-		//for(const fspath& f : zipmodpaths)
-		//	atlog << f << "\n";
-		//atlog << "\nLoose Paths\n";
-		//for(const fspath& f : loosemodpaths)
-		//	atlog << f << "\n";
 		atlog << "\nZipped Mods Found: " << zipmodpaths.size() << " Loose Mods Found: " << loosemodpaths.size() << "\n";
 	}
 	
@@ -675,7 +679,7 @@ void InjectorMain(int argc, char* argv[]) {
 
 	atlog << R"(
 ----------------------------------------------
-Atlan Mod Loader v)" << MOD_LOADER_VERSION << R"( for DOOM: The Dark Ages
+Atlan Mod Loader v)" << MOD_LOADER_VERSION << R"(.1 for DOOM: The Dark Ages
 By FlavorfulGecko5
 With Special Thanks to: Proteh, Zwip-Zwap-Zapony, Tjoener, and many other talented modders!
 https://github.com/FlavorfulGecko5/EntityAtlan/
@@ -770,6 +774,10 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 			return;
 		}
 	}
+
+	/* Cleanup last mod load. Moved this here so it's execution is independent of the executable patcher's success */
+	if (CleanupLastLoad(gamedirectory) == false)
+		return;
 
 	/*
 	* Read the Cache File if it exists
