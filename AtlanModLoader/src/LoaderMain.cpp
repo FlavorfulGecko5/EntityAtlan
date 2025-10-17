@@ -858,11 +858,34 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 			uint8_t failedpatches;
 		} returndata;
 
-		//atlog << patchCommand;
-		system(updateCommand.c_str());
-		*reinterpret_cast<int*>(&returndata) = system(patchCommand.c_str());
-
 		bool patchsuccess;
+
+		// Edge Case: We need to support manually updating the patcher's .def file in the event
+		// that proteh or any future maintainers become unavailable.
+		// Solution: First, try patching with the existing .def file.
+		// If that fails, try to update, then patch again, before finally giving up.
+		*reinterpret_cast<int*>(&returndata) = system(patchCommand.c_str());
+		switch(returndata.code) {
+			case 6: 
+			patchsuccess = true;
+			break;
+
+			case 0:
+			patchsuccess = returndata.failedpatches == 0;
+			break;
+
+			default:
+			patchsuccess = false;
+			break;
+		}
+
+		if (!patchsuccess) {
+			atlog << "Patcher Return Codes: " << returndata.code << " " << returndata.successfulpatches << " " << returndata.failedpatches << "\n";
+			atlog << "Initial patch attempt failed. Attempting to update patch definitions\n";
+			system(updateCommand.c_str());
+			*reinterpret_cast<int*>(&returndata) = system(patchCommand.c_str());
+		}
+		
 		switch(returndata.code) {
 			case 6: // Executable already fully patched
 			patchsuccess = true;
