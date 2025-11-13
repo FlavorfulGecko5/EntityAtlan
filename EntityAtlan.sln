@@ -10,16 +10,12 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "reflector", "reflector\refl
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "deserializer", "deserializer\deserializer.vcxproj", "{8E7D2617-9125-4C3F-AB2C-38366457DF34}"
 	ProjectSection(ProjectDependencies) = postProject
-		{094E42CF-99EE-4144-8B1E-A6B277590B55} = {094E42CF-99EE-4144-8B1E-A6B277590B55}
 		{31BD7844-9C32-4F72-98CB-6E61D74A2828} = {31BD7844-9C32-4F72-98CB-6E61D74A2828}
 	EndProjectSection
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "common", "common\common.vcxproj", "{31BD7844-9C32-4F72-98CB-6E61D74A2828}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "reserializer", "reserializer\reserializer.vcxproj", "{985E6D4F-E6E3-410A-93C4-208B2395B33C}"
-	ProjectSection(ProjectDependencies) = postProject
-		{094E42CF-99EE-4144-8B1E-A6B277590B55} = {094E42CF-99EE-4144-8B1E-A6B277590B55}
-	EndProjectSection
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "resourceAnalyzer", "resourceAnalyzer\resourceAnalyzer.vcxproj", "{C96B3154-753C-41B7-901B-5D3889A0AAA2}"
 	ProjectSection(ProjectDependencies) = postProject
