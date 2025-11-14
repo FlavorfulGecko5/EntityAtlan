@@ -452,11 +452,46 @@ void deserial::ds_start_mapentities(BinaryReader& reader, std::string& writeTo)
 
 	//writeTo.append(stringtable);
 
+	// New approach to header
+	#if 1
+	{
+		writeTo.append("// DO NOT MODIFY THE HEADER CHUNK\n");
+		writeTo.append("headerchunk {\n");
+
+		const char* headerStart = reader.GetBuffer();
+		const char* headerEnd = submapheaders[0].shortmask.GetBuffer();
+		size_t headerLength = headerEnd - reader.GetBuffer();
+
+		int i = 0;
+		int linecount = 0;
+		while (headerStart < headerEnd)
+		{
+			if (++linecount > 10000) {
+				writeTo.push_back('\n');
+				linecount = 0;
+			}
+
+			uint8_t val = *reinterpret_cast<const uint8_t*>(headerStart);
+
+			uint8_t lower = (val & 0xF)          + static_cast<uint8_t>('a');
+			uint8_t upper = ((val >> 4) & 0xF) + static_cast<uint8_t>('a');
+
+			writeTo.push_back(lower);
+			writeTo.push_back(upper);
+
+			headerStart++;
+		}
+
+		writeTo.append("\n}\n");
+	}
+	#else
+
 	// Append the raw header binary to the end of the file
 	writeTo.push_back('\0');
 	const char* headerEnd = submapheaders[0].shortmask.GetBuffer();
 	size_t headerLength = headerEnd - reader.GetBuffer();
 	writeTo.append(reader.GetBuffer(), headerLength);
+	#endif
 
 	delete[] submapheaders;
 	//printf("%s", stringtable.c_str());

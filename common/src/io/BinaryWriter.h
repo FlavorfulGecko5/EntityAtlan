@@ -9,6 +9,7 @@ class BinaryWriter
 	char* next = nullptr;
 	char* end = nullptr;
 	float defaultSizeMultiplier = 2.0f;
+	int numRealloations = 0;
 	std::vector<size_t> sizeStack;
 	
 	//std::ofstream file;
@@ -20,6 +21,10 @@ class BinaryWriter
 	*/
 
 	public:
+
+	int GetReallocCount() const {
+		return numRealloations;
+	}
 
 	size_t GetMaxCapacity() const {
 		return end - buffer;
@@ -57,6 +62,7 @@ class BinaryWriter
 
 		if (buffer != nullptr)
 		{
+			numRealloations++;
 			memcpy(newBuffer, buffer, GetFilledSize());
 			delete[] buffer;
 		}
@@ -123,6 +129,16 @@ class BinaryWriter
 	/*
 	* WRITING
 	*/
+
+	// Advance position by the desired number of bytes. 
+	// Does not zero out bytes
+	void AddBytes(const size_t numBytes) {
+		if (next + numBytes > end) {
+			GrowBuffer(GetMaxCapacity() + numBytes, defaultSizeMultiplier);
+		}
+
+		next += numBytes;
+	}
 
 	void WriteBytes(const char* bytes, const size_t numBytes) {
 		if (next + numBytes > end) {

@@ -197,10 +197,10 @@ void rs_submap(const std::vector<EntNode*> entities, BinaryWriter& layermask, Bi
 
 }
 
-void reserial::rs_start_mapentity(const EntNode& root, BinaryWriter& FILEWRITER, const char* eofblob, size_t eofbloblength)
+void reserial::rs_start_mapentity(const EntNode& root, BinaryWriter& entities, const char* eofblob, size_t eofbloblength)
 {
-	// New approach: Parse the eof blob (not finished yet)
-	#if 0
+	// New approach: Parse the eof blob
+	#if 1
 	{
 		const EntNode& headerchunk = root[root.getChildCount() - 1];
 		if (headerchunk.getName() != "headerchunk") {
@@ -216,25 +216,33 @@ void reserial::rs_start_mapentity(const EntNode& root, BinaryWriter& FILEWRITER,
 				return;
 			}
 
-			
-			for(int i = 0, max = headerline.NameLength(); i < max; i+= 2) {
+			const uint8_t* lineptr = reinterpret_cast<const uint8_t*>(headerline.NamePtr());
+			const uint8_t* linemax = lineptr + headerline.NameLength();
+			while(lineptr < linemax) {
 				
+				uint8_t lower = *lineptr - static_cast<uint8_t>('a');
+				uint8_t upper = *(lineptr + 1) - static_cast<uint8_t>('a');
+
+				uint8_t value = (upper << 4) + lower;
+				entities << value;
+
+				lineptr += 2;
 			}
 		}
-		
-
 	}
-	#endif
+	#else
 
 	if (eofbloblength < 4) {
 		LogWarning("[FATAL]: Missing binary blob at end of file");
 		return;
 	}
+	entities.WriteBytes(eofblob, eofbloblength); // Begin by copying over the header
+	#endif
 
 	/*
 	* Step 1: Gather the entities and associate them with their submaps
 	*/
-	int32_t submapcount = *reinterpret_cast<const int32_t*>(eofblob);
+	int32_t submapcount = *reinterpret_cast<const int32_t*>(entities.GetBuffer());
 	std::vector<std::vector<const EntNode*>> submapnodes;
 	std::vector<uint32_t> newlengths;
 	
@@ -283,14 +291,12 @@ void reserial::rs_start_mapentity(const EntNode& root, BinaryWriter& FILEWRITER,
 	}
 	#endif
 	
-	BinaryWriter layermask(25000, 2.0f); 
-	BinaryWriter entities(1000000, 1.5f); // Will also include the metadata
-
-	
-	FILEWRITER.WriteBytes(eofblob, eofbloblength); // Begin by copying over the header
-
 	for (int i = 0; i < submapcount; i++)
 	{
+		size_t layermask_position = entities.GetPosition();
+		entities.AddBytes(submapnodes[i].size() * sizeof(short)); // Reserve bytes for the layer index mask
+		size_t entitylist_position = entities.GetPosition();
+
 		entities << static_cast<uint32_t>(0x0A) << static_cast<uint8_t>(1) << static_cast<uint32_t>(0);
 
 		#if 0
@@ -324,14 +330,15 @@ void reserial::rs_start_mapentity(const EntNode& root, BinaryWriter& FILEWRITER,
 				if (ParseWholeNumber(layerindnode.ValuePtr(), layerindnode.ValueLength(), layerindex)) {
 					std::string_view layerstring = e["layers"][0].getNameUQ();
 					
-					layermask << layerindex;
+					*reinterpret_cast<uint16_t*>(entities.GetEditableBuffer() + layermask_position) = layerindex;
 					entities << static_cast<uint32_t>(1) << static_cast<uint32_t>(layerstring.length());
 					entities.WriteBytes(layerstring.data(), layerstring.length());
 				}
 				else {
-					layermask << static_cast<uint16_t>(0);
+					*reinterpret_cast<uint16_t*>(entities.GetEditableBuffer() + layermask_position) = static_cast<uint16_t>(0);
 					entities << static_cast<uint32_t>(0);
 				}
+				layermask_position += sizeof(uint16_t);
 			}
 
 			// Write the instance id information, if it exists
@@ -364,19 +371,13 @@ void reserial::rs_start_mapentity(const EntNode& root, BinaryWriter& FILEWRITER,
 		entities << static_cast<uint32_t>(0); // Final 4 null bytes of the file
 
 		// Length does NOT include the layer mask
-		newlengths.push_back(static_cast<uint32_t>(entities.GetFilledSize()));
-
-		FILEWRITER.WriteBytes(layermask.GetBuffer(), layermask.GetFilledSize());
-		FILEWRITER.WriteBytes(entities.GetBuffer(), entities.GetFilledSize());
-
-		layermask.Empty();
-		entities.Empty();
+		newlengths.push_back(static_cast<uint32_t>(entities.GetPosition() - entitylist_position));
 	}
 
 	/*
 	* FINAL STEP: Edit the header chunk to insert the new entity counts + submap chunk lengths
 	*/
-	uint32_t* headerchunk = reinterpret_cast<uint32_t*>(FILEWRITER.GetEditableBuffer());
+	uint32_t* headerchunk = reinterpret_cast<uint32_t*>(entities.GetEditableBuffer());
 	headerchunk += 2; // Align to entity count of first submap
 
 	for (int i = 0; i < submapcount; i++) {

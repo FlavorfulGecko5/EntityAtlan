@@ -39,16 +39,38 @@ void ReserialCompare_MapRoot(EntNode& original, EntNode& transformed)
 {
 	// Need to adjust how we compare the mapentities roots because
 	// we're no longer serializing the meta section
+	// In both cases, don't compare the final children since that's the header chunk
 	if (original.getChildCount() == transformed.getChildCount()) {
-		ReserialCompare(original, transformed);
+		for(int i = 0; i < original.getChildCount() - 1; i++)
+			ReserialCompare(original[i], transformed[i]);
 	}
 	else {
 		assert(original.getChildCount() - 1 == transformed.getChildCount());
 		assert(original[0].getName() == "metadata");
 		assert(transformed[0].getName() != "metadata");
 
-		for (int i = 1; i < original.getChildCount(); i++) {
+		for (int i = 1; i < original.getChildCount() - 1; i++) {
 			ReserialCompare(original[i], transformed[i-1]);
+		}
+	}
+
+	// First line of the header chunk will be modified by the serialization process
+	// We must manually compare it to ensure accuracy
+
+	EntNode& lastOriginal = original[original.getChildCount() - 1];
+	EntNode& lastTransformed = transformed[transformed.getChildCount() - 1];
+
+	if (lastOriginal.getName() != "headerchunk") {
+		assert(lastTransformed.getName() != "headerchunk");
+		ReserialCompare(lastOriginal, lastTransformed);
+	}
+	else {
+		assert(lastOriginal.getChildCount() == lastTransformed.getChildCount());
+
+		// Compare everything except for the first line (which is modified)
+		// Should be sufficient for verifying the process is round-trip
+		for (int i = 1; i < lastOriginal.getChildCount(); i++) {
+			ReserialCompare(lastOriginal[i], lastTransformed[i]);
 		}
 	}
 }
