@@ -199,6 +199,33 @@ void rs_submap(const std::vector<EntNode*> entities, BinaryWriter& layermask, Bi
 
 void reserial::rs_start_mapentity(const EntNode& root, BinaryWriter& FILEWRITER, const char* eofblob, size_t eofbloblength)
 {
+	// New approach: Parse the eof blob (not finished yet)
+	#if 0
+	{
+		const EntNode& headerchunk = root[root.getChildCount() - 1];
+		if (headerchunk.getName() != "headerchunk") {
+			LogWarning("[FATAL]: headerchunk node expected at end of file");
+			return;
+		}
+
+		for(int childindex = 0; childindex < headerchunk.getChildCount(); childindex++) 
+		{
+			const EntNode& headerline = headerchunk[childindex];
+			if (headerline.NameLength() % 2) {
+				LogWarning("[FATAL]: headerchunk malformed");
+				return;
+			}
+
+			
+			for(int i = 0, max = headerline.NameLength(); i < max; i+= 2) {
+				
+			}
+		}
+		
+
+	}
+	#endif
+
 	if (eofbloblength < 4) {
 		LogWarning("[FATAL]: Missing binary blob at end of file");
 		return;
@@ -232,8 +259,9 @@ void reserial::rs_start_mapentity(const EntNode& root, BinaryWriter& FILEWRITER,
 		}
 	}
 
+	#if 0
 	/*
-	* Step 2: Rebuild the metadata. (I have no idea whether or not this is important)
+	* Step 2: Rebuild the metadata. (This seems skippable)
 	*/
 	BinaryWriter metawriter(100000);
 	{
@@ -253,6 +281,7 @@ void reserial::rs_start_mapentity(const EntNode& root, BinaryWriter& FILEWRITER,
 			metawriter.WriteBytes(propval.data(), propval.length());
 		}
 	}
+	#endif
 	
 	BinaryWriter layermask(25000, 2.0f); 
 	BinaryWriter entities(1000000, 1.5f); // Will also include the metadata
@@ -263,7 +292,13 @@ void reserial::rs_start_mapentity(const EntNode& root, BinaryWriter& FILEWRITER,
 	for (int i = 0; i < submapcount; i++)
 	{
 		entities << static_cast<uint32_t>(0x0A) << static_cast<uint8_t>(1) << static_cast<uint32_t>(0);
+
+		#if 0
 		entities.WriteBytes(metawriter.GetBuffer(), metawriter.GetFilledSize());
+		#else
+		entities << static_cast<uint32_t>(0);
+		#endif
+
 		entities << static_cast<uint32_t>(0);
 		entities << static_cast<uint32_t>(submapnodes[i].size()); // Entity count
 

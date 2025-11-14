@@ -35,6 +35,24 @@ void ReserialCompare(EntNode& a, EntNode& b)
 	}
 }
 
+void ReserialCompare_MapRoot(EntNode& original, EntNode& transformed)
+{
+	// Need to adjust how we compare the mapentities roots because
+	// we're no longer serializing the meta section
+	if (original.getChildCount() == transformed.getChildCount()) {
+		ReserialCompare(original, transformed);
+	}
+	else {
+		assert(original.getChildCount() - 1 == transformed.getChildCount());
+		assert(original[0].getName() == "metadata");
+		assert(transformed[0].getName() != "metadata");
+
+		for (int i = 1; i < original.getChildCount(); i++) {
+			ReserialCompare(original[i], transformed[i-1]);
+		}
+	}
+}
+
 void RunTest(const fspath& folder, const fspath& extension, ResourceType restype)
 {
 	using namespace std::filesystem;
@@ -87,7 +105,14 @@ void RunTest(const fspath& folder, const fspath& extension, ResourceType restype
 		* and compare with the original deserialized file
 		*/
 		EntityParser second(ParsingMode::PERMISSIVE, std::string_view(deserialized), false);
-		ReserialCompare(*original.getRoot(), *second.getRoot());
+
+		if (restype == rt_mapentities) {
+			ReserialCompare_MapRoot(*original.getRoot(), *second.getRoot());
+		}
+		else {
+			ReserialCompare(*original.getRoot(), *second.getRoot());
+		}
+		
 
 		i++;
 	}
