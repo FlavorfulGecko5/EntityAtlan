@@ -81,6 +81,14 @@ class StringTable {
 
 
 void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) {
+	bool HotReloadMode = modfiles.size() == 1 && modfiles[0]->parentMod->IsUnzipped && modfiles[0]->typedata->typeenum == rt_mapentities;
+	if (HotReloadMode) {
+		atlog << "Experimental Hot Reload Mode Engaged\n";
+	}
+
+	size_t HotReloadPadding = 0;
+
+
 	ResourceArchive archive;
 	ResourceHeader& h = archive.header;
 	
@@ -170,20 +178,27 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 		e.numSources = 0;
 		e.numSpecialHashes = 0;
 		e.numMetaEntries = 0;
-
-		// TODO: Does this need to be non-zero? Probably not, but monitor
-		// TODO: Padding? Probably not necessary?
-		e.generationTimeStamp = 0; 
-
-		// Moved from per-resource to global
 		e.depIndices = 0;
 		e.numDependencies = 0;
+		e.generationTimeStamp = 0;
+		for(int i = 0; i < sizeof(e.padding); i++) 
+			e.padding[i] = 0; // Indeterminant in release builds. Must set = 0 to stabilize hash for hot reloading
+
+		// Executable patcher disables these checksums. 
+		// Plus these are calculated using the uncompressed data - bad if we want to pre-compress mod files
+		// HashLib::ResourceMurmurHash
+		e.dataCheckSum = -1; 
+
 		e.dataSize = f.dataLength;
-		e.uncompressedSize = f.dataLength;
+
+		if (HotReloadMode) {
+			e.dataSize = 40000000;
+			HotReloadPadding = e.dataSize - f.dataLength;
+		}
+
+		e.uncompressedSize = e.dataSize;
 		e.compMode = 0; // TODO: Is the murmur hash ran on the compressed or uncompressed data? (Answer: It's the uncompressed data)
 		
-		e.dataCheckSum = -1; // Executable patcher disables these checksum verifications
-		//e.dataCheckSum = HashLib::ResourceMurmurHash(std::string_view(static_cast<char*>(f.dataBuffer), f.dataLength));
 
 		if (f.typedata->typeenum & rtc_streamdb_hash) {
 			e.defaultHash = f.defaulthash;
@@ -270,6 +285,14 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 
 		writer.seekp(e.dataOffset, std::ios_base::beg);
 		writer.write(rc(f.dataBuffer), f.dataLength);
+
+		if(HotReloadMode) {
+			char* paddingbuffer = new char[HotReloadPadding];
+			memset(paddingbuffer, 0, HotReloadPadding);
+			writer.write(paddingbuffer, HotReloadPadding);
+
+			delete[] paddingbuffer;
+		}
 	}
 	writer.close();
 
@@ -572,7 +595,7 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 		for (const auto& pair : priorityAssets) {
 			supermod.push_back(pair.second);
 		}
-	} 
+	}
 
 	/*
 	* COMPILATION STEP
@@ -589,7 +612,7 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 			if(!isSerialized) {
 				atlog << "Serializing " << file->realPath << "\n";
 
-				BinaryWriter writer(static_cast<size_t>(file->dataLength * 0.5));
+				BinaryWriter writer(static_cast<size_t>(file->dataLength * 0.75));
 
 				Reserializer::Serialize((char*)file->dataBuffer, file->dataLength, writer, file->typedata->typeenum);
 
