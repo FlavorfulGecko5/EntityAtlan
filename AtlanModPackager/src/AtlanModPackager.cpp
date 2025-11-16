@@ -10,14 +10,13 @@
 #include "ReserialMain.h"
 #include "io/BinaryWriter.h"
 #include "miniz/miniz.h"
+#include "atlan/AtlanOodle.h"
 
 typedef std::filesystem::path fspath;
 
 void PackagerMain()
 {
 	using namespace std::filesystem;
-
-	atlog << "Atlan Mod Packager v1.0.1 by FlavorfulGecko5\n";
 
 	const std::unordered_map<std::string, ResourceType> serialtypes = {
 		{"entityDef",     rt_entityDef},
@@ -37,6 +36,9 @@ void PackagerMain()
 	#define CFG_NAME "darkagesmod.txt"
 	fspath configpath; // Will be empty if config was not found
 
+
+	if(!Oodle::AtlanOodleInit("."))
+		return;
 
 	/* Gather all mod filepaths */
 	{
@@ -97,7 +99,9 @@ void PackagerMain()
 	mz_zip_archive zipfile;
 	mz_zip_archive* zptr = &zipfile;
 	mz_zip_zero_struct(zptr);
-	mz_zip_writer_init_heap(zptr, 4096, 4096);
+
+	// Keep both values at zero or the finalized zip file will have some sort of offset error
+	mz_zip_writer_init_heap(zptr, 0, 0);
 
 	/* iterate through all the files */
 	for(const fspath& modfile : filepaths) 
@@ -151,8 +155,27 @@ void PackagerMain()
 			Reserializer::Serialize(modfile.string().c_str(), serialized, typeenum);
 
 			std::string bin_name = fspath(zippedName).replace_extension(".bin").string();
+			bool result;
 
-			bool result = mz_zip_writer_add_mem(zptr, bin_name.c_str(), serialized.GetBuffer(), serialized.GetFilledSize(), MZ_DEFAULT_COMPRESSION);
+			// Oodle Compress Mapentities
+			//if(0){
+			if (typestring == "mapentities") {
+				char* compbuffer = nullptr;
+				size_t outputlength = 0, outputBufferLength = 0;
+
+				atlog << "Compressing " << zippedName << "\n";
+				if(!Oodle::AtlanCompress(serialized.GetBuffer(), serialized.GetFilledSize(), compbuffer, outputlength, outputBufferLength))
+					atlog << "ERROR: Failed to create Atlan Compression File\n";
+
+				assert(Oodle::IsAtlanCompFile(compbuffer, outputlength));
+				result = mz_zip_writer_add_mem(zptr, bin_name.c_str(), compbuffer, outputlength, MZ_DEFAULT_COMPRESSION);
+
+				delete[] compbuffer;
+			}
+			else {
+				result = mz_zip_writer_add_mem(zptr, bin_name.c_str(), serialized.GetBuffer(), serialized.GetFilledSize(), MZ_DEFAULT_COMPRESSION);
+			}
+
 			if (!result) {
 				atlog << "ERROR: Failed to add " << bin_name << " to zip file\n";
 			}
@@ -180,32 +203,74 @@ void PackagerMain()
 	std::ofstream zipoutput("AtlanPackage.zip", std::ios_base::binary);
 	zipoutput.write((char*)buffer, buffersize);
 	zipoutput.close();
+	delete[] buffer;
 }
 
-int main()
+// Unused
+void AlternateMode(int argc, char* argv[])
+{
+	atlog << "\n";
+
+	if (argc != 4 || strcmp(argv[1], "--serializemap") != 0) {
+		atlog << "Specialized Mode: AtlanModPackager.exe --serializemap <input_path> <output_path>\n";
+		return;
+	}
+
+	using namespace std::filesystem;
+
+	fspath inputpath = absolute(argv[2]);
+	fspath outputpath = absolute(argv[3]);
+
+	if(!exists(inputpath) || is_directory(inputpath)) {
+		atlog << "FATAL ERROR: Input file does not exist\n";
+		return;
+	}
+
+	if (is_directory(outputpath) || !is_directory(outputpath.parent_path())) {
+		atlog << "FATAL ERROR: Invalid output location\n";
+		return;
+	}
+
+	BinaryWriter writer(static_cast<size_t>(file_size(inputpath) * 0.5f));
+	atlog << "Serializing Mapentities " << inputpath << "\n";
+
+	int warningcount = Reserializer::Serialize(inputpath.string().c_str(), writer, rt_mapentities);
+
+	atlog << "Total Warnings: " << warningcount << "\n";
+	atlog << "Writing output to " << outputpath << "\n";
+
+	std::ofstream outwriter(outputpath, std::ios_base::binary);
+	outwriter.write(writer.GetBuffer(), writer.GetFilledSize());
+	outwriter.close();
+}
+
+int main(int argc, char* argv[])
 {
 	#define logpath "packager_log.txt"
 
-	#ifdef _DEBUG
-	AtlanLogger::init(logpath);
-	PackagerMain();
-	AtlanLogger::exit();
-	#else
-
+	#ifndef _DEBUG
 	try {
+	#endif
+
 		AtlanLogger::init(logpath);
+		atlog << "Atlan Mod Packager v1.1 by FlavorfulGecko5\n";
 		PackagerMain();
+		
+
+	#ifndef _DEBUG
 	}
 	catch (std::exception e) {
 		atlog << "\n\nFATAL ERROR: An unexpected crash has occurred\n"
 			<< "This may have left your packaged zip incomplete or corrupted.\n"
 			<< "Error Message: " << e.what();
 	}
+	#endif
 
 	atlog << "\n\nThis window will close in 10 seconds\n";
 	atlog << "Output written to " << logpath << "\n";
 	AtlanLogger::exit();
 	
+	#ifndef _DEBUG
 	std::this_thread::sleep_for(std::chrono::seconds(10));
 	#endif
 }

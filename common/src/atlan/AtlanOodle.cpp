@@ -48,3 +48,64 @@ bool Oodle::AtlanOodleInit(const std::filesystem::path& gamedirectory)
 
 	return true;
 }
+
+/*
+* ATLAN COMPRESSION FILE FORMAT:
+* - Magic: "ATCF" (Atlan Compression File)
+* - 8 Bytes: Decompressed Size
+* - 8 Bytes: Compressed Size
+*/
+
+int Oodle::AtlanCompHeaderSize()
+{
+	return 4 * sizeof(char) + 2 * sizeof(size_t);
+}
+
+size_t Oodle::atcf_uncompressedSize(const char* input)
+{
+	return *(const size_t*)(input + 4);
+}
+
+const char* Oodle::atcf_dataptr(const char* input)
+{
+	return input + AtlanCompHeaderSize();
+}
+
+bool Oodle::AtlanCompress(const char* input, size_t inputlength, char*& output, size_t& outputlength, size_t& outputBufferLength)
+{
+	size_t targetSize = inputlength + 65000;
+
+	if (outputBufferLength < targetSize) {
+		delete[] output;
+		output = new char[targetSize];
+		outputBufferLength = targetSize;
+	}
+
+	size_t compressedSize; // Const cast is probably fine here...todo: inspect Oodle function signatures
+	bool result = Oodle::CompressBuffer(const_cast<char*>(input), inputlength, output + AtlanCompHeaderSize(), compressedSize);
+	if(!result)
+		return false;
+
+	outputlength = AtlanCompHeaderSize() + compressedSize;
+
+	memcpy(output, "ATCF", 4);
+	*(size_t*)(output + 4) = inputlength;
+	*(size_t*)(output + 12) = compressedSize;
+
+	return true;
+}
+
+bool Oodle::IsAtlanCompFile(const char* input, size_t inputlength)
+{
+	if(inputlength < AtlanCompHeaderSize())
+		return false;
+
+	if(memcmp(input, "ATCF", 4) != 0)
+		return false;
+
+	size_t compressedSize = *(size_t*)(input + 12);
+	if(inputlength - AtlanCompHeaderSize() != compressedSize)
+		return false;
+
+	return true;
+}

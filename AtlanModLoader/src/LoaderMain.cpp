@@ -81,13 +81,14 @@ class StringTable {
 
 
 void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) {
-	bool HotReloadMode = modfiles.size() == 1 && modfiles[0]->parentMod->IsUnzipped && modfiles[0]->typedata->typeenum == rt_mapentities;
+	bool HotReloadMode = modfiles.size() == 1 && !modfiles[0]->isAtlanCompressed && modfiles[0]->parentMod->IsUnzipped && modfiles[0]->typedata->typeenum == rt_mapentities;
 	if (HotReloadMode) {
 		atlog << "Experimental Hot Reload Mode Engaged\n";
 	}
 
 	size_t HotReloadPadding = 0;
 
+	const size_t ATCF_SIZE = Oodle::AtlanCompHeaderSize();
 
 	ResourceArchive archive;
 	ResourceHeader& h = archive.header;
@@ -189,24 +190,30 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 		// HashLib::ResourceMurmurHash
 		e.dataCheckSum = -1; 
 
-		e.dataSize = f.dataLength;
-
-		if (HotReloadMode) {
-			e.dataSize = 40000000;
-			HotReloadPadding = e.dataSize - f.dataLength;
-		}
-
-		e.uncompressedSize = e.dataSize;
-		e.compMode = 0; // TODO: Is the murmur hash ran on the compressed or uncompressed data? (Answer: It's the uncompressed data)
-		
-
 		if (f.typedata->typeenum & rtc_streamdb_hash) {
 			e.defaultHash = f.defaulthash;
 		}
 		else {
 			e.defaultHash = e.dataCheckSum;
 		}
-		
+
+		// If this is an Atlan Compressed File, we must account for the ATCF header size
+		if (f.isAtlanCompressed) {
+			e.dataSize = f.dataLength - ATCF_SIZE;
+			e.uncompressedSize = Oodle::atcf_uncompressedSize((const char*)f.dataBuffer);
+			e.compMode = 2;
+		}
+		else {
+			if (HotReloadMode) { // We assume Hot Reload mode + Comp files are mutually exclusive
+				e.dataSize = 40000000;
+				HotReloadPadding = e.dataSize - f.dataLength;
+			}
+			else {
+				e.dataSize = f.dataLength;
+			}
+			e.uncompressedSize = e.dataSize;
+			e.compMode = 0;
+		}
 
 		// TODO: There's a fair bit of padding between each resource data block.
 		// At a minimum, a data block has 8-byte alignment. It's unknown what the implications of ignoring
@@ -284,7 +291,7 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 		const ModFile& f = *modfiles[i];
 
 		writer.seekp(e.dataOffset, std::ios_base::beg);
-		writer.write(rc(f.dataBuffer), f.dataLength);
+		writer.write(rc(f.dataBuffer) + (f.isAtlanCompressed ? ATCF_SIZE : 0), f.dataLength - (f.isAtlanCompressed ? ATCF_SIZE : 0));
 
 		if(HotReloadMode) {
 			char* paddingbuffer = new char[HotReloadPadding];
@@ -538,101 +545,104 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 	}
 
 	/*
-	* BUILD THE SUPER MOD - This is a consolidated "mod" containing the highest
-	* priority version of every mod file. All mod file conflicts will be resolved here
-	* (conflicts from different mods, or from the same mods - in the case of bad aliasing setups)
+	* Build the supermod - the list of mod files we will actually load into the archive
 	*/
-	atlog << "\n\nChecking for Conflicts:\n----------\n";
 
 	std::vector<ModFile*> supermod;
-	{
-		std::unordered_map<std::string, ModFile*> priorityAssets;
+	std::unordered_map<std::string, ModFile*> find_defaulthashes;
+	std::unordered_map<std::string, ModFile*> priorityAssets;
 
-		for(int i = 0; i < totalmods; i++) {
-			ModDef& current = realmods[i];
+	/*
+	* Check for mod conflicts - eliminating any duplicate assets
+	*/
 
-			for(ModFile& file : current.modFiles) {
+	atlog << "\n\nChecking for Conflicts:\n----------\n";
+	for(int i = 0; i < totalmods; i++) {
+		ModDef& current = realmods[i];
 
-				// Must do this to prevent false conflicts between files
-				// with the same path but different resource type
-				std::string lookupstring(file.typedata->typestring);
-				lookupstring.append(file.assetPath);
+		for(ModFile& file : current.modFiles) {
 
-				auto iter = priorityAssets.find(lookupstring);
-				if(iter == priorityAssets.end()) {
+			// Must do this to prevent false conflicts between files
+			// with the same path but different resource type
+			std::string lookupstring(file.typedata->typestring);
+			lookupstring.append(file.assetPath);
 
-					/* 
-					* Ensure zipped mod files are serialized 
-					*/
-					if (file.typedata->typeenum & rtc_serialized) {
-						
-						bool isSerialized = Reserializer::IsSerialized((char*)file.dataBuffer, file.dataLength, file.typedata->typeenum);
-						if (!isSerialized && !current.IsUnzipped) {
-							atlog << "ERROR: Zipped file is not serialized! Please use AtlanModPackger to serialize your mod files before distributing them.\n"
-								<< "   Mod: " << current.modName << " - " << file.realPath;
-							continue;
-						}
-					}
+			auto iter = priorityAssets.find(lookupstring);
+			if(iter == priorityAssets.end()) {
+				priorityAssets.emplace(lookupstring, &file);
+			} 
+			else {
+				bool replaceMapping = current.loadPriority < iter->second->parentMod->loadPriority;
 
-					priorityAssets.emplace(lookupstring, &file);
-				} 
-				else {
-					bool replaceMapping = current.loadPriority < iter->second->parentMod->loadPriority;
+				atlog << "CONFLICT FOUND: " << file.assetPath
+					<< "\n(A):" << current.modName << " - " << file.realPath
+					<< "\n(B):" << iter->second->parentMod->modName << " - " << iter->second->realPath
+					<< "\nWinner: " << (replaceMapping ? "(A)\n---\n" : "(B)\n---\n");
 
-					atlog << "CONFLICT FOUND: " << file.assetPath
-						<< "\n(A):" << current.modName << " - " << file.realPath
-						<< "\n(B):" << iter->second->parentMod->modName << " - " << iter->second->realPath
-						<< "\nWinner: " << (replaceMapping ? "(A)\n---\n" : "(B)\n---\n");
-
-					if(replaceMapping) {
-						iter->second = &file;
-					}
+				if(replaceMapping) {
+					iter->second = &file;
 				}
 			}
-		}
-
-		supermod.reserve(priorityAssets.size());
-		for (const auto& pair : priorityAssets) {
-			supermod.push_back(pair.second);
 		}
 	}
 
 	/*
-	* COMPILATION STEP
-	* - Reserialize unzipped mod files
-	* - Ensure zipped mod files are serialized
+	* Second pass to further analyze the prioritized files
 	*/
-	std::unordered_map<std::string, ModFile*> find_defaulthashes;
 
 	atlog << "\n\nCompiling Mod Files:\n----------\n";
-	for (ModFile* file : supermod) {
-		if (file->typedata->typeenum & rtc_serialized) {
+	supermod.reserve(priorityAssets.size());
+	for (const auto& pair : priorityAssets) {
+		ModFile& file = *pair.second;
 
-			bool isSerialized = Reserializer::IsSerialized((char*)file->dataBuffer, file->dataLength, file->typedata->typeenum);
-			if(!isSerialized) {
-				atlog << "Serializing " << file->realPath << "\n";
+		// Must check whether a file is Atlan Compressed
+		file.isAtlanCompressed = Oodle::IsAtlanCompFile((const char*)file.dataBuffer, file.dataLength);
 
-				BinaryWriter writer(static_cast<size_t>(file->dataLength * 0.75));
+		// Handle serialized files
+		if (file.typedata->typeenum & rtc_serialized) {
 
-				Reserializer::Serialize((char*)file->dataBuffer, file->dataLength, writer, file->typedata->typeenum);
+			// We assume atlan compressed files (created via the mod packager) are serialized
+			bool isSerialized = file.isAtlanCompressed || Reserializer::IsSerialized((char*)file.dataBuffer, file.dataLength, file.typedata->typeenum);
 
-				size_t newsize = writer.GetFilledSize();
-				char* newbuffer = writer.Finalize();
+			if (!isSerialized)
+			{
 
-				delete[] file->dataBuffer;
-				file->dataBuffer = newbuffer;
-				file->dataLength = newsize;
+				// For fast iteration, we permit unzipped mod files to be unserialized and serialize them here
+				if(file.parentMod->IsUnzipped) 	{
+					atlog << "Serializing " << file.realPath << "\n";
+
+					BinaryWriter writer(static_cast<size_t>(file.dataLength * 0.75));
+
+					Reserializer::Serialize((char*)file.dataBuffer, file.dataLength, writer, file.typedata->typeenum);
+
+					size_t newsize = writer.GetFilledSize();
+					char* newbuffer = writer.Finalize();
+
+					delete[] file.dataBuffer;
+					file.dataBuffer = newbuffer;
+					file.dataLength = newsize;
+				}
+
+				// Filter out zipped mod files that aren't serialized
+				else {
+					atlog << "ERROR: Zipped file is not serialized! Please use AtlanModPackager to serialize your mod files before distributing them.\n"
+						<< "   Mod: " << file.parentMod->modName << " - " << file.realPath;
+					continue;
+				}
 			}
 		}
 
-		if (file->typedata->typeenum & rtc_streamdb_hash) {
-			std::string lookupstring(file->typedata->typestring);
-			lookupstring.append(file->assetPath);
-			find_defaulthashes[lookupstring] = file;
+		// If an asset requires a streamdb hash, add it to the lookup map
+		if (file.typedata->typeenum & rtc_streamdb_hash) {
+			find_defaulthashes[pair.first] = &file;
 		}
-			
+
+		supermod.push_back(&file);
 	}
 
+	/*
+	* Find streamdb hashes if necessary
+	*/
 	if(find_defaulthashes.size() > 0) {
 		atlog << "Finding streamdb hashes for " << find_defaulthashes.size() << " mod files\n";
 
@@ -702,7 +712,7 @@ void InjectorMain(int argc, char* argv[]) {
 
 	atlog << R"(
 ----------------------------------------------
-Atlan Mod Loader v)" << MOD_LOADER_VERSION << R"(.1 for DOOM: The Dark Ages
+Atlan Mod Loader v)" << MOD_LOADER_VERSION << R"(.0 for DOOM: The Dark Ages
 By FlavorfulGecko5
 With Special Thanks to: Proteh, Zwip-Zwap-Zapony, Tjoener, and many other talented modders!
 https://github.com/FlavorfulGecko5/EntityAtlan/

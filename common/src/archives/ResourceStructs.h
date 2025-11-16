@@ -144,6 +144,8 @@ void Read_ResourceArchive(ResourceArchive& r, const fspath pathString, int flags
 
 void Get_EntryStrings(const ResourceArchive& r, const ResourceEntry& e, const char*& typeString, const char*& nameString);
 
+void Get_DependencyStrings(const ResourceArchive& r, const ResourceDependency& d, const char*& typestring, const char*& namestring);
+
 // Returns the offset where we *should* find the magic "IDCL" that denotes
 // the end of the meta section. Returned value is the offset of the 'I' character
 inline uint64_t Get_ExpectedMetaOffset(const ResourceHeader& h)

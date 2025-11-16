@@ -25,6 +25,12 @@ void Get_EntryStrings(const ResourceArchive& r, const ResourceEntry& e, const ch
 
 }
 
+void Get_DependencyStrings(const ResourceArchive& r, const ResourceDependency& d, const char*& typestring, const char*& namestring)
+{
+	typestring = r.stringChunk.dataBlock + r.stringChunk.offsets[d.type];
+	namestring = r.stringChunk.dataBlock + r.stringChunk.offsets[d.name];
+}
+
 ResourceEntryData_t Get_EntryData_Internal(const ResourceEntry& e, char* raw, char*& buffer, size_t& buffersize) {
 	switch (e.compMode)
 	{

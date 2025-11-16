@@ -491,9 +491,76 @@ void Test_DumpManifests(fspath installDir, fspath outputDir) {
 	}
 }
 
+void Test_GetAllResourceTypes(const fspath gamedir)
+{
+	fspath basedir = gamedir / "base";
+	std::set<std::string> restypes;
+
+	std::vector<std::string> archivelist = PackageMapSpec::GetPrioritizedArchiveList(gamedir, false);
+
+
+	for(const std::string& archivepath : archivelist)
+	{
+		ResourceArchive archive;
+		Read_ResourceArchive(archive, basedir / archivepath, RF_SkipData);
+
+		for (int i = 0; i < archive.header.numResources; i++)
+		{
+			const ResourceEntry& e = archive.entries[i];
+			const char* typestring, *namestring;
+
+			Get_EntryStrings(archive, e, typestring, namestring);
+
+			restypes.insert(std::string(typestring));
+		}
+		
+	}
+
+	for(const std::string& t : restypes)
+	{
+		std::cout << t << "\n";
+	}
+}
+
+void Test_GetAllDependencyTypes(const fspath gamedir)
+{
+	fspath basedir = gamedir / "base";
+	std::set<std::string> restypes;
+
+	std::vector<std::string> archivelist = PackageMapSpec::GetPrioritizedArchiveList(gamedir, false);
+
+
+	for (const std::string& archivepath : archivelist)
+	{
+		ResourceArchive archive;
+		Read_ResourceArchive(archive, basedir / archivepath, RF_SkipData);
+
+		for (int i = 0; i < archive.header.numDependencies; i++)
+		{
+			const ResourceDependency& d = archive.dependencies[i];
+			const char* typestring, * namestring;
+
+			Get_DependencyStrings(archive, d, typestring, namestring);
+
+			restypes.insert(std::string(typestring));
+		}
+
+	}
+
+	for (const std::string& t : restypes)
+	{
+		std::cout << t << "\n";
+	}
+}
+
 void Test_ContainerMask(const fspath gamedir) {
 
-	std::unordered_map<uint64_t, const char*> maskmap;
+	struct maskdata_t {
+		uint64_t numbits = 0;
+		const char* data = nullptr;
+	};
+
+	std::unordered_map<uint64_t, maskdata_t> maskmap;
 	std::set<uint64_t> maskhashes;
 
 	const fspath metapath = gamedir / "base/meta.resources";
@@ -532,7 +599,7 @@ void Test_ContainerMask(const fspath gamedir) {
 		//std::cout << r.GetRemaining() << "\n";
 
 		maskhashes.insert(hash);
-		maskmap[hash] = padding;
+		maskmap[hash] = {paddingCount * 64, padding};
 	}
 	assert(r.GetRemaining() == 0);
 
@@ -559,7 +626,7 @@ void Test_ContainerMask(const fspath gamedir) {
 
 			const auto& iter = maskmap.find(hash);
 			assert(iter != maskmap.end());
-			const char* maskstart = iter->second;
+			const char* maskstart = iter->second.data;
 
 			bulklist.append(entry.path().filename().string());
 			bulklist.append("\n------\n");
@@ -581,6 +648,27 @@ void Test_ContainerMask(const fspath gamedir) {
 				bulklist.append("\"\n");
 
 			}
+
+			// Extra bytes
+			int loadedslots = 0, unloadedslots = 0;
+			for(int i = currentarchive.header.numResources, max = iter->second.numbits; i < max; i++) {
+				const char* maskbyte = maskstart + i / 8;
+				int maskbit = i % 8;
+				bool isloaded = (*maskbyte & static_cast<uint8_t>(1 << maskbit));
+
+				if(isloaded)
+					loadedslots++;
+				else unloadedslots++;
+
+				bulklist.append(std::to_string(isloaded));
+				bulklist.append(" Extra Slot\n");
+			}
+
+			assert(!(loadedslots != 0 && unloadedslots != 0));
+			if (loadedslots > 0) {
+				std::cout << entry.path().string().substr(43) << " Useable Slots: " << loadedslots << "\n";
+			}
+			
 		}
 	}
 
@@ -784,6 +872,27 @@ void eventmaphash()
 	}
 }
 
+void compresstest()
+{
+	assert(Oodle::init());
+
+	BinaryOpener open("D:/DA/atlan/mapentities/maps@game@sp@m6_hell@m6_hell.bin");
+	BinaryReader reader = open.ToReader();
+
+	char* compbuffer = new char[reader.GetLength() + 65000];
+	size_t complength = 0;
+
+	assert(Oodle::CompressBuffer(const_cast<char*>(reader.GetBuffer()), reader.GetLength(), compbuffer, complength));
+
+	std::cout << reader.GetLength() << " " << complength;
+
+	assert(*(unsigned char*)compbuffer == (unsigned char)0x8C);
+
+	std::ofstream outwriter("../input/oodlecompinfo.bin", std::ios_base::binary);
+	outwriter.write(compbuffer, 64);
+	outwriter.close();
+}
+
 int main(int argc, char* argv[]) {
 	//#define DOOMETERNAL
 
@@ -796,6 +905,10 @@ int main(int argc, char* argv[]) {
 	#endif
 
 	fspath testgamedir = "../input/darkages/injectortest";
+
+
+	//uint64_t hash = HashLib::ResourceMurmurHash("idPlayer");
+	//std::cout << hash;
 
 	//eventmaphash();
 	Test_AuditAllArchives(gamedir);
@@ -810,4 +923,6 @@ int main(int argc, char* argv[]) {
 	//Test_DumpManifests(gamedir, outputdir);
 	//Test_DumpAllHeaders(gamedir, outputdir);
 	//Test_DumpPriorityManifest();
+	//Test_GetAllResourceTypes(gamedir);
+	//Test_GetAllDependencyTypes(gamedir);
 }
