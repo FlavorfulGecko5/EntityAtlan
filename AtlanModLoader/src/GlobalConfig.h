@@ -8,7 +8,8 @@ enum ArgFlags {
 	argflag_verbose = 1 << 2,
 	argflag_nolaunch = 1 << 3,
 	argflag_forceload = 1 << 4,
-	argflag_neverpatch = 1 << 5
+	argflag_neverpatch = 1 << 5,
+	argflag_noExitTimer = 1 << 6
 };
 
 // What version the output resource archive should be

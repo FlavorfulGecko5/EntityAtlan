@@ -708,7 +708,7 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 	delete[] realmods;
 }
 
-void InjectorMain(int argc, char* argv[]) {
+void InjectorMain(int argc, char* argv[], int& argflags) {
 
 	atlog << R"(
 ----------------------------------------------
@@ -718,8 +718,6 @@ With Special Thanks to: Proteh, Zwip-Zwap-Zapony, Tjoener, and many other talent
 https://github.com/FlavorfulGecko5/EntityAtlan/
 ----------------------------------------------
 )";
-
-	int argflags = 0;
 	
 	// Do not end in a / or there may be problems when running system commands 
 	// (it won't translate string literal slashes to the appropriate slash like it does when using the / operator)
@@ -734,6 +732,11 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 		if(arg == "--verbose") {
 			atlog << "ARGS: Verbose Logging Enabled\n";
 			argflags |= argflag_verbose;
+		}
+
+		else if (arg == "--notimer") {
+			atlog << "ARGS: Exit timer disabled\n";
+			argflags |= argflag_noExitTimer;
 		}
 
 		else if (arg == "--nolaunch") {
@@ -764,7 +767,7 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 
 		else {
 			LABEL_EXIT_HELP:
-			atlog << "AtlanModLoader.exe [--verbose] [--nolaunch] [--forceload] [--neverpatch] [--gamedir <Dark Ages Installation Folder>]\n";
+			atlog << "AtlanModLoader.exe [--verbose] [--notimer] [--nolaunch] [--forceload] [--neverpatch] [--gamedir <Dark Ages Installation Folder>]\n";
 			return;
 		}
 	}
@@ -999,9 +1002,11 @@ int main(int argc, char* argv[]) {
 
 	#define LOGPATH "modloader_log.txt"
 
+	int argflags = 0;
+
 	try {
 		AtlanLogger::init(LOGPATH);
-		InjectorMain(argc, argv);
+		InjectorMain(argc, argv, argflags);
 	}
 	catch (std::exception e) {
 		atlog << "\n\nFATAL ERROR: An unexpected crash has occurred\n"
@@ -1011,11 +1016,11 @@ int main(int argc, char* argv[]) {
 			<< "Error Message: " << e.what();
 	}
 	
-	atlog << "\n\nThis window will close in 10 seconds\n";
-	std::cout << "Output written to " << LOGPATH << "\n";
+	std::cout << "\n\nOutput written to " << LOGPATH << "\n";
 	AtlanLogger::exit();
 
-	#ifndef _DEBUG
-	std::this_thread::sleep_for(std::chrono::seconds(10));
-	#endif
+	if (!(argflags & argflag_noExitTimer)) {
+		std::cout << "This window will close in 10 seconds\n";
+		std::this_thread::sleep_for(std::chrono::seconds(10));
+	}
 }
