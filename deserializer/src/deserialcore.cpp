@@ -1264,6 +1264,7 @@ dsfunc_m(deserial::ds_idHandle_T_short___invalidEvent_t___INVALID_EVENT_HANDLE_T
 		{1671308008U, "disable"},
 		{527782902U, "showRenderModel"},
 		{3402897492U, "stopFX"},
+		{1379333622U, "runRipatoriumWave"}
 	};
 
 	uint32_t hash;
