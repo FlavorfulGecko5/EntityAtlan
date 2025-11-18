@@ -36,16 +36,17 @@ void PackagerMain()
 	#define CFG_NAME "darkagesmod.txt"
 	fspath configpath; // Will be empty if config was not found
 
-
-	if(!Oodle::AtlanOodleInit("."))
-		return;
-
 	/* Gather all mod filepaths */
 	{
 		if(!is_directory(modsfolder)) {
 			atlog << "FATAL ERROR: Could not find mods folder\n";
 			return;
 		}
+
+		// Put this after the mod folder is located, so
+		// we don't download Oodle in an incorrect place.
+		if (!Oodle::AtlanOodleInit("."))
+			return;
 
 		for (const directory_entry& entry : recursive_directory_iterator(modsfolder))
 		{
