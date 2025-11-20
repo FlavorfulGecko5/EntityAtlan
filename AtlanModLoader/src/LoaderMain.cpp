@@ -206,7 +206,14 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 		else {
 			if (HotReloadMode) { // We assume Hot Reload mode + Comp files are mutually exclusive
 				e.dataSize = 40000000;
-				HotReloadPadding = e.dataSize - f.dataLength;
+				if (e.dataSize >= f.dataLength) {
+					HotReloadPadding = e.dataSize - f.dataLength;
+				}
+				else {
+					atlog << "ERROR: Hot Reload padding threshold exceeded. Please report this error.\n";
+					e.dataSize = f.dataLength;
+					HotReloadPadding = 0;
+				}
 			}
 			else {
 				e.dataSize = f.dataLength;
