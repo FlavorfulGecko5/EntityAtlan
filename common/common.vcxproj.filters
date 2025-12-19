@@ -57,6 +57,9 @@
     <ClCompile Include="src\atlan\AtlanOodle.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\archives\SoundArchive.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\entityslayer\EntityLogger.h">
@@ -102,6 +105,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\atlan\AtlanOodle.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\archives\SoundArchive.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

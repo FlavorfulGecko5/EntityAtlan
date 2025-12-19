@@ -1,6 +1,7 @@
 #include "entityslayer/EntityParser.h"
 #include "archives/ResourceStructs.h"
 #include "archives/PackageMapSpec.h"
+#include "archives/SoundArchive.h"
 #include "atlan/AtlanLogger.h"
 #include "atlan/AtlanOodle.h"
 #include "DeserialMain.h"
@@ -8,20 +9,169 @@
 #include <fstream>
 #include <set>
 #include <thread>
+#include <cassert>
 
 typedef std::set<std::string> restypeset_t;
+typedef std::set<std::string> audiotypeset_t;
 
 struct configdata_t {
 	fspath inputdir = "";
 	fspath outputdir = "";
 	bool run_extractor = true;
 	bool run_deserializer = true;
+	bool run_audio_extractor = false;
 
 	restypeset_t restypes;
 
 	deserialconfig_t dsconfig;
 
+	audiotypeset_t audiotypes;
+	//bool remove_compressed_audio = true;
 };
+
+/*
+* TODO:
+* - Duplicate sample ids do exist. Which ones take priority?
+* - Multi-thread
+*/
+
+void AudioExtractor(const configdata_t& config) 
+{
+	using namespace std::filesystem;
+	if(!exists(config.inputdir / "DOOMTheDarkAges.exe")) {
+		atlog << "FATAL ERROR: Atlan Audio Extractor only supports DOOM: The Dark Ages\n";
+		return;
+	}
+
+	if (!exists("vgmstream/vgmstream-cli.exe")) {
+		atlog << "FATAL ERROR: Missing vgmstream\n";
+		return;
+	}
+
+	std::vector<std::string> packagelist = PackageMapSpec::GetPrioritizedSoundArchiveList(config.inputdir);
+
+	// Cull packages whose types we don't want to extract
+	for(size_t i = 0; i < packagelist.size();) {
+		
+		std::string name = packagelist[i];
+
+		bool foundmatch = false;
+		for(const std::string& type : config.audiotypes) {
+			if (name.find(type) != std::string::npos) {
+				foundmatch = true;
+				break;
+			}
+		}
+
+		if(!foundmatch) {
+			packagelist.erase(packagelist.begin() + i);
+		}
+		else i++;
+	}
+
+	AudioSampleMap sampleMap;
+	sampleMap.Build((config.inputdir / "base/sound/soundbanks/pc").string());
+
+
+	const fspath basedir = config.inputdir / "base";
+	const fspath audiodir = config.outputdir / "audio";
+	const fspath audiotempfile = audiodir / "temporary_compressed.wav";
+	create_directories(audiodir);
+
+	size_t bufferSize = 4000000;
+	char* samplebuffer = new char[bufferSize];
+	std::ofstream compressedWriter;
+
+	enum {
+		et_sfx,
+		et_music,
+		et_voice,
+		et_cine
+	} archiveType;
+
+	for(const std::string& packagename : packagelist) {
+		if(packagename.find("SFX") != std::string::npos)
+			archiveType = et_sfx;
+		else if(packagename.find("MUSIC") != std::string::npos)
+			archiveType = et_music;
+		else if(packagename.find("CINEMAT") != std::string::npos)
+			archiveType = et_cine;
+		else archiveType = et_voice;
+
+		int numsamples = 0;
+
+		const fspath archivepath = basedir / packagename;
+		const fspath archiveoutdir = audiodir / archivepath.stem().string().substr(0,  archivepath.stem().string().find_first_of('_') );
+
+		create_directory(archiveoutdir);
+		atlog << "Extracting from " << archivepath.filename() << "\n";
+
+
+		aksnd snd;
+		snd.ReadFrom(archivepath.string().c_str());
+		std::ifstream archivereader(archivepath, std::ios_base::binary);
+		assert(archivereader.good());
+
+		for (uint32_t iter = 0, imax = snd.headerStart.numentries(); iter < imax; iter++) {
+
+			if(iter % 100 == 0)
+				atlog << "\rProgress " << iter << " / " << imax;
+
+			const aksnd::entry& e = snd.entries[iter];
+
+			std::string samplename = snd.GetSampleName(e, archiveType == et_music);
+			std::string sampleevent = sampleMap.ResolveEventName(e.id);
+
+			// Some adjustments to simplify the final output path where possible
+			switch(archiveType)
+			{
+				case et_music: 
+				sampleevent = "";
+				break;
+
+				case et_voice: case et_cine:
+				samplename = sampleevent + "_" + samplename;
+				sampleevent = "";
+				break;
+			}
+
+
+			snd.GetSampleData(e, archivereader, samplebuffer, bufferSize);
+
+			const fspath sampleoutpath_decomp = archiveoutdir / sampleevent / samplename;
+
+			create_directory(sampleoutpath_decomp.parent_path());
+
+			compressedWriter.open(audiotempfile, std::ios_base::binary);
+			assert(compressedWriter.good());
+			compressedWriter.write(samplebuffer, e.encodedSize);
+			compressedWriter.close();
+
+			std::string syscommand = "vgmstream\\vgmstream-cli.exe -o \"";
+			syscommand.append(sampleoutpath_decomp.string());
+			syscommand.append("\" \"");
+			syscommand.append(audiotempfile.string());
+			syscommand.append("\" 1> NUL");
+
+			//std::cout << syscommand << "\n";
+			int returnresult = std::system(syscommand.c_str());
+			assert(returnresult == 0);
+
+			numsamples++;
+		}
+		
+		atlog << "\rExtracted " << numsamples << " files from archive\n";
+	}
+	
+	atlog << "Audio Extractor complete\n";
+
+	delete[] samplebuffer;
+	if(exists(audiotempfile))
+		remove(audiotempfile);
+	std::ofstream dupelogwriter(audiodir / "duplicate_log.txt", std::ios_base::binary);
+	dupelogwriter << sampleMap.GetDuplicateLog();
+	dupelogwriter.close();
+}
 
 /*
 * CONSOLIDATED RESOURCE EXTRACTOR FUNCTION
@@ -76,8 +226,11 @@ void ExtractorMain() {
 		if (!core["run_extractor"].ValueBool(config.run_extractor)) {
 			atlog << "WARNING: Failed to read config bool core/run_extractor: assuming default\n";
 		}
-		if(!core["run_deserializer"].ValueBool(config.run_deserializer)) {
+		if (!core["run_deserializer"].ValueBool(config.run_deserializer)) {
 			atlog << "WARNING: Failed to read config bool core/run_deserializer: assuming default\n";
+		}
+		if (!core["run_audio_extractor"].ValueBool(config.run_audio_extractor)) {
+			atlog << "WARNING: Failed to read config bool core/run_audio_extractor: assuming default\n";
 		}
 
 
@@ -91,6 +244,20 @@ void ExtractorMain() {
 			config.restypes.insert(std::string(rt.getNameUQ()));
 		}
 		atlog << "Found " << config.restypes.size() << " resource types\n";
+
+		EntNode& audiotypes = root["audio_extractor"]["audio_types"];
+		for (int i = 0; i < audiotypes.getChildCount(); i++) {
+			EntNode& at = *audiotypes.ChildAt(i);
+			if(at.IsComment())
+				continue;
+
+			config.audiotypes.insert(std::string(at.getNameUQ()));
+		}
+		atlog << "Found " << config.audiotypes.size() << " audio types\n";
+
+		//if (!root["audio_extractor"]["remove_compressed_files"].ValueBool(config.remove_compressed_audio)) {
+		//	atlog << "WARNING: Failed to read config bool audio_extractor/remove_compressed_files: assuming default\n";
+		//}
 
 		/* Deserialization Settings */
 		EntNode& deserial = root["deserializer"];
@@ -275,6 +442,13 @@ void ExtractorMain() {
 	}
 	else {
 		atlog << "Skipping deserialization\n";
+	}
+
+	if (config.run_audio_extractor) {
+		AudioExtractor(config);
+	}
+	else {
+		atlog << "Skipping Audio Extractor\n";
 	}
 }
 

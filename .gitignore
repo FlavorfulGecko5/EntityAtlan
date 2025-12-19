@@ -7,6 +7,7 @@ common/bin/*
 deserializer/bin/*
 reflector/bin/*
 input/*
+AtlanResourceExtractor/vgmstream/*
 AtlanModPackager/mods/*
 
 oo2core_9_win64.dll

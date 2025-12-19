@@ -3,6 +3,7 @@ core = {
 	output_folder = ""
 	run_extractor = 1
 	run_deserializer = 1
+	run_audio_extractor = 0
 }
 extractor = {
 	resource_types = {
@@ -27,6 +28,23 @@ deserializer = {
 	add_indentation = 1
 	include_originals = 0
 }
+audio_extractor = {
+	audio_types = {
+		//MUSIC
+		//SFX
+		//CINEMATIC
+		//English
+		//French
+		//German
+		//Italian
+		//Japanese
+		//Polish
+		//Portuguese
+		//Russian
+		//Spanish(Mexico)
+		//Spanish(Spain)
+	}
+}
 /********************
 
 Settings Explained:
@@ -41,6 +59,8 @@ Example: output_folder = "D:/DA"
 run_extractor: Set to 0 if you only want to run the deserializer
 
 run_deserializer: Set to 0 if you only want to run the extractor
+
+run_audio_extractor: Set to 1 to enable audio extraction
 
 ------
 
@@ -71,5 +91,12 @@ remove_binary_files: Set to 0 to keep the raw binary files after deserializing t
 add_indentation: Does a second pass over the deserialized files to properly indent them. Requires rewriting the entire file. This will also validate the syntax.
 
 include_originals: entitydefs and mapentities contain unserialized versions of the edit blocks, attached as strings to the end of the binary data. Setting this to 1 includes these strings in the output files. Editing these won't do anything, but it's useful for comparing the deserializer's output with id's original file. This will roughly double the size of extracted files.
+
+------
+
+Audio Extractor Settings:
+
+audio_types: The types of audio samples that will be extracted. All valid types are listed.
+To include a type, remove the "//" in front of it. To exclude a type, add the "//" back in front of it.
 
 ********************/

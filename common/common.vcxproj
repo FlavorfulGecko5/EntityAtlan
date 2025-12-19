@@ -21,6 +21,7 @@
   <ItemGroup>
     <ClCompile Include="src\archives\PackageMapSpec.cpp" />
     <ClCompile Include="src\archives\ResourceStructs.cpp" />
+    <ClCompile Include="src\archives\SoundArchive.cpp" />
     <ClCompile Include="src\atlan\AtlanLogger.cpp" />
     <ClCompile Include="src\atlan\AtlanOodle.cpp" />
     <ClCompile Include="src\entityslayer\EntityLogger.cpp" />
@@ -38,6 +39,7 @@
     <ClInclude Include="src\archives\PackageMapSpec.h" />
     <ClInclude Include="src\archives\ResourceEnums.h" />
     <ClInclude Include="src\archives\ResourceStructs.h" />
+    <ClInclude Include="src\archives\SoundArchive.h" />
     <ClInclude Include="src\atlan\AtlanLogger.h" />
     <ClInclude Include="src\atlan\AtlanOodle.h" />
     <ClInclude Include="src\entityslayer\EntityLogger.h" />

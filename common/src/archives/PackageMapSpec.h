@@ -20,4 +20,6 @@ namespace PackageMapSpec
 	* WARNING: Not guaranteed to be prioritized correctly if the packagemapspec is modded
 	*/
 	std::vector<std::string> GetPrioritizedArchiveList(const fspath gamedir, bool IncludeModArchives);
+
+	std::vector<std::string> GetPrioritizedSoundArchiveList(const fspath gamedir);
 }
