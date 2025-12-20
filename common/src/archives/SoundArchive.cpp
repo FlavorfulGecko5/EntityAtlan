@@ -52,15 +52,17 @@ bool aksnd::ReadFrom(const char* filepath)
 	reader.seekg(0, std::ios_base::beg);
 	reader.read(reinterpret_cast<char*>(&headerStart), sizeof(header_start));
 
+	numentries = (headerStart.headersize - headerStart.entrymetasize - sizeof(headerStart.entrymetasize)) / sizeof(entry);
+
 	entrymeta = new char[headerStart.entrymetasize];
-	entries = new entry[headerStart.numentries()];
+	entries = new entry[numentries];
 
 	reader.read(entrymeta, headerStart.entrymetasize);
-	reader.read(reinterpret_cast<char*>(entries), headerStart.numentries() * sizeof(entry) );
+	reader.read(reinterpret_cast<char*>(entries), numentries * sizeof(entry) );
 	return true;
 }
 
-std::string aksnd::GetSampleName(const aksnd::entry& e, bool searchForLabel)
+std::string aksnd::GetSampleName(const aksnd::entry& e, bool searchForLabel) const
 {
 	// For music specifically, there's an addtllabl field
 	const char* metachunk = entrymeta + e.metaoffset;
@@ -92,7 +94,7 @@ std::string aksnd::GetSampleName(const aksnd::entry& e, bool searchForLabel)
 	return entryname;
 }
 
-void aksnd::GetSampleData(const aksnd::entry& e, std::ifstream& stream, char*& buffer, size_t& buffersize)
+void aksnd::GetSampleData(const aksnd::entry& e, std::ifstream& stream, char*& buffer, size_t& buffersize) const
 {
 	assert(e.encodedSize == e.decodedSize);
 	if (buffersize < e.encodedSize) {
@@ -237,7 +239,7 @@ void AudioSampleMap::Build(std::string soundfolder)
 	}
 }
 
-std::string AudioSampleMap::ResolveEventName(const uint32_t sampleId)
+std::string AudioSampleMap::ResolveEventName(const uint32_t sampleId) const
 {
 	const auto& iter = sample_bnk_idmap.find(sampleId);
 	if (iter == sample_bnk_idmap.end()) {

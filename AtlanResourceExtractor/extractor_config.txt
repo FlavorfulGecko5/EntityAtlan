@@ -44,6 +44,7 @@ audio_extractor = {
 		//Spanish(Mexico)
 		//Spanish(Spain)
 	}
+	max_threads = 8
 }
 /********************
 
@@ -98,5 +99,7 @@ Audio Extractor Settings:
 
 audio_types: The types of audio samples that will be extracted. All valid types are listed.
 To include a type, remove the "//" in front of it. To exclude a type, add the "//" back in front of it.
+
+max_threads: Maximum number of audio extraction threads to use per-archive. This value must be between 1 and 8, inclusive.
 
 ********************/

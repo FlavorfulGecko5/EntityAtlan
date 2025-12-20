@@ -14,6 +14,8 @@
 typedef std::set<std::string> restypeset_t;
 typedef std::set<std::string> audiotypeset_t;
 
+#define THREADMAX 8
+
 struct configdata_t {
 	fspath inputdir = "";
 	fspath outputdir = "";
@@ -26,13 +28,112 @@ struct configdata_t {
 	deserialconfig_t dsconfig;
 
 	audiotypeset_t audiotypes;
+	int max_audio_threads = THREADMAX;
 	//bool remove_compressed_audio = true;
 };
+
+enum SoundArchiveType {
+	et_sfx,
+	et_music,
+	et_voice,
+	et_cine
+};
+
+struct audiothreadargs {
+	const aksnd* snd;
+	const AudioSampleMap* samplemap;
+	fspath archivepath;
+	fspath archiveoutdir;
+	uint32_t firstindex;
+	uint32_t maxindex;
+	SoundArchiveType archiveType;
+	int threadid;
+	std::atomic<int>* totalSamples;
+};
+
+void AudioThread(audiothreadargs args) {
+
+	//aksnd snd;
+	//snd.ReadFrom(args.archivepath.string().c_str());
+
+	const fspath audiotempfile = args.archiveoutdir.parent_path() / (std::string("audiotempfile_") + std::to_string(args.threadid) + ".wav");
+
+	std::ifstream archivereader(args.archivepath, std::ios_base::binary);
+	assert(archivereader.good());
+
+	std::ofstream compressedWriter;
+
+	size_t bufferSize = 4000000;
+	char* samplebuffer = new char[bufferSize];
+
+	int localSampleCount = 0;
+	for (uint32_t iter = args.firstindex; iter < args.maxindex; iter++) {
+
+		const aksnd::entry& e = args.snd->entries[iter];
+
+		std::string samplename = args.snd->GetSampleName(e, args.archiveType == et_music);
+		std::string sampleevent = args.samplemap->ResolveEventName(e.id);
+
+		// Some adjustments to simplify the final output path where possible
+		switch (args.archiveType)
+		{
+			case et_music:
+			sampleevent = "";
+			break;
+
+			case et_voice: case et_cine:
+			samplename = sampleevent + "_" + samplename;
+			sampleevent = "";
+			break;
+		}
+
+
+		args.snd->GetSampleData(e, archivereader, samplebuffer, bufferSize);
+
+		const fspath sampleoutpath_decomp = args.archiveoutdir / sampleevent / samplename;
+
+		// MONITOR: Is this thread-safe?
+		create_directory(sampleoutpath_decomp.parent_path());
+
+		compressedWriter.open(audiotempfile, std::ios_base::binary);
+		assert(compressedWriter.good());
+		compressedWriter.write(samplebuffer, e.encodedSize);
+		compressedWriter.close();
+
+		#if 1
+		std::string syscommand = "vgmstream\\vgmstream-cli.exe -o \"";
+		syscommand.append(sampleoutpath_decomp.string());
+		syscommand.append("\" \"");
+		syscommand.append(audiotempfile.string());
+		syscommand.append("\" 1> NUL");
+		
+
+		//std::cout << syscommand << "\n";
+		int returnresult = std::system(syscommand.c_str());
+		assert(returnresult == 0);
+		#endif
+
+		if(localSampleCount % 25 == 0) {
+			args.totalSamples->fetch_add(localSampleCount);
+			localSampleCount = 0;
+
+			printf("\rProgress %d / %d", args.totalSamples->load(), args.snd->numentries);
+		}
+		localSampleCount++;
+	}
+
+	delete[] samplebuffer;
+	if(exists(audiotempfile))
+		remove(audiotempfile);
+
+	#ifdef _DEBUG
+	printf("\nThread %d Finished\n", args.threadid);
+	#endif
+}
 
 /*
 * TODO:
 * - Duplicate sample ids do exist. Which ones take priority?
-* - Multi-thread
 */
 
 void AudioExtractor(const configdata_t& config) 
@@ -75,21 +176,11 @@ void AudioExtractor(const configdata_t& config)
 
 	const fspath basedir = config.inputdir / "base";
 	const fspath audiodir = config.outputdir / "audio";
-	const fspath audiotempfile = audiodir / "temporary_compressed.wav";
 	create_directories(audiodir);
 
-	size_t bufferSize = 4000000;
-	char* samplebuffer = new char[bufferSize];
-	std::ofstream compressedWriter;
-
-	enum {
-		et_sfx,
-		et_music,
-		et_voice,
-		et_cine
-	} archiveType;
-
 	for(const std::string& packagename : packagelist) {
+		SoundArchiveType archiveType;
+
 		if(packagename.find("SFX") != std::string::npos)
 			archiveType = et_sfx;
 		else if(packagename.find("MUSIC") != std::string::npos)
@@ -97,8 +188,6 @@ void AudioExtractor(const configdata_t& config)
 		else if(packagename.find("CINEMAT") != std::string::npos)
 			archiveType = et_cine;
 		else archiveType = et_voice;
-
-		int numsamples = 0;
 
 		const fspath archivepath = basedir / packagename;
 		const fspath archiveoutdir = audiodir / archivepath.stem().string().substr(0,  archivepath.stem().string().find_first_of('_') );
@@ -109,65 +198,62 @@ void AudioExtractor(const configdata_t& config)
 
 		aksnd snd;
 		snd.ReadFrom(archivepath.string().c_str());
-		std::ifstream archivereader(archivepath, std::ios_base::binary);
-		assert(archivereader.good());
 
-		for (uint32_t iter = 0, imax = snd.headerStart.numentries(); iter < imax; iter++) {
+		std::atomic<int> totalSamples = 0;
+		std::thread threadpool[THREADMAX];
+		
+		int threadsToUse;
+		if (snd.numentries < 500) {
+			threadsToUse = 4;
+		} else threadsToUse = 8;
 
-			if(iter % 100 == 0)
-				atlog << "\rProgress " << iter << " / " << imax;
+		if(threadsToUse > config.max_audio_threads)
+			threadsToUse = config.max_audio_threads;
 
-			const aksnd::entry& e = snd.entries[iter];
+		assert(threadsToUse > 0 && threadsToUse <= THREADMAX);
 
-			std::string samplename = snd.GetSampleName(e, archiveType == et_music);
-			std::string sampleevent = sampleMap.ResolveEventName(e.id);
+		atlog << "Launching " << threadsToUse << " thread(s).\n";
 
-			// Some adjustments to simplify the final output path where possible
-			switch(archiveType)
-			{
-				case et_music: 
-				sampleevent = "";
-				break;
+		uint32_t nextIndex = 0;
+		uint32_t lastIndex = 0;
+		for(int t = 0; t < threadsToUse; t++) {
+			
+			audiothreadargs args;
+			args.snd = &snd;
+			args.samplemap = &sampleMap;
+			args.archivepath = archivepath;
+			args.archiveoutdir = archiveoutdir;
+			args.archiveType = archiveType;
+			args.threadid = t;
+			args.totalSamples = &totalSamples;
 
-				case et_voice: case et_cine:
-				samplename = sampleevent + "_" + samplename;
-				sampleevent = "";
-				break;
+			args.firstindex = nextIndex;
+			args.maxindex = nextIndex + snd.numentries / threadsToUse + snd.numentries % threadsToUse;
+			nextIndex = args.maxindex;
+
+
+			// If we exceed the total early, restrict the number of threads
+			if (args.maxindex >= snd.numentries) {
+				args.maxindex = snd.numentries;
+				threadsToUse = t + 1;
 			}
 
+			#ifdef _DEBUG
+			printf("Thread %d [%d, %d)\n", t, args.firstindex, args.maxindex);
+			#endif
 
-			snd.GetSampleData(e, archivereader, samplebuffer, bufferSize);
+			threadpool[t] = std::thread(AudioThread, args);
+		}
 
-			const fspath sampleoutpath_decomp = archiveoutdir / sampleevent / samplename;
-
-			create_directory(sampleoutpath_decomp.parent_path());
-
-			compressedWriter.open(audiotempfile, std::ios_base::binary);
-			assert(compressedWriter.good());
-			compressedWriter.write(samplebuffer, e.encodedSize);
-			compressedWriter.close();
-
-			std::string syscommand = "vgmstream\\vgmstream-cli.exe -o \"";
-			syscommand.append(sampleoutpath_decomp.string());
-			syscommand.append("\" \"");
-			syscommand.append(audiotempfile.string());
-			syscommand.append("\" 1> NUL");
-
-			//std::cout << syscommand << "\n";
-			int returnresult = std::system(syscommand.c_str());
-			assert(returnresult == 0);
-
-			numsamples++;
+		for(int t = 0; t < threadsToUse; t++) {
+			threadpool[t].join();
 		}
 		
-		atlog << "\rExtracted " << numsamples << " files from archive\n";
+		atlog << "\rExtracted " << snd.numentries << " files from archive\n";
 	}
 	
 	atlog << "Audio Extractor complete\n";
 
-	delete[] samplebuffer;
-	if(exists(audiotempfile))
-		remove(audiotempfile);
 	std::ofstream dupelogwriter(audiodir / "duplicate_log.txt", std::ios_base::binary);
 	dupelogwriter << sampleMap.GetDuplicateLog();
 	dupelogwriter.close();
@@ -255,9 +341,9 @@ void ExtractorMain() {
 		}
 		atlog << "Found " << config.audiotypes.size() << " audio types\n";
 
-		//if (!root["audio_extractor"]["remove_compressed_files"].ValueBool(config.remove_compressed_audio)) {
-		//	atlog << "WARNING: Failed to read config bool audio_extractor/remove_compressed_files: assuming default\n";
-		//}
+		if (!root["audio_extractor"]["max_threads"].ValueInt(config.max_audio_threads, 1, THREADMAX)) {
+			atlog << "WARNING: Failed to read config bool audio_extractor/max_threads: assuming default\n";
+		}
 
 		/* Deserialization Settings */
 		EntNode& deserial = root["deserializer"];

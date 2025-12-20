@@ -36,10 +36,6 @@ class aksnd
 		uint32_t headersize;    // Size of the entire header chunk
 		uint32_t entrymetasize; // Size of the header's entry meta section
 
-		uint32_t numentries() const { // Number of entries
-			return (headersize - entrymetasize - sizeof(entrymetasize)) / sizeof(entry);
-		}
-
 		uint32_t datastart() const { // Start of data chunk
 			return sizeof(version) + sizeof(headersize) + headersize;
 		}
@@ -52,6 +48,7 @@ class aksnd
 	public:
 
 	aksnd::header_start headerStart;
+	uint32_t numentries;
 	char* entrymeta = nullptr;
 	aksnd::entry* entries = nullptr;
 
@@ -70,9 +67,9 @@ class aksnd
 
 	bool ReadFrom(const char* filepath);
 
-	std::string GetSampleName(const aksnd::entry& e, bool searchForLabel);
+	std::string GetSampleName(const aksnd::entry& e, bool searchForLabel) const;
 
-	void GetSampleData(const aksnd::entry& e, std::ifstream& stream, char*& buffer, size_t& buffersize);
+	void GetSampleData(const aksnd::entry& e, std::ifstream& stream, char*& buffer, size_t& buffersize) const;
 };
 
 class AudioSampleMap
@@ -84,7 +81,7 @@ class AudioSampleMap
 
 	public:
 	void Build(std::string soundfolder);
-	std::string ResolveEventName(const uint32_t sampleId);
+	std::string ResolveEventName(const uint32_t sampleId) const;
 
 	const std::string& GetDuplicateLog() const {return duplicateLog;}
 };
