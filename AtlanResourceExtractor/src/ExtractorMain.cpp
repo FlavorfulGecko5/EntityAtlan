@@ -67,6 +67,11 @@ void AudioThread(audiothreadargs args) {
 	char* samplebuffer = new char[bufferSize];
 
 	int localSampleCount = 0;
+	int progressInterval = (args.maxindex - args.firstindex) / 10 + 1;
+	if (progressInterval > 25) {
+		progressInterval = 25;
+	}
+
 	for (uint32_t iter = args.firstindex; iter < args.maxindex; iter++) {
 
 		const aksnd::entry& e = args.snd->entries[iter];
@@ -113,7 +118,7 @@ void AudioThread(audiothreadargs args) {
 		assert(returnresult == 0);
 		#endif
 
-		if(localSampleCount % 25 == 0) {
+		if(localSampleCount % progressInterval == 0) {
 			args.totalSamples->fetch_add(localSampleCount);
 			localSampleCount = 0;
 
@@ -178,6 +183,7 @@ void AudioExtractor(const configdata_t& config)
 	const fspath audiodir = config.outputdir / "audio";
 	create_directories(audiodir);
 
+	// MONITOR: Is this the correct order?
 	for(const std::string& packagename : packagelist) {
 		SoundArchiveType archiveType;
 
@@ -190,7 +196,10 @@ void AudioExtractor(const configdata_t& config)
 		else archiveType = et_voice;
 
 		const fspath archivepath = basedir / packagename;
-		const fspath archiveoutdir = audiodir / archivepath.stem().string().substr(0,  archivepath.stem().string().find_first_of('_') );
+
+		// Until we can be certain how snd archives are prioritized, we should extract them into separate folders
+		//const fspath archiveoutdir = audiodir / archivepath.stem().string().substr(0,  archivepath.stem().string().find_first_of('_') );
+		const fspath archiveoutdir = audiodir / archivepath.stem();
 
 		create_directory(archiveoutdir);
 		atlog << "Extracting from " << archivepath.filename() << "\n";
@@ -266,7 +275,7 @@ void ExtractorMain() {
 	/*
 	* REMEMBER TO UPDATE VERSION NUMBER
 	*/
-	atlog << "Atlan Consolidated Resource Extractor v2.3 by FlavorfulGecko5\n";
+	atlog << "Atlan Consolidated Resource Extractor v3.0 by FlavorfulGecko5\n";
 
 	/*
 	* Parse and validate config file
@@ -400,8 +409,16 @@ void ExtractorMain() {
 	if (config.run_extractor) {
 		atlog << "Performing resource extraction\n";
 
+		idclMaskFile containerMask;
+		containerMask.Read(config.inputdir);
+
+		if (containerMask.maskcount == 0) {
+			atlog << "FATAL ERROR: Could not read container.mask\n";
+			return;
+		}
+
 		const fspath basepath = config.inputdir / "base";
-		std::set<std::string> extractedfiles;
+		std::unordered_map<std::string, bool> extractedFileMap;
 
 		size_t compsize = 24000;
 		size_t decompsize = 24000;
@@ -423,10 +440,14 @@ void ExtractorMain() {
 			int filecount = 0;
 
 			atlog << "Extracting from " << respath.filename() << "\n";
-
+			
 			ResourceArchive archive;
 			Read_ResourceArchive(archive, respath.string(), RF_SkipData);
 			std::ifstream archivestream(respath, std::ios_base::binary);
+
+			// A select few resource archives don't have a container mask blob. This is normal
+			const idclMaskFile::entry bitmask = containerMask.FindArchiveMask(respath);
+			const bool hasBitmask = bitmask.size >= archive.header.numResources;
 
 			for(uint32_t entryindex = 0; entryindex < archive.header.numResources; entryindex++) {
 				const ResourceEntry& e = archive.entries[entryindex];
@@ -444,10 +465,27 @@ void ExtractorMain() {
 					setstring.push_back('/');
 					setstring.append(namestring);
 
-					
-					if (extractedfiles.count(setstring) != 0)
-						continue;
-					extractedfiles.insert(setstring);
+					const bool isloaded = hasBitmask ? bitmask.IsLoaded(entryindex) : true;
+
+					const auto& tryresult = extractedFileMap.try_emplace(setstring, isloaded);
+					if (!tryresult.second) { // Key already exists in map
+						
+						// Rare Edge Case: The first copy of the file we extracted is disabled by the container mask
+						// But another version in a lower-priority archive is enabled instead.
+						// We re-extract the enabled version of the file under the assumption that it's more accurate.
+						// MONITOR: If all copies of a file are disabled, there's no real way to determine which is the most
+						// "up-to-date" version. Best we can do is go in order of archive priority like we already are.
+						if (isloaded && !tryresult.first->second) {
+							tryresult.first->second = true;
+							#ifdef _DEBUG
+							atlog << "Container Mask: Re-Extracting " << setstring << "\n";
+							#endif
+						}
+						else {
+							continue;
+						}
+
+					}
 					filecount++;
 				}
 
@@ -517,7 +555,7 @@ void ExtractorMain() {
 			descriptorwriter.close();
 		}
 
-		atlog << "Extraction Complete: " << extractedfiles.size() << " files extracted in total\n";
+		atlog << "Extraction Complete: " << extractedFileMap.size() << " files extracted in total\n";
 	}
 	else {
 		atlog << "Skipping resource extraction\n";

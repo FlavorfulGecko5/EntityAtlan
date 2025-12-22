@@ -123,6 +123,38 @@ struct containerMaskEntry_t {
 
 containerMaskEntry_t GetContainerMaskHash(const fspath archivepath);
 
+struct idclMaskFile {
+
+	struct entry {
+		uint64_t hash = 0;
+		uint32_t size = 0; // Size in bits
+		const char* mask = nullptr;
+
+		bool IsLoaded(uint32_t entryIndex) const {
+			return *(mask + entryIndex / 8u) & (1u << (entryIndex % 8u));
+		}
+	};
+
+	uint32_t timestamp = 0; // idTech7 only
+
+	uint32_t maskcount = 0; // Number of container masks
+	idclMaskFile::entry* masks = nullptr;
+
+	char* maskblob = nullptr; // Raw container mask data
+	size_t masksize = 0; // Container mask size
+	
+	~idclMaskFile(){
+		delete[] maskblob;
+		delete[] masks;
+	}
+
+	void Read(const fspath gamedir);
+
+	// Finds the container mask for a given archive.
+	// Returns an entry with hash == 0 if a container mask could not be found
+	const idclMaskFile::entry FindArchiveMask(const fspath archivepath);
+};
+
 void Audit_ResourceHeader(const ResourceHeader& h, const ResourceMetaHeader& metaheader);
 void Audit_ResourceArchive(const ResourceArchive& r);
 

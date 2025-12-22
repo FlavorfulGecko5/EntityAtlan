@@ -70,6 +70,17 @@ class aksnd
 	std::string GetSampleName(const aksnd::entry& e, bool searchForLabel) const;
 
 	void GetSampleData(const aksnd::entry& e, std::ifstream& stream, char*& buffer, size_t& buffersize) const;
+
+	struct samplehash {
+		uint64_t lower;
+		uint64_t upper;
+
+		bool operator!=(const samplehash& other) const {
+			return lower != other.lower || upper != other.upper;
+		}
+	};
+
+	aksnd::samplehash GetSampleHash(const aksnd::entry& e);
 };
 
 class AudioSampleMap

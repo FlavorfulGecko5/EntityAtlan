@@ -107,6 +107,27 @@ void aksnd::GetSampleData(const aksnd::entry& e, std::ifstream& stream, char*& b
 	stream.read(buffer, e.encodedSize);
 }
 
+aksnd::samplehash aksnd::GetSampleHash(const aksnd::entry& e)
+{
+	BinaryReader reader(entrymeta + e.metaoffset, e.metasize);
+
+	uint32_t chunksize;
+	assert(reader.GoRight(16)); // RIFF + Total chunk size + "WAVEfmt "
+	assert(reader.ReadLE(chunksize));
+	assert(reader.GoRight(chunksize));
+
+	assert(memcmp(reader.GetNext(), "hash", 4) == 0);
+	assert(reader.GoRight(4));
+	assert(reader.ReadLE(chunksize));
+	assert(chunksize == 16);
+
+	samplehash hash;
+	assert(reader.ReadLE(hash.lower));
+	assert(reader.ReadLE(hash.upper));
+
+	return hash;
+}
+
 void AudioSampleMap::Build(std::string soundfolder)
 {
 	// Step 1: Build bnk_eventstring_map

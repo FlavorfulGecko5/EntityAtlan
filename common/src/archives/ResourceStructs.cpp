@@ -1,6 +1,7 @@
 #include "ResourceStructs.h"
 #include "hash/HashLib.h"
 #include "entityslayer/Oodle.h"
+#include "io/BinaryReader.h"
 #include <fstream>
 #include <cassert>
 #include <set>
@@ -322,8 +323,66 @@ void Audit_ResourceArchive(const ResourceArchive& r) {
 
 }
 
+void idclMaskFile::Read(const fspath gamedir)
+{
+	// Read the container mask blob into memory
+	{
+		ResourceArchive meta;
+		Read_ResourceArchive(meta, gamedir / "base" / "meta.resources", RF_ReadEverything);
+		assert(meta.header.numResources == 1);
+
+		char* decompbuffer = nullptr;
+		size_t decompsize = 0;
+
+		ResourceEntryData_t maskdata = Get_EntryData(meta, meta.entries[0], decompbuffer, decompsize);
+		assert(maskdata.returncode == EntryDataCode::OK);
+
+		masksize = maskdata.length;
+		maskblob = new char[maskdata.length];
+		memcpy(maskblob, decompbuffer, maskdata.length);
+
+		delete[] decompbuffer;
+	}
+
+	// Parse the container mask
+	{
+		BinaryReader reader(maskblob, masksize);
+
+		reader.ReadLE(maskcount);
+		if (maskcount & 0xFFFFF000) {
+			timestamp = maskcount;
+			reader.ReadLE(maskcount);
+		}
+
+		masks = new idclMaskFile::entry[maskcount];
+		for (uint32_t i = 0; i < maskcount; i++) {
+			idclMaskFile::entry& e = masks[i];
+
+			reader.ReadLE(e.hash);
+			reader.ReadLE(e.size); // Mask size in 64-byte numbers
+			reader.ReadBytes(e.mask, e.size * sizeof(uint64_t));
+
+			e.size *= 64; // Convert mask size to bits
+		}
+		assert(reader.GetRemaining() == 0);
+	}
+}
+
+const idclMaskFile::entry idclMaskFile::FindArchiveMask(const fspath archivepath)
+{
+	containerMaskEntry_t entry = GetContainerMaskHash(archivepath);
+
+	for (uint32_t i = 0; i < maskcount; i++) {
+		if(masks[i].hash == entry.hash)
+			return masks[i];
+	}
+
+	return idclMaskFile::entry();
+}
+
 containerMaskEntry_t GetContainerMaskHash(const fspath archivepath) {
 	std::ifstream input(archivepath, std::ios_base::binary);
+	assert(input.good());
 
 	ResourceHeader h;
 	input.read(reinterpret_cast<char*>(&h), sizeof(ResourceHeader));
