@@ -83,6 +83,32 @@ class aksnd
 	aksnd::samplehash GetSampleHash(const aksnd::entry& e);
 };
 
+
+
+struct sndContainerMask {
+	struct entry
+	{
+		std::string archiveName;
+		uint32_t size = 0; // In Bits
+		const char* mask = nullptr;
+
+		bool IsLoaded(uint32_t entryIndex) const {
+			return *(mask + entryIndex / 8u) & (1u << (entryIndex % 8u));
+		}
+	};
+
+	std::vector<entry> masks;
+	char* rawdata = nullptr;
+	size_t rawsize = 0;
+
+	~sndContainerMask() {
+		delete[] rawdata;
+	}
+
+	void Build(const std::string soundfolder);
+	
+};
+
 class AudioSampleMap
 {
 	std::unordered_map<uint32_t, std::string> bnk_eventstring_map;
@@ -90,9 +116,13 @@ class AudioSampleMap
 	int duplicate_sample_usages = 0;
 	std::string duplicateLog;
 
+	sndContainerMask containermask;
+
 	public:
 	void Build(std::string soundfolder);
 	std::string ResolveEventName(const uint32_t sampleId) const;
 
 	const std::string& GetDuplicateLog() const {return duplicateLog;}
+
+	const sndContainerMask& GetMask() const {return containermask;}
 };

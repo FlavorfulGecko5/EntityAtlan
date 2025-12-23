@@ -9,6 +9,7 @@
 #include <fstream>
 #include <set>
 #include <thread>
+#include <mutex>
 #include <cassert>
 
 typedef std::set<std::string> restypeset_t;
@@ -49,7 +50,11 @@ struct audiothreadargs {
 	SoundArchiveType archiveType;
 	int threadid;
 	std::atomic<int>* totalSamples;
+	std::unordered_map<uint32_t, bool>* extractedSamples;
+	sndContainerMask::entry bitmask;
 };
+
+std::mutex AUDIO_MAP_MUTEX;
 
 void AudioThread(audiothreadargs args) {
 
@@ -75,6 +80,31 @@ void AudioThread(audiothreadargs args) {
 	for (uint32_t iter = args.firstindex; iter < args.maxindex; iter++) {
 
 		const aksnd::entry& e = args.snd->entries[iter];
+
+		{
+			bool isloaded = args.bitmask.IsLoaded(iter);
+
+			std::lock_guard<std::mutex> map_lock(AUDIO_MAP_MUTEX);
+			const auto& tryiter = args.extractedSamples->try_emplace(e.id, isloaded);
+
+			// We've extracted this sample before
+			if (!tryiter.second) {
+				
+				// Same logic as the resource extractor: re-extract if the original version
+				// of this sample is disabled by the container mask
+				if(isloaded && !tryiter.first->second) {
+					tryiter.first->second = true;
+
+					#ifdef _DEBUG
+					printf("Re-extracting %d\n", e.id);
+					#endif
+				}
+				else {
+					// TODO: Find some way to improve counter display
+					continue;
+				}
+			}
+		}
 
 		std::string samplename = args.snd->GetSampleName(e, args.archiveType == et_music);
 		std::string sampleevent = args.samplemap->ResolveEventName(e.id);
@@ -127,6 +157,7 @@ void AudioThread(audiothreadargs args) {
 		localSampleCount++;
 	}
 
+	args.totalSamples->fetch_add(localSampleCount);
 	delete[] samplebuffer;
 	if(exists(audiotempfile))
 		remove(audiotempfile);
@@ -135,11 +166,6 @@ void AudioThread(audiothreadargs args) {
 	printf("\nThread %d Finished\n", args.threadid);
 	#endif
 }
-
-/*
-* TODO:
-* - Duplicate sample ids do exist. Which ones take priority?
-*/
 
 void AudioExtractor(const configdata_t& config) 
 {
@@ -154,52 +180,59 @@ void AudioExtractor(const configdata_t& config)
 		return;
 	}
 
-	std::vector<std::string> packagelist = PackageMapSpec::GetPrioritizedSoundArchiveList(config.inputdir);
+	const fspath snddir = config.inputdir / "base" / "sound" / "soundbanks" / "pc";
+	const fspath audiodir = config.outputdir / "audio";
+	create_directories(audiodir);
 
-	// Cull packages whose types we don't want to extract
-	for(size_t i = 0; i < packagelist.size();) {
-		
-		std::string name = packagelist[i];
+	AudioSampleMap sampleMap;
+	sampleMap.Build((config.inputdir / snddir).string());
+
+	// Prioritized Archive List
+	std::vector<sndContainerMask::entry> archivesToExtract; 
+	for (const sndContainerMask::entry& e : sampleMap.GetMask().masks) {
+		const std::string& name = e.archiveName;
 
 		bool foundmatch = false;
-		for(const std::string& type : config.audiotypes) {
+		for (const std::string& type : config.audiotypes) {
 			if (name.find(type) != std::string::npos) {
 				foundmatch = true;
 				break;
 			}
 		}
 
-		if(!foundmatch) {
-			packagelist.erase(packagelist.begin() + i);
-		}
-		else i++;
+		if(foundmatch)
+			archivesToExtract.push_back(e);
+
 	}
+	//for(const sndContainerMask::entry& e : archivesToExtract) {
+	//	std::cout << e.archiveName << " " << e.size << "\n";
+	//}
 
-	AudioSampleMap sampleMap;
-	sampleMap.Build((config.inputdir / "base/sound/soundbanks/pc").string());
+	std::unordered_map<uint32_t, bool> ExtractedSamples;
+	ExtractedSamples.reserve(40000);
 
-
-	const fspath basedir = config.inputdir / "base";
-	const fspath audiodir = config.outputdir / "audio";
-	create_directories(audiodir);
-
-	// MONITOR: Is this the correct order?
-	for(const std::string& packagename : packagelist) {
+	/*
+	* Since we're using the container mask, it's best to extract in reverse order
+	* because the highest priority archives are base versions. This should reduce
+	* the amount of duplicate extractions significantly versus going from highest
+	* priority to lowest, like we do with the resource archives
+	*/
+	for(int archiveIndex = (int)archivesToExtract.size() - 1; archiveIndex >= 0; archiveIndex--) {
+		const sndContainerMask::entry archiveMask = archivesToExtract[archiveIndex];
 		SoundArchiveType archiveType;
 
-		if(packagename.find("SFX") != std::string::npos)
+		if(archiveMask.archiveName.find("SFX") != std::string::npos)
 			archiveType = et_sfx;
-		else if(packagename.find("MUSIC") != std::string::npos)
+		else if(archiveMask.archiveName.find("MUSIC") != std::string::npos)
 			archiveType = et_music;
-		else if(packagename.find("CINEMAT") != std::string::npos)
+		else if(archiveMask.archiveName.find("CINEMAT") != std::string::npos)
 			archiveType = et_cine;
 		else archiveType = et_voice;
 
-		const fspath archivepath = basedir / packagename;
+		const fspath archivepath = snddir / archiveMask.archiveName;
 
-		// Until we can be certain how snd archives are prioritized, we should extract them into separate folders
-		//const fspath archiveoutdir = audiodir / archivepath.stem().string().substr(0,  archivepath.stem().string().find_first_of('_') );
-		const fspath archiveoutdir = audiodir / archivepath.stem();
+		const fspath archiveoutdir = audiodir / archivepath.stem().string().substr(0,  archivepath.stem().string().find_first_of('_') );
+		//const fspath archiveoutdir = audiodir / archivepath.stem(); // If we want to extract to separate folders
 
 		create_directory(archiveoutdir);
 		atlog << "Extracting from " << archivepath.filename() << "\n";
@@ -207,6 +240,12 @@ void AudioExtractor(const configdata_t& config)
 
 		aksnd snd;
 		snd.ReadFrom(archivepath.string().c_str());
+
+		// In case the container masks wind up being out-of-order
+		if(snd.numentries > archiveMask.size) {
+			atlog << "FATAL: Entry count larger than container mask\n";
+			return;
+		}
 
 		std::atomic<int> totalSamples = 0;
 		std::thread threadpool[THREADMAX];
@@ -235,6 +274,8 @@ void AudioExtractor(const configdata_t& config)
 			args.archiveType = archiveType;
 			args.threadid = t;
 			args.totalSamples = &totalSamples;
+			args.extractedSamples = &ExtractedSamples;
+			args.bitmask = archiveMask;
 
 			args.firstindex = nextIndex;
 			args.maxindex = nextIndex + snd.numentries / threadsToUse + snd.numentries % threadsToUse;
@@ -258,7 +299,9 @@ void AudioExtractor(const configdata_t& config)
 			threadpool[t].join();
 		}
 		
-		atlog << "\rExtracted " << snd.numentries << " files from archive\n";
+		atlog << "\rExtracted " << totalSamples.load() << " files from archive\n";
+		if(snd.numentries - totalSamples.load() > 0)
+			atlog << (snd.numentries - totalSamples.load()) << " duplicates skipped\n";
 	}
 	
 	atlog << "Audio Extractor complete\n";
@@ -475,6 +518,7 @@ void ExtractorMain() {
 						// We re-extract the enabled version of the file under the assumption that it's more accurate.
 						// MONITOR: If all copies of a file are disabled, there's no real way to determine which is the most
 						// "up-to-date" version. Best we can do is go in order of archive priority like we already are.
+						// TODO: investigate using generatedTimeStamps
 						if (isloaded && !tryresult.first->second) {
 							tryresult.first->second = true;
 							#ifdef _DEBUG

@@ -258,6 +258,9 @@ void AudioSampleMap::Build(std::string soundfolder)
 		}
 		duplicateLog.append("\n\n");
 	}
+
+	// Step 4: Build the container mask
+	containermask.Build(soundfolder);
 }
 
 std::string AudioSampleMap::ResolveEventName(const uint32_t sampleId) const
@@ -272,4 +275,179 @@ std::string AudioSampleMap::ResolveEventName(const uint32_t sampleId) const
 	assert(stringiter != bnk_eventstring_map.end());
 
 	return stringiter->second;
+}
+
+void sndContainerMask::Build(const std::string soundfolder)
+{
+	BinaryOpener open(soundfolder + "/soundmetadata.bin");
+	BinaryReader reader = open.ToReader();
+
+	// We have to parse through the entirety of soundmetadata.bin to reach
+	// the container mask section
+
+	uint8_t byte;
+	uint32_t numevents = 0;
+	uint32_t stringlength = 0;
+
+	// Sound Event list
+	assert(reader.ReadLE(numevents));
+	for (uint32_t i = 0; i < numevents; i++) {
+		assert(reader.ReadLE(stringlength));
+		assert(reader.GoRight(stringlength));
+		assert(reader.GoRight(4)); // bnk id
+		assert(reader.ReadLE(byte)); // lang id
+		assert(reader.ReadLE(stringlength));
+		assert(reader.GoRight(stringlength));
+	}
+
+	// Unknown
+	assert(reader.ReadLE(numevents));
+	for (uint32_t i = 0; i < numevents; i++) {
+		assert(reader.GoRight(4)); // Some sort of id
+		assert(reader.ReadLE(stringlength));
+		assert(reader.GoRight(stringlength));
+	}
+
+	// Unknown
+	assert(reader.ReadLE(numevents));
+	for (uint32_t i = 0; i < numevents; i++) {
+		assert(reader.ReadLE(stringlength));
+		assert(reader.GoRight(stringlength));
+		assert(reader.GoRight(4)); // Some sort of id
+	}
+
+	// Music Switches?
+	assert(reader.ReadLE(numevents));
+	for (uint32_t i = 0; i < numevents; i++) {
+		assert(reader.GoRight(4));
+		assert(reader.ReadLE(stringlength));
+		assert(reader.GoRight(stringlength));
+
+		uint32_t listlength = 0;
+		assert(reader.ReadLE(listlength));
+
+		for (uint32_t subindex = 0; subindex < listlength; subindex++)
+		{
+			assert(reader.GoRight(4));
+			assert(reader.ReadLE(stringlength));
+			assert(reader.GoRight(stringlength));
+		}
+	}
+
+	// Music States?
+	assert(reader.ReadLE(numevents));
+	for (uint32_t i = 0; i < numevents; i++) {
+		assert(reader.GoRight(4));
+		assert(reader.ReadLE(stringlength));
+		assert(reader.GoRight(stringlength));
+
+		uint32_t listlength;
+		assert(reader.ReadLE(listlength));
+
+		for (uint32_t subindex = 0; subindex < listlength; subindex++) {
+			assert(reader.GoRight(4));
+			assert(reader.ReadLE(stringlength));
+			assert(reader.GoRight(stringlength));
+		}
+	}
+
+	// Unknown
+	assert(reader.ReadLE(numevents));
+	for (uint32_t i = 0; i < numevents; i++) {
+		assert(reader.ReadLE(stringlength));
+		assert(reader.GoRight(stringlength));
+		assert(reader.GoRight(4));
+
+		assert(reader.GoRight(11)); // No idea what this is 
+		uint32_t listlength = 0;
+		assert(reader.ReadLE(listlength));
+
+		// This is hopefully a stable way of determining this.
+		// Really need to fully understand the soundmetadata
+		bool isLanguageList;
+		{
+			size_t position = reader.GetPosition();
+
+			const char* bytes = nullptr;
+			uint32_t testlen = 0;
+			assert(reader.ReadLE(testlen));
+
+			if (testlen == 11) {
+				assert(reader.ReadBytes(bytes, testlen));
+				isLanguageList = memcmp(bytes, "English(US)", 11) == 0;
+			}
+			else {
+				isLanguageList = false;
+			}
+
+			reader.Goto(position);
+		}
+
+		if (isLanguageList) { // Big language list
+			for (uint32_t langind = 0; langind < listlength; langind++) {
+				if (langind > 0)
+					assert(reader.GoRight(4));
+				assert(reader.ReadLE(stringlength));
+				assert(reader.GoRight(stringlength));
+			}
+
+			assert(reader.GoRight(4));
+			assert(reader.ReadLE(listlength));
+			for (uint32_t langind = 0; langind < listlength; langind++) {
+				assert(reader.GoRight(4));
+				assert(reader.ReadLE(stringlength));
+				assert(reader.GoRight(stringlength));
+			}
+		}
+		else {
+			for (uint32_t langind = 0; langind < listlength; langind++) { // List of SFX
+				assert(reader.GoRight(4));
+				assert(reader.ReadLE(stringlength));
+				assert(reader.GoRight(stringlength));
+			}
+		}
+	}
+
+	// This is the container mask
+	this->rawsize = reader.GetRemaining();
+	rawdata = new char[rawsize];
+	memcpy(rawdata, reader.GetNext(), rawsize);
+	BinaryReader mask(rawdata, rawsize);
+
+	const char* groupname = nullptr;
+	uint32_t groupnamelength = 0;
+
+	assert(mask.ReadLE(numevents));
+	for (uint32_t i = 0; i < numevents; i++) {
+		assert(mask.ReadLE(groupnamelength));
+		assert(mask.ReadBytes(groupname, groupnamelength));
+
+		uint32_t numarchives; // Number of archives of this type
+		assert(mask.ReadLE(numarchives));
+
+		const std::string archivestem(groupname, groupnamelength - 4); // Cut off the .snd
+
+		for (uint32_t arcindex = 0; arcindex < numarchives; arcindex++) {
+			
+			entry e;
+			e.archiveName = archivestem;
+			if (arcindex > 0) {
+				e.archiveName.append("_patch_");
+				e.archiveName.append(std::to_string(arcindex));
+			}
+			e.archiveName.append(".snd");
+
+
+			assert(mask.GoRight(4)); // Container id?
+			
+			assert(mask.ReadLE(e.size));
+			assert(mask.ReadBytes(e.mask, e.size * sizeof(uint32_t)));
+			e.size *= 32; // Convert from integers to bits
+
+			masks.push_back(e);
+		}
+
+	}
+
+	assert(mask.ReachedEOF());
 }
