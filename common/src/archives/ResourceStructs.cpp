@@ -339,7 +339,7 @@ void idclMaskFile::Read(const fspath gamedir)
 
 		masksize = maskdata.length;
 		maskblob = new char[maskdata.length];
-		memcpy(maskblob, decompbuffer, maskdata.length);
+		memcpy(maskblob, maskdata.buffer, maskdata.length);
 
 		delete[] decompbuffer;
 	}

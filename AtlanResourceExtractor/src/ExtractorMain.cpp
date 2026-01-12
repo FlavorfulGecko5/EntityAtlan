@@ -318,7 +318,7 @@ void ExtractorMain() {
 	/*
 	* REMEMBER TO UPDATE VERSION NUMBER
 	*/
-	atlog << "Atlan Consolidated Resource Extractor v3.0 by FlavorfulGecko5\n";
+	atlog << "Atlan Consolidated Resource Extractor v3.0.1 by FlavorfulGecko5\n";
 
 	/*
 	* Parse and validate config file
