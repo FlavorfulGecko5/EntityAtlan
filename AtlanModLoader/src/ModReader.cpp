@@ -27,6 +27,8 @@ const std::unordered_map<std::string, resourcetypeinfo_t> ValidResourceTypes = {
 		}
 	},
 
+	{"decls", {"rs_streamfile", rt_rs_streamfile, allow_mod_yes, "generated/decls/"}},
+
 	{
 		"entityDef",
 		{
@@ -363,7 +365,8 @@ void ReadMod(mz_zip_archive* zptr, ModDef& mod, int argflags)
 			nameEnd++;
 		}
 		LABEL_EARLY_OUT:
-		modfile.assetPath = std::string(nameBuffer + delimiter + 1, nameEnd);
+		modfile.assetPath = modfile.typedata->namestart;
+		modfile.assetPath.append(nameBuffer + delimiter + 1, nameEnd);
 
 		if (hasBadChars) {
 			atlog << "WARNING: Fixed capital letters or other bad characters in path " << modfile.realPath << "\n";

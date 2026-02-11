@@ -311,6 +311,28 @@ void AudioExtractor(const configdata_t& config)
 	dupelogwriter.close();
 }
 
+void FixLegacyDeclPath(const fspath& outputdir) {
+	const fspath legacydir = outputdir / "rs_streamfile" / "generated" / "decls";
+	const fspath newdir = outputdir / "decls";
+
+	using namespace std::filesystem;
+
+	if(!exists(legacydir))
+		return;
+
+	atlog << "NOTICE: Detected legacy decl output dir at <output>/rs_streamfile/generated/decls\n"
+	"Attempting to rename folder to <output>/decls\n";
+
+	if (exists(newdir)) {
+		atlog << "ERROR: Failed to rename legacy decl dir. A directory already exists at the new path\n";
+		return;
+	}
+
+	std::filesystem::rename(legacydir, newdir);
+
+	atlog << "Successfully renamed legacy decl dir\n";
+}
+
 /*
 * CONSOLIDATED RESOURCE EXTRACTOR FUNCTION
 */
@@ -452,6 +474,8 @@ void ExtractorMain() {
 	if (config.run_extractor) {
 		atlog << "Performing resource extraction\n";
 
+		FixLegacyDeclPath(config.outputdir);
+
 		idclMaskFile containerMask;
 		containerMask.Read(config.inputdir);
 
@@ -535,7 +559,16 @@ void ExtractorMain() {
 
 				// Make adjustments to the output name string depending on the resource type
 				std::string adjustedNameString;
-				if (strcmp(typestring, "mapentities") == 0) {
+				if (strcmp(typestring, "rs_streamfile") == 0) {
+
+					adjustedNameString = namestring;
+
+					if (adjustedNameString._Starts_with("generated/decls/")) {
+						adjustedNameString = adjustedNameString.substr(16); // Remove "generated/decls/"
+						typestring = "decls";
+					}
+				}
+				else if (strcmp(typestring, "mapentities") == 0) {
 					adjustedNameString = namestring;
 					for (char& c : adjustedNameString) {
 						if(c == '/')

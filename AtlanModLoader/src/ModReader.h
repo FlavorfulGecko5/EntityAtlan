@@ -17,6 +17,7 @@ struct resourcetypeinfo_t {
 	std::string_view typestring;
 	ResourceType typeenum;
 	AllowModFile allow;
+	std::string_view namestart;
 };
 
 struct ModDef {
