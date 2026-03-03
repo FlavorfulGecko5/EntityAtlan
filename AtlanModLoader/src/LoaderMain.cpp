@@ -386,8 +386,10 @@ void RebuildContainerMask(const fspath metapath, const fspath newarchivepath) {
 	e->dataSize = e->uncompressedSize + extraSize;
 	e->uncompressedSize = e->dataSize;
 	e->compMode = 0;
-	e->defaultHash = HashLib::ResourceMurmurHash(std::string_view(decomp, e->dataSize));
-	e->dataCheckSum = e->defaultHash;
+	
+	// Not necessary because of executable patch disabling this check. (Also idFile_Verified isn't used on meta.resources)
+	//e->defaultHash = HashLib::ResourceMurmurHash(decomp, e->dataSize);
+	//e->dataCheckSum = e->defaultHash;
 
 	// IMPORTANT: Our gameupdate detection system relies on checking this value
 	// to determine if meta.resources is modded or not.

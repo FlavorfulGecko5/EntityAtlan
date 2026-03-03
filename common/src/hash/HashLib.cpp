@@ -108,6 +108,39 @@ uint64_t MurmurHash64B(const void* key, int len, uint64_t seed)
 	return h;
 }
 
-uint64_t HashLib::ResourceMurmurHash(std::string_view data) {
-	return MurmurHash64B(data.data(), data.length(), 0xDEADBEEFUL);
+uint64_t HashLib::ResourceMurmurHash(const char* data, size_t length) {
+	return MurmurHash64B(data, length, 0xDEADBEEFUL);
+}
+
+
+uint32_t HashLib::idHashIndex(const char* string, size_t length) {
+	int hash = 0;
+	const char* max = string + length;
+
+	while (string < max) {
+		hash = (hash << 5) - hash + (unsigned char)(*string);
+		string++;
+	}
+	return *reinterpret_cast<uint32_t*>(&hash);
+}
+
+uint32_t HashLib::akfnv_insensitive(const char* in_pData, size_t in_dataSize)
+{
+	const uint32_t HASHPRIME = 16777619;
+	const uint32_t OFFSET = 2166136261U;
+
+	const unsigned char* pData = (const unsigned char*)in_pData;
+	const unsigned char* pEnd = pData + in_dataSize;        /* beyond end of buffer */
+
+	uint32_t hval = OFFSET;
+	while (pData < pEnd)
+	{
+		hval *= HASHPRIME;
+
+		unsigned char c = (unsigned char)*pData++;
+		c = (c >= 'A' && c <= 'Z') ? c - 'A' + 'a' : c;
+		hval ^= c;
+	}
+
+	return hval;
 }
