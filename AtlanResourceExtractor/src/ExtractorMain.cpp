@@ -186,27 +186,24 @@ void AudioExtractor(const configdata_t& config)
 
 	AudioSampleMap sampleMap;
 	sampleMap.Build((config.inputdir / snddir).string());
+	const sndContainerMask& ContainerMask = sampleMap.GetMask();
 
 	// Prioritized Archive List
 	std::vector<sndContainerMask::entry> archivesToExtract; 
-	for (const sndContainerMask::entry& e : sampleMap.GetMask().masks) {
-		const std::string& name = e.archiveName;
+	for (const sndContainerMask::entry& e : ContainerMask.masks) {
 
-		bool foundmatch = false;
 		for (const std::string& type : config.audiotypes) {
-			if (name.find(type) != std::string::npos) {
-				foundmatch = true;
+			if (e.fnvstring.find(type) != std::string::npos) {
+
+				archivesToExtract.push_back(e);
 				break;
 			}
 		}
-
-		if(foundmatch)
-			archivesToExtract.push_back(e);
-
 	}
 	//for(const sndContainerMask::entry& e : archivesToExtract) {
-	//	std::cout << e.archiveName << " " << e.size << "\n";
+	//	std::cout << e.fnvstring << " " << e.size << "\n";
 	//}
+	//return;
 
 	std::unordered_map<uint32_t, bool> ExtractedSamples;
 	ExtractedSamples.reserve(40000);
@@ -221,15 +218,15 @@ void AudioExtractor(const configdata_t& config)
 		const sndContainerMask::entry archiveMask = archivesToExtract[archiveIndex];
 		SoundArchiveType archiveType;
 
-		if(archiveMask.archiveName.find("SFX") != std::string::npos)
+		if(archiveMask.fnvstring.find("SFX") != std::string::npos)
 			archiveType = et_sfx;
-		else if(archiveMask.archiveName.find("MUSIC") != std::string::npos)
+		else if(archiveMask.fnvstring.find("MUSIC") != std::string::npos)
 			archiveType = et_music;
-		else if(archiveMask.archiveName.find("CINEMAT") != std::string::npos)
+		else if(archiveMask.fnvstring.find("CINEMAT") != std::string::npos)
 			archiveType = et_cine;
 		else archiveType = et_voice;
 
-		const fspath archivepath = snddir / archiveMask.archiveName;
+		const fspath archivepath = snddir / (archiveMask.fnvstring + ".snd");
 
 		const fspath archiveoutdir = audiodir / archivepath.stem().string().substr(0,  archivepath.stem().string().find_first_of('_') );
 		//const fspath archiveoutdir = audiodir / archivepath.stem(); // If we want to extract to separate folders

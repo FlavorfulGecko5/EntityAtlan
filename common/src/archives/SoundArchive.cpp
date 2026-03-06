@@ -3,6 +3,8 @@
 #include <fstream>
 #include <string>
 #include <cassert>
+#include <filesystem>
+#include "hash/HashLib.h"
 
 // Need the assert operations to still execute
 #ifndef _DEBUG
@@ -414,32 +416,31 @@ void sndContainerMask::Build(const std::string soundfolder)
 	memcpy(rawdata, reader.GetNext(), rawsize);
 	BinaryReader mask(rawdata, rawsize);
 
-	const char* groupname = nullptr;
-	uint32_t groupnamelength = 0;
+	groups.reserve(16);
+	masks.reserve(48);
 
 	assert(mask.ReadLE(numevents));
 	for (uint32_t i = 0; i < numevents; i++) {
+
+		const char* groupname = nullptr;
+		uint32_t groupnamelength = 0;
+		uint32_t numarchives; // Number of archives of this type
+
+		// Group Name
 		assert(mask.ReadLE(groupnamelength));
 		assert(mask.ReadBytes(groupname, groupnamelength));
-
-		uint32_t numarchives; // Number of archives of this type
 		assert(mask.ReadLE(numarchives));
 
-		const std::string archivestem(groupname, groupnamelength - 4); // Cut off the .snd
+		groups.emplace_back();
+		group& g = groups.back();
+		g.groupname = std::string(groupname, groupnamelength);
+		g.firstindex = masks.size();
+		g.maskcount = numarchives;
 
 		for (uint32_t arcindex = 0; arcindex < numarchives; arcindex++) {
 			
 			entry e;
-			e.archiveName = archivestem;
-			if (arcindex > 0) {
-				e.archiveName.append("_patch_");
-				e.archiveName.append(std::to_string(arcindex));
-			}
-			e.archiveName.append(".snd");
-
-
-			assert(mask.GoRight(4)); // Container id?
-			
+			assert(mask.ReadLE(e.fnvhash));
 			assert(mask.ReadLE(e.size));
 			assert(mask.ReadBytes(e.mask, e.size * sizeof(uint32_t)));
 			e.size *= 32; // Convert from integers to bits
@@ -450,4 +451,56 @@ void sndContainerMask::Build(const std::string soundfolder)
 	}
 
 	assert(mask.ReachedEOF());
+
+	// Populate the fnv strings
+
+	typedef std::filesystem::path fspath;
+
+	for (const auto& entry : std::filesystem::directory_iterator(soundfolder))
+	{
+		if(entry.is_directory())
+			continue;
+
+		fspath path = entry.path();
+		if(path.extension() != ".snd")
+			continue;
+
+		std::string filename = path.stem().string();
+
+		uint32_t fnv = HashLib::akfnv_insensitive(filename.data(), filename.length());
+
+		// LOOP #1
+		bool found = false;
+		size_t maskcount = masks.size();
+		for (size_t i = 0; i < maskcount; i++)
+		{
+			if (masks[i].fnvhash == fnv) {
+				found = true;
+				masks[i].fnvstring = filename;
+				break;
+			}
+		}
+
+		// LOOP #2: Account for hardcoded hashes only present
+		// in Doom The Dark Ages
+		if (found)
+			continue;
+		if(filename == "MUSIC")
+			fnv = 0;
+		else if(filename == "SFX")
+			fnv = 1;
+		
+		for (size_t i = 0; i < maskcount; i++)
+		{
+			if (masks[i].fnvhash == fnv) {
+				found = true;
+				masks[i].fnvstring = filename;
+				break;
+			}
+		}
+
+		if (!found) {
+			printf("ERROR: snd archive with no container mask %s\n", filename.data());
+		}
+	}
 }

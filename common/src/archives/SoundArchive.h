@@ -88,7 +88,8 @@ class aksnd
 struct sndContainerMask {
 	struct entry
 	{
-		std::string archiveName;
+		std::string fnvstring; // String that was hashed to make the fnvhash. Should be the filename without the extension (i.e. "SFX" or "SFX_patch_1")
+		uint32_t fnvhash;     // Identifier for the container
 		uint32_t size = 0; // In Bits
 		const char* mask = nullptr;
 
@@ -97,6 +98,14 @@ struct sndContainerMask {
 		}
 	};
 
+	struct group
+	{
+		std::string groupname;   // Should be the base archive's filename (i.e. "SFX.snd" or "MUSIC.snd")
+		uint32_t maskcount = 0;  // Number of masks in this group
+		uint32_t firstindex = 0; // Index into sndContainerMask.masks
+	};
+
+	std::vector<group> groups;
 	std::vector<entry> masks;
 	char* rawdata = nullptr;
 	size_t rawsize = 0;
