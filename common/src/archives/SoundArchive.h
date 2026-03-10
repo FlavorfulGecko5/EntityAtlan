@@ -17,10 +17,10 @@ class aksnd
 	*/
 
 	struct entry {
-		uint64_t unknown; // Probably a checksum?
-		uint32_t id;
-		uint32_t encodedSize;
-		uint32_t offset; // Relative to beginning of file
+		uint64_t farmhash;    // Farmhash64 of the the entry's decoded data (not necessarily the same as the encoded version stored in the archive)
+		uint32_t id;          // ID used to reference this sample inside of soundbanks
+		uint32_t encodedSize; // Size of the entry's data as it's stored inside the archive. In Dark Ages, always matches decodedSize
+		uint32_t offset;      // Relative to beginning of file
 		uint32_t decodedSize;
 		uint32_t metasize;
 		uint32_t metaoffset; // Relative to global offset 0xC
@@ -34,7 +34,7 @@ class aksnd
 	struct header_start {
 		uint32_t version;       // Should always be 6?
 		uint32_t headersize;    // Size of the entire header chunk
-		uint32_t entrymetasize; // Size of the header's entry meta section
+		uint32_t entrymetasize; // Size of the header's entry meta section. This field is the 4 bytes of the header chunk
 
 		uint32_t datastart() const { // Start of data chunk
 			return sizeof(version) + sizeof(headersize) + headersize;
@@ -103,6 +103,8 @@ struct sndContainerMask {
 		std::string groupname;   // Should be the base archive's filename (i.e. "SFX.snd" or "MUSIC.snd")
 		uint32_t maskcount = 0;  // Number of masks in this group
 		uint32_t firstindex = 0; // Index into sndContainerMask.masks
+
+		std::string modfnvstring; // If not empty, will add an additional mask to this group with this string
 	};
 
 	std::vector<group> groups;
@@ -116,6 +118,19 @@ struct sndContainerMask {
 
 	void Build(const std::string soundfolder);
 	
+	void Build(const char* copyfrom, size_t length, const std::string& soundfolder);
+};
+
+// Representation of soundmetadata.bin
+class sndMetadata 
+{
+	sndContainerMask ContainerMask;
+
+public:
+	// Returns the start index of the Container Mask Chunk
+	static size_t FindContainerMask(const char* metastart, const size_t metalength);
+
+	void Read(const std::string& soundfolder);
 };
 
 class AudioSampleMap

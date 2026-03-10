@@ -222,4 +222,8 @@ class BinaryOpener {
 	BinaryReader ToReader() {
 		return BinaryReader(buffer, length);
 	}
+
+	const char* data() const {return buffer;}
+
+	size_t len() const {return length;}
 };

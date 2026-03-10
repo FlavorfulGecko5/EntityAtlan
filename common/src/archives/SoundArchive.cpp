@@ -98,7 +98,7 @@ std::string aksnd::GetSampleName(const aksnd::entry& e, bool searchForLabel) con
 
 void aksnd::GetSampleData(const aksnd::entry& e, std::ifstream& stream, char*& buffer, size_t& buffersize) const
 {
-	assert(e.encodedSize == e.decodedSize);
+	//assert(e.encodedSize == e.decodedSize);
 	if (buffersize < e.encodedSize) {
 		delete[] buffer;
 		buffer = new char[e.encodedSize];
@@ -279,13 +279,12 @@ std::string AudioSampleMap::ResolveEventName(const uint32_t sampleId) const
 	return stringiter->second;
 }
 
-void sndContainerMask::Build(const std::string soundfolder)
+size_t sndMetadata::FindContainerMask(const char* metastart, const size_t metalength)
 {
-	BinaryOpener open(soundfolder + "/soundmetadata.bin");
-	BinaryReader reader = open.ToReader();
-
 	// We have to parse through the entirety of soundmetadata.bin to reach
 	// the container mask section
+
+	BinaryReader reader(metastart, metalength);
 
 	uint8_t byte;
 	uint32_t numevents = 0;
@@ -410,17 +409,34 @@ void sndContainerMask::Build(const std::string soundfolder)
 		}
 	}
 
-	// This is the container mask
-	this->rawsize = reader.GetRemaining();
+	return reader.GetPosition();
+}
+
+void sndContainerMask::Build(const std::string soundfolder)
+{
+	BinaryOpener open(soundfolder + "/soundmetadata.bin");
+	BinaryReader reader = open.ToReader();
+
+	size_t maskstart = sndMetadata::FindContainerMask(reader.GetBuffer(), reader.GetLength());
+	assert(reader.GoRight(maskstart));
+
+	Build(reader.GetNext(), reader.GetRemaining(), soundfolder);
+}
+
+void sndContainerMask::Build(const char* copyfrom, size_t length, const std::string& soundfolder)
+{
+	this->rawsize = length;
 	rawdata = new char[rawsize];
-	memcpy(rawdata, reader.GetNext(), rawsize);
+	memcpy(rawdata, copyfrom, rawsize);
 	BinaryReader mask(rawdata, rawsize);
 
 	groups.reserve(16);
 	masks.reserve(48);
 
-	assert(mask.ReadLE(numevents));
-	for (uint32_t i = 0; i < numevents; i++) {
+	uint32_t numgroups = 0;
+
+	assert(mask.ReadLE(numgroups));
+	for (uint32_t i = 0; i < numgroups; i++) {
 
 		const char* groupname = nullptr;
 		uint32_t groupnamelength = 0;

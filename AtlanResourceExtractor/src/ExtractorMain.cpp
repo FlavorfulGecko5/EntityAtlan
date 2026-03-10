@@ -30,7 +30,7 @@ struct configdata_t {
 
 	audiotypeset_t audiotypes;
 	int max_audio_threads = THREADMAX;
-	//bool remove_compressed_audio = true;
+	bool decode_samples = true;
 };
 
 enum SoundArchiveType {
@@ -52,6 +52,7 @@ struct audiothreadargs {
 	std::atomic<int>* totalSamples;
 	std::unordered_map<uint32_t, bool>* extractedSamples;
 	sndContainerMask::entry bitmask;
+	bool decode_samples;
 };
 
 std::mutex AUDIO_MAP_MUTEX;
@@ -130,23 +131,23 @@ void AudioThread(audiothreadargs args) {
 		// MONITOR: Is this thread-safe?
 		create_directory(sampleoutpath_decomp.parent_path());
 
-		compressedWriter.open(audiotempfile, std::ios_base::binary);
+		compressedWriter.open(args.decode_samples ? audiotempfile : sampleoutpath_decomp, std::ios_base::binary);
 		assert(compressedWriter.good());
 		compressedWriter.write(samplebuffer, e.encodedSize);
 		compressedWriter.close();
 
-		#if 1
-		std::string syscommand = "vgmstream\\vgmstream-cli.exe -o \"";
-		syscommand.append(sampleoutpath_decomp.string());
-		syscommand.append("\" \"");
-		syscommand.append(audiotempfile.string());
-		syscommand.append("\" 1> NUL");
-		
+		if (args.decode_samples) {
+			std::string syscommand = "vgmstream\\vgmstream-cli.exe -o \""; 
+			syscommand.append(sampleoutpath_decomp.string());
+			syscommand.append("\" \"");
+			syscommand.append(audiotempfile.string());
+			syscommand.append("\" 1> NUL");
 
-		//std::cout << syscommand << "\n";
-		int returnresult = std::system(syscommand.c_str());
-		assert(returnresult == 0);
-		#endif
+
+			//std::cout << syscommand << "\n";
+			int returnresult = std::system(syscommand.c_str());
+			assert(returnresult == 0);
+		}
 
 		if(localSampleCount % progressInterval == 0) {
 			args.totalSamples->fetch_add(localSampleCount);
@@ -227,8 +228,12 @@ void AudioExtractor(const configdata_t& config)
 		else archiveType = et_voice;
 
 		const fspath archivepath = snddir / (archiveMask.fnvstring + ".snd");
+		const std::string archivestem = archivepath.stem().string();
 
-		const fspath archiveoutdir = audiodir / archivepath.stem().string().substr(0,  archivepath.stem().string().find_first_of('_') );
+		const fspath archiveoutdir = audiodir / ( 
+			archivestem.substr(0,  archivestem.find_first_of('_')) 
+			+ (config.decode_samples ? "" : "_encoded") 
+		);
 		//const fspath archiveoutdir = audiodir / archivepath.stem(); // If we want to extract to separate folders
 
 		create_directory(archiveoutdir);
@@ -273,6 +278,7 @@ void AudioExtractor(const configdata_t& config)
 			args.totalSamples = &totalSamples;
 			args.extractedSamples = &ExtractedSamples;
 			args.bitmask = archiveMask;
+			args.decode_samples = config.decode_samples;
 
 			args.firstindex = nextIndex;
 			args.maxindex = nextIndex + snd.numentries / threadsToUse + snd.numentries % threadsToUse;
@@ -414,6 +420,9 @@ void ExtractorMain() {
 
 		if (!root["audio_extractor"]["max_threads"].ValueInt(config.max_audio_threads, 1, THREADMAX)) {
 			atlog << "WARNING: Failed to read config bool audio_extractor/max_threads: assuming default\n";
+		}
+		if (!root["audio_extractor"]["decode_samples"].ValueBool(config.decode_samples)) {
+			atlog << "WARNING: Failed to read config bool audio_extractor/decode_samples: assuming default\n";
 		}
 
 		/* Deserialization Settings */
