@@ -60,7 +60,10 @@ const std::unordered_map<std::string, resourcetypeinfo_t> ValidResourceTypes = {
 			rt_image,
 			allow_mod_no
 		}
-	}
+	},
+
+	// Audio will be handled differently by the loader
+	{"audio", {"audio", rt_audio, allow_mod_yes}}
 };
 
 struct configData_t {
@@ -331,7 +334,8 @@ void ReadMod(mz_zip_archive* zptr, ModDef& mod, int argflags)
 		* Create the resource string - Beginning after the resource type
 		*/
 		bool hasBadChars = false;
-		char* nameEnd = nameBuffer + delimiter + 1;
+		char* nameStart = nameBuffer + delimiter + 1;
+		char* nameEnd = nameStart;
 		while (nameEnd < nameBuffer + nameLength) {
 			switch (*nameEnd) 
 			{
@@ -365,12 +369,36 @@ void ReadMod(mz_zip_archive* zptr, ModDef& mod, int argflags)
 			nameEnd++;
 		}
 		LABEL_EARLY_OUT:
-		modfile.assetPath = modfile.typedata->namestart;
-		modfile.assetPath.append(nameBuffer + delimiter + 1, nameEnd);
 
-		if (hasBadChars) {
-			atlog << "WARNING: Fixed capital letters or other bad characters in path " << modfile.realPath << "\n";
+		// For Audio: Trim the asset path down to just the sample ID
+		if (modfile.typedata->typeenum & rtc_last_number) {
+
+			char* iter = nameEnd - 1;
+			while (iter >= nameStart) {
+				if (*iter > '9' || *iter < '0') {
+					nameStart = iter + 1;
+					break;
+				}
+				iter--;
+			}
+
+			if (nameStart >= nameEnd || *nameStart > '9' || *nameStart < '0') {
+				atlog << "ERROR: File " << modfile.realPath << " requires a number at the end of it's filename\n";
+				continue;
+			}
 		}
+		else {
+			if (hasBadChars) {
+				atlog << "WARNING: Fixed capital letters or other bad characters in path " << modfile.realPath << "\n";
+			}
+			if (nameStart >= nameEnd) {
+				atlog << "ERROR: File " << modfile.realPath << " has an invalid name\n";
+				continue;
+			}
+		}
+
+		modfile.assetPath = modfile.typedata->namestart;
+		modfile.assetPath.append(nameStart, nameEnd);
 
 		/*
 		* Read the mod data

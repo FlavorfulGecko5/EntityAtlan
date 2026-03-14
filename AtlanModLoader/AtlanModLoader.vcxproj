@@ -158,6 +158,7 @@
     <ClCompile Include="src\GlobalConfig.cpp" />
     <ClCompile Include="src\LoaderMain.cpp" />
     <ClCompile Include="src\ModReader.cpp" />
+    <ClCompile Include="src\SoundBuilder.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\common\common.vcxproj">

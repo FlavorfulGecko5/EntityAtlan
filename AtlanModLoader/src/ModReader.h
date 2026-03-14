@@ -55,3 +55,7 @@ namespace ModReader {
 	void ReadLooseMod(ModDef& readto, const fspath& modsfolder, const std::vector<fspath>& pathlist, int argflags);
 	void ReadZipMod(ModDef& readto, const fspath& zipPath, int argflags);
 }
+
+namespace ModBuilder {
+	void BuildAudioArchives(const fspath soundsfolder, const std::vector<ModFile*>& samplefiles);
+}

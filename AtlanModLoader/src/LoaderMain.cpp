@@ -417,6 +417,15 @@ bool IsModded_Meta(const fspath& path) {
 	return meta.entries[0].generationTimeStamp == MODDED_TIMESTAMP;
 }
 
+bool IsModded_SoundMeta(const fspath& path) {
+	char magic[8] = {};
+	std::ifstream meta(path, std::ios_base::binary);
+	meta.seekg(-8, std::ios_base::end);
+
+	meta.read(magic, 8);
+	return memcmp(magic, "ATLANMOD", 8) == 0;
+}
+
 /*
 * CREATE / RESTORE BACKUPS; CLEANUP PREVIOUS INJECTION FILES
 * If returned false, a fatal error was encountered and program should abort
@@ -431,13 +440,15 @@ bool CleanupLastLoad(const fspath gamedir)
 	fspath outarchivepath = outdir / "common_mod.resources";
 	fspath pmspath = basedir / "packagemapspec.json";
 	fspath metapath = basedir / "meta.resources";
+	fspath soundmetapath = basedir / "sound/soundbanks/pc/soundmetadata.bin";
+	fspath modsndpath =    basedir / "sound/soundbanks/pc/ATLANMOD.snd";
 
 	std::error_code lastCode;
 	//atlog << "Managing backups and cleaning up previous injection files.\n";
 
-	#define NUM_BACKUPS 2
-	const fspath backedupfiles[NUM_BACKUPS] = {pmspath, metapath};
-	bool IsModded[NUM_BACKUPS] = { IsModded_MapSpec(pmspath), IsModded_Meta(metapath)};
+	#define NUM_BACKUPS 3
+	const fspath backedupfiles[NUM_BACKUPS] = {pmspath, metapath, soundmetapath};
+	bool IsModded[NUM_BACKUPS] = { IsModded_MapSpec(pmspath), IsModded_Meta(metapath), IsModded_SoundMeta(soundmetapath)};
 
 	// Handle backups
 	for(int i = 0; i < NUM_BACKUPS; i++) {
@@ -486,6 +497,10 @@ bool CleanupLastLoad(const fspath gamedir)
 	}
 	for (const fspath& fp : filesToDelete) {
 		remove(fp, lastCode);
+	}
+
+	if (exists(modsndpath)) {
+		remove(modsndpath, lastCode);
 	}
 
 	return true;
@@ -558,6 +573,7 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 	*/
 
 	std::vector<ModFile*> supermod;
+	std::vector<ModFile*> audiosupermod;
 	std::unordered_map<std::string, ModFile*> find_defaulthashes;
 	std::unordered_map<std::string, ModFile*> priorityAssets;
 
@@ -646,7 +662,12 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 			find_defaulthashes[pair.first] = &file;
 		}
 
-		supermod.push_back(&file);
+		if (file.typedata->typeenum == rt_audio) {
+			audiosupermod.push_back(&file);
+		}
+		else {
+			supermod.push_back(&file);
+		}
 	}
 
 	/*
@@ -704,7 +725,15 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 		PackageMapSpec::InjectCommonArchive(gamedir, outarchivepath);
 		RebuildContainerMask(metapath, outarchivepath);
 	}
-	else {
+
+	if (audiosupermod.size() > 0) {
+		atlog << "Constructing audio archives\n";
+
+		fspath soundsdir = basedir / "sound" / "soundbanks" / "pc";
+		ModBuilder::BuildAudioArchives(soundsdir, audiosupermod);
+	}
+
+	if (supermod.size() == 0 && audiosupermod.size() == 0) {
 		atlog << "\n\nNo mods will be loaded. All previously loaded mods are removed.\n";
 	}
 
