@@ -55,7 +55,7 @@ input_folder: Path to your DOOM: The Dark Ages game installation
 Example: input_folder = "C:/Steam/steamapps/common/DOOMTheDarkAges"
 
 output_folder: Where to output extracted files
-Must be < 16 characters long to prevent export failures due to long file paths
+Must be < 40 characters long to prevent export failures due to long file paths
 Example: output_folder = "D:/DA"
 
 run_extractor: Set to 0 if you only want to run the deserializer

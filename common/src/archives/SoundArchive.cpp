@@ -412,6 +412,22 @@ size_t sndMetadata::FindContainerMask(const char* metastart, const size_t metale
 	return reader.GetPosition();
 }
 
+void sndMetadata::Read(const std::string& soundfolder)
+{
+	std::ifstream file(soundfolder + "/soundmetadata.bin", std::ios_base::binary);
+	assert(file.good());
+
+	file.seekg(0, std::ios_base::end);
+	filelength = file.tellg();
+	rawfile = new char[filelength];
+	file.seekg(0, std::ios_base::beg);
+	file.read(rawfile, filelength);
+	file.close();
+
+	containermaskIndex = FindContainerMask(rawfile, filelength);
+	ContainerMask.Build(rawfile + containermaskIndex, filelength - containermaskIndex, soundfolder);
+}
+
 void sndContainerMask::Build(const std::string soundfolder)
 {
 	BinaryOpener open(soundfolder + "/soundmetadata.bin");

@@ -125,8 +125,17 @@ struct sndContainerMask {
 class sndMetadata 
 {
 	sndContainerMask ContainerMask;
+	size_t containermaskIndex = 0;
+
+	char* rawfile = nullptr;
+	size_t filelength = 0;
+
 
 public:
+	~sndMetadata() {
+		delete[] rawfile;
+	}
+
 	// Returns the start index of the Container Mask Chunk
 	static size_t FindContainerMask(const char* metastart, const size_t metalength);
 

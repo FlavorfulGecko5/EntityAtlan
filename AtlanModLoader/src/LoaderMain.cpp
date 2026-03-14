@@ -81,7 +81,7 @@ class StringTable {
 
 
 void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) {
-	bool HotReloadMode = modfiles.size() == 1 && !modfiles[0]->isAtlanCompressed && modfiles[0]->parentMod->IsUnzipped && modfiles[0]->typedata->typeenum == rt_mapentities;
+	bool HotReloadMode = modfiles.size() == 1 && !modfiles[0]->isAtlanCompressed && modfiles[0]->parentMod->IsUnzipped && modfiles[0]->typeenum == rt_mapentities;
 	if (HotReloadMode) {
 		atlog << "Experimental Hot Reload Mode Engaged\n";
 	}
@@ -123,7 +123,7 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 		for (uint64_t i = 0; i < modfiles.size(); i++) {
 			const ModFile& f = *modfiles[i];
 
-			*ptr = stable.indexof(f.typedata->typestring);
+			*ptr = stable.indexof(f.typestring);
 			*(ptr + 1) = stable.indexof(f.assetPath);
 			
 			ptr += 2;
@@ -190,7 +190,7 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 		// HashLib::ResourceMurmurHash
 		e.dataCheckSum = -1; 
 
-		if (f.typedata->typeenum & rtc_streamdb_hash) {
+		if (f.typeenum & rtc_streamdb_hash) {
 			e.defaultHash = f.defaulthash;
 		}
 		else {
@@ -232,22 +232,22 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 		/*
 		* Set values that vary based on resource type
 		*/
-		if (f.typedata->typeenum == rt_rs_streamfile) {
+		if (f.typeenum == rt_rs_streamfile) {
 			e.version = 0;
 			e.flags = 0;
 			e.variation = 0;
 		}
-		else if (f.typedata->typeenum == rt_entityDef) {
+		else if (f.typeenum == rt_entityDef) {
 			e.version = 21;
 			e.flags = 2;
 			e.variation = 70;
 		}
-		else if (f.typedata->typeenum & rtc_logic_decl) {
+		else if (f.typeenum & rtc_logic_decl) {
 			e.version = 4;
 			e.flags = 2;
 			e.variation = 70;
 		}
-		else if (f.typedata->typeenum == rt_mapentities) {
+		else if (f.typeenum == rt_mapentities) {
 			e.version = f.resourceVersion; // mapentities span multiple versions
 			e.flags = 2;
 			e.variation = 70;
@@ -485,6 +485,8 @@ bool CleanupLastLoad(const fspath gamedir)
 		create_directory(outdir, lastCode);
 
 	// Delete archives created from previous injections
+
+	#if 0
 	std::vector<fspath> filesToDelete;
 	filesToDelete.reserve(10);
 	for (const directory_entry& dirEntry : directory_iterator(outdir)) {
@@ -498,6 +500,11 @@ bool CleanupLastLoad(const fspath gamedir)
 	for (const fspath& fp : filesToDelete) {
 		remove(fp, lastCode);
 	}
+	#else
+	if (exists(outarchivepath)) {
+		remove(outarchivepath, lastCode);
+	}
+	#endif
 
 	if (exists(modsndpath)) {
 		remove(modsndpath, lastCode);
@@ -589,7 +596,7 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 
 			// Must do this to prevent false conflicts between files
 			// with the same path but different resource type
-			std::string lookupstring(file.typedata->typestring);
+			std::string lookupstring(file.typestring);
 			lookupstring.append(file.assetPath);
 
 			auto iter = priorityAssets.find(lookupstring);
@@ -624,10 +631,10 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 		file.isAtlanCompressed = Oodle::IsAtlanCompFile((const char*)file.dataBuffer, file.dataLength);
 
 		// Handle serialized files
-		if (file.typedata->typeenum & rtc_serialized) {
+		if (file.typeenum & rtc_serialized) {
 
 			// We assume atlan compressed files (created via the mod packager) are serialized
-			bool isSerialized = file.isAtlanCompressed || Reserializer::IsSerialized((char*)file.dataBuffer, file.dataLength, file.typedata->typeenum);
+			bool isSerialized = file.isAtlanCompressed || Reserializer::IsSerialized((char*)file.dataBuffer, file.dataLength, file.typeenum);
 
 			if (!isSerialized)
 			{
@@ -638,7 +645,7 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 
 					BinaryWriter writer(static_cast<size_t>(file.dataLength * 0.75));
 
-					Reserializer::Serialize((char*)file.dataBuffer, file.dataLength, writer, file.typedata->typeenum);
+					Reserializer::Serialize((char*)file.dataBuffer, file.dataLength, writer, file.typeenum);
 
 					size_t newsize = writer.GetFilledSize();
 					char* newbuffer = writer.Finalize();
@@ -658,11 +665,11 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 		}
 
 		// If an asset requires a streamdb hash, add it to the lookup map
-		if (file.typedata->typeenum & rtc_streamdb_hash) {
+		if (file.typeenum & rtc_streamdb_hash) {
 			find_defaulthashes[pair.first] = &file;
 		}
 
-		if (file.typedata->typeenum == rt_audio) {
+		if (file.typeenum == rt_audio) {
 			audiosupermod.push_back(&file);
 		}
 		else {
@@ -750,7 +757,7 @@ void InjectorMain(int argc, char* argv[], int& argflags) {
 
 	atlog << R"(
 ----------------------------------------------
-Atlan Mod Loader v)" << MOD_LOADER_VERSION << R"(.0.1 for DOOM: The Dark Ages
+Atlan Mod Loader v)" << MOD_LOADER_VERSION << R"( for DOOM: The Dark Ages
 By FlavorfulGecko5
 With Special Thanks to: Proteh, Zwip-Zwap-Zapony, Tjoener, and many other talented modders!
 https://github.com/FlavorfulGecko5/EntityAtlan/

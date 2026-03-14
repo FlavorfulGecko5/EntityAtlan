@@ -28,7 +28,8 @@ struct ModDef {
 };
 
 struct ModFile {
-	const resourcetypeinfo_t* typedata = nullptr;
+	std::string_view typestring;
+	ResourceType typeenum;
 	ModDef* parentMod = nullptr;
 	void* dataBuffer = nullptr;
 	size_t dataLength = 0;

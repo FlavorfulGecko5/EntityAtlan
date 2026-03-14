@@ -343,7 +343,7 @@ void ExtractorMain() {
 	/*
 	* REMEMBER TO UPDATE VERSION NUMBER
 	*/
-	atlog << "Atlan Consolidated Resource Extractor v3.0.1 by FlavorfulGecko5\n";
+	atlog << "Atlan Consolidated Resource Extractor v3.1 by FlavorfulGecko5\n";
 
 	/*
 	* Parse and validate config file
@@ -379,8 +379,8 @@ void ExtractorMain() {
 		config.inputdir = std::filesystem::absolute(config.inputdir);
 		config.outputdir = std::filesystem::absolute(config.outputdir);
 
-		if (config.outputdir.string().size() >= 16) {
-			atlog << "FATAL ERROR: Output directory must be less than 16 characters.\n"
+		if (config.outputdir.string().size() >= 40) {
+			atlog << "FATAL ERROR: Output directory must be less than 40 characters.\n"
 				<< "This is to prevent export errors due to long filepaths.\n"
 				<< "Your output directory " << config.outputdir << " is " << config.outputdir.string().size() << " characters";
 			return;

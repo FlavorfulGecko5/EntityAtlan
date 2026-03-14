@@ -315,6 +315,7 @@ void ReadMod(mz_zip_archive* zptr, ModDef& mod, int argflags)
 		/*
 		* Map the typeString to a resource type
 		*/
+		std::string_view name_prepend;
 		{
 			const auto& iter = ValidResourceTypes.find(typeString);
 			if (iter == ValidResourceTypes.end()) {
@@ -326,7 +327,9 @@ void ReadMod(mz_zip_archive* zptr, ModDef& mod, int argflags)
 				atlog << "ERROR: Disabled resource type for file \"" << modfile.realPath << "\"\n";
 				continue;
 			}
-			modfile.typedata = &iter->second;
+			modfile.typestring = iter->second.typestring;
+			modfile.typeenum   = iter->second.typeenum;
+			name_prepend       = iter->second.namestart;
 		}
 
 
@@ -344,7 +347,7 @@ void ReadMod(mz_zip_archive* zptr, ModDef& mod, int argflags)
 				break;
 
 				case '.':
-				if (modfile.typedata->typeenum & rtc_no_extension) {
+				if (modfile.typeenum & rtc_no_extension) {
 					goto LABEL_EARLY_OUT;
 				}
 				break;
@@ -371,7 +374,7 @@ void ReadMod(mz_zip_archive* zptr, ModDef& mod, int argflags)
 		LABEL_EARLY_OUT:
 
 		// For Audio: Trim the asset path down to just the sample ID
-		if (modfile.typedata->typeenum & rtc_last_number) {
+		if (modfile.typeenum & rtc_last_number) {
 
 			char* iter = nameEnd - 1;
 			while (iter >= nameStart) {
@@ -397,7 +400,7 @@ void ReadMod(mz_zip_archive* zptr, ModDef& mod, int argflags)
 			}
 		}
 
-		modfile.assetPath = modfile.typedata->namestart;
+		modfile.assetPath = name_prepend;
 		modfile.assetPath.append(nameStart, nameEnd);
 
 		/*

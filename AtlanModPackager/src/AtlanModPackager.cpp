@@ -254,7 +254,7 @@ int main(int argc, char* argv[])
 	#endif
 
 		AtlanLogger::init(logpath);
-		atlog << "Atlan Mod Packager v1.1 by FlavorfulGecko5\n";
+		atlog << "Atlan Mod Packager v1.2 by FlavorfulGecko5\n";
 		PackagerMain();
 		
 
