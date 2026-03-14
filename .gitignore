@@ -18,6 +18,9 @@ packager_log.txt
 AtlanPackage.zip
 modloader_cache.bin
 DarkAgesPatcher.def
+DarkAgesPatcher.exe
+DarkAgesPatcher.exe.config
+DarkAgesModManager.exe
 
 # Reflector Files
 reflector/*.zip

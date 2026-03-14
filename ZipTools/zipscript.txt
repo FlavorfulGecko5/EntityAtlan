@@ -1,0 +1,21 @@
+AtlanModLoader {
+	"../AtlanModLoader/bin/build/x64/Release/AtlanModLoader.exe"
+	"../AtlanModLoader/DarkAgesPatcher.def"
+	"../AtlanModLoader/DarkAgesPatcher.exe"
+	"../AtlanModLoader/DarkAgesPatcher.exe.config"
+	"../AtlanModLoader/DarkAgesModManager.exe"
+	"../AtlanModLoader/DisabledMods" = empty
+	"../AtlanModLoader/mods" = empty
+}
+AtlanModPackager {
+	"../AtlanModPackager/bin/build/x64/Release/AtlanModPackager.exe" 
+}
+AtlanResourceExtractor {
+	"../AtlanResourceExtractor/bin/build/x64/Release/AtlanResourceExtractor.exe"
+	"../AtlanResourceExtractor/extractor_config.txt"
+	"../AtlanResourceExtractor/vgmstream"
+}
+idlib_update {
+	"../reflector/idlib.json"
+	"../reflector/idlib.h"
+}
