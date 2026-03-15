@@ -482,7 +482,8 @@ void sndContainerMask::Build(const char* copyfrom, size_t length, const std::str
 
 	}
 
-	assert(mask.ReachedEOF());
+	// In a modded soundmetadata there will be stuff after the container mask
+	//assert(mask.ReachedEOF());
 
 	// Populate the fnv strings
 
