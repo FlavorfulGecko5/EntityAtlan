@@ -155,6 +155,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\ExecutablePatcher.cpp" />
     <ClCompile Include="src\GlobalConfig.cpp" />
     <ClCompile Include="src\LoaderMain.cpp" />
     <ClCompile Include="src\ModReader.cpp" />

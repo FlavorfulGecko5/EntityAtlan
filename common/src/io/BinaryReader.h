@@ -225,5 +225,7 @@ class BinaryOpener {
 
 	const char* data() const {return buffer;}
 
+	char* GetEditable() {return buffer;}
+
 	size_t len() const {return length;}
 };
