@@ -24,6 +24,7 @@
     <ClCompile Include="src\archives\SoundArchive.cpp" />
     <ClCompile Include="src\atlan\AtlanLogger.cpp" />
     <ClCompile Include="src\atlan\AtlanOodle.cpp" />
+    <ClCompile Include="src\atlan\AtlanProfiling.cpp" />
     <ClCompile Include="src\entityslayer\EntityLogger.cpp" />
     <ClCompile Include="src\entityslayer\EntityNode.cpp" />
     <ClCompile Include="src\entityslayer\EntityParser.cpp" />
@@ -31,6 +32,7 @@
     <ClCompile Include="src\entityslayer\Oodle.cpp" />
     <ClCompile Include="src\hash\FarmHash.cpp" />
     <ClCompile Include="src\hash\HashLib.cpp" />
+    <ClCompile Include="src\hash\sha256.cpp" />
     <ClCompile Include="src\io\BinaryReader.cpp" />
     <ClCompile Include="src\io\BinaryWriter.cpp" />
     <ClCompile Include="src\miniz\miniz.cpp" />
@@ -42,6 +44,7 @@
     <ClInclude Include="src\archives\SoundArchive.h" />
     <ClInclude Include="src\atlan\AtlanLogger.h" />
     <ClInclude Include="src\atlan\AtlanOodle.h" />
+    <ClInclude Include="src\atlan\AtlanProfiling.h" />
     <ClInclude Include="src\entityslayer\EntityLogger.h" />
     <ClInclude Include="src\entityslayer\EntityNode.h" />
     <ClInclude Include="src\entityslayer\EntityParser.h" />
@@ -49,6 +52,7 @@
     <ClInclude Include="src\entityslayer\Oodle.h" />
     <ClInclude Include="src\entityslayer\ParserConfig.h" />
     <ClInclude Include="src\hash\HashLib.h" />
+    <ClInclude Include="src\hash\sha256.h" />
     <ClInclude Include="src\io\BinaryReader.h" />
     <ClInclude Include="src\io\BinaryWriter.h" />
     <ClInclude Include="src\miniz\miniz.h" />
