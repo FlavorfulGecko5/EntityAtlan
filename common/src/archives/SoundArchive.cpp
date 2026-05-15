@@ -130,126 +130,122 @@ aksnd::samplehash aksnd::GetSampleHash(const aksnd::entry& e)
 	return hash;
 }
 
-void AudioSampleMap::Build(std::string soundfolder)
-{
-	// Step 1: Build bnk_eventstring_map
-	{
-		BinaryOpener open(soundfolder + "/soundmetadata.bin");
-		BinaryReader reader = open.ToReader();
+size_t SoundMetaData_FindSection6(const char* soundmetadata, size_t soundmetadata_length) {
+	uint32_t total = 0, fnv = 0, stringlength = 0;
+	const char* string = nullptr;
 
-		uint8_t byte = 0;
-		uint32_t numevents = 0;
-		uint32_t stringlength = 0;
-		uint32_t bnkid = 0;
-		const char* bytes = nullptr;
-		assert(reader.ReadLE(numevents));
+	BinaryReader reader(soundmetadata, soundmetadata_length);
 
-		for (uint32_t i = 0; i < numevents; i++) {
-			assert(reader.ReadLE(stringlength));
-			assert(reader.ReadBytes(bytes, stringlength));
-			assert(reader.ReadLE(bnkid));
+	// Sound Events
+	assert(reader.ReadLE(total));
+	for (uint32_t i = 0; i < total; i++) {
+		assert(reader.ReadLE(stringlength));
+		assert(reader.GoRight(stringlength + 4 + 1)); // fnv hash + language id
+		assert(reader.ReadLE(stringlength));
+		assert(reader.GoRight(stringlength));
+	}
 
-			assert(bnk_eventstring_map.find(bnkid) == bnk_eventstring_map.end());
-			bnk_eventstring_map[bnkid] = std::string(bytes, stringlength);
-			//std::cout << std::string(bytes, stringlength) << "\n";
+	// Section 2
+	assert(reader.ReadLE(total));
+	for (uint32_t i = 0; i < total; i++) {
+		assert(reader.GoRight(4));
+		assert(reader.ReadLE(stringlength));
+		assert(reader.GoRight(stringlength));
+	}
 
-			assert(reader.ReadLE(byte));
+	// Section 3
+	assert(reader.ReadLE(total));
+	for (uint32_t i = 0; i < total; i++) {
+		assert(reader.ReadLE(stringlength));
+		assert(reader.GoRight(stringlength + 4));
+	}
+
+	// Section 4 and 5
+	for (int CHUNK = 0; CHUNK < 2; CHUNK++) {
+		assert(reader.ReadLE(total));
+		for (uint32_t i = 0; i < total; i++) {
+			assert(reader.GoRight(4));
 			assert(reader.ReadLE(stringlength));
 			assert(reader.GoRight(stringlength));
+
+			uint32_t listlength;
+			assert(reader.ReadLE(listlength));
+
+			for (uint32_t subindex = 0; subindex < listlength; subindex++) {
+				assert(reader.GoRight(4));
+				assert(reader.ReadLE(stringlength));
+				assert(reader.GoRight(stringlength));
+			}
 		}
 	}
 
+	return reader.GetPosition();
+}
+
+void AudioSampleMap::Build_V2(std::string soundfolder)
+{
+	BinaryOpener open(soundfolder + "/soundmetadata.bin");
+	BinaryReader reader = open.ToReader();
+
+	// Section 6 of the sound meta data maps sample IDs to strings
+	const size_t SEC6_POSITION = SoundMetaData_FindSection6(reader.GetBuffer(), reader.GetLength());
+	reader.Goto(SEC6_POSITION);
+
 	duplicateLog = "Some audio samples are used in multiple sound events.\n"
-	"This file logs all duplicate usages of a single audio sample\n\n";
+		"This file logs all duplicate usages of a single audio sample\n\n";
 
-	std::unordered_map<uint32_t, std::vector<uint32_t>> duplicatelists; // Dynamic STL happy fun time!!!!
-	duplicatelists.reserve(250);
-
-	// Step 2: Build sample_bnk_idmap
+	// Step 2: Build out the sample map
+	std::unordered_map<uint32_t, std::set<uint32_t>> duplicatesets; // Dynamic STL happy fun time!!!!
+	duplicatesets.reserve(4000);
 	{
-		BinaryOpener open(soundfolder + "/Titan.pck");
-		BinaryReader pck(open.ToReader());
+		uint32_t total = 0, stringlength = 0, bnkfnv = 0;
+		const char* string = nullptr;
 
-		uint32_t sec1_size, sec2_size;
-		assert(pck.GoRight(0xC));
-		assert(pck.ReadLE(sec1_size));
-		assert(pck.ReadLE(sec2_size));
-		assert(pck.GoRight(sec1_size + 8));
+		assert(reader.ReadLE(total));
+		for (uint32_t i = 0; i < total; i++) {
+			assert(reader.ReadLE(stringlength));
+			assert(reader.ReadBytes(string, stringlength));
+			assert(reader.ReadLE(bnkfnv));
 
-		uint32_t numbanks;
-		assert(pck.ReadLE(numbanks));
+			assert(bnkfnv == HashLib::akfnv_insensitive(string, stringlength));
+			assert(bnk_eventstring_map.find(bnkfnv) == bnk_eventstring_map.end());
+			bnk_eventstring_map[bnkfnv] = std::string(string, stringlength);
 
-		for(uint32_t bnkindex = 0; bnkindex < numbanks; bnkindex++)
-		{
-			uint32_t bnkid = 0, bnksize = 0, bnkoffset = 0;
-			assert(pck.ReadLE(bnkid));
-			assert(pck.GoRight(4));
-			assert(pck.ReadLE(bnksize));
-			assert(pck.ReadLE(bnkoffset));
-			assert(pck.GoRight(4));
-			assert(bnk_eventstring_map.find(bnkid) != bnk_eventstring_map.end());
+			uint8_t extralistflag = 0;
+			uint32_t listlength = 0;
+			assert(reader.GoRight(5));
+			assert(reader.ReadLE(extralistflag));
+			assert(reader.GoRight(5));
+			assert(reader.ReadLE(listlength));
 
-
-			BinaryReader bnk(pck.GetBuffer() + bnkoffset, bnksize);
-			assert(memcmp("BKHD", bnk.GetBuffer(), 4) == 0);
-			
-			uint32_t chunksize = 0;
-			while(memcmp(bnk.GetNext(), "HIRC", 4) != 0) {
-				assert(bnk.GoRight(4));
-				assert(bnk.ReadLE(chunksize));
-				assert(bnk.GoRight(chunksize));
+			if (extralistflag == 0) {
+				for (uint32_t listind = 0; listind < listlength; listind++) {
+					assert(reader.ReadLE(stringlength));
+					assert(reader.GoRight(stringlength + 4));
+				}
+				assert(reader.ReadLE(listlength));
 			}
 
-			assert(bnk.GoRight(4));
-			assert(bnk.ReadLE(chunksize));
-			
-			uint32_t numhirc = 0;
-			assert(bnk.ReadLE(numhirc));
-
-			for(uint32_t hircindex = 0; hircindex < numhirc; hircindex++)
-			{
-				uint8_t hirctype;
-				uint32_t hircsize;
-				assert(bnk.ReadLE(hirctype));
-				assert(bnk.ReadLE(hircsize));
-
-				BinaryReader hirc(bnk.GetNext(), hircsize);
-				assert(bnk.GoRight(hircsize));
-
-				if(hirctype != 0x02) // CAkSound
-					continue;
-
+			for (uint32_t sampleindex = 0; sampleindex < listlength; sampleindex++) {
 				uint32_t sampleid = 0;
-				assert(hirc.GoRight(9));
-				assert(hirc.ReadLE(sampleid));
 
-				
-				// NOT MUTUALLY EXCLUSIVE: The same sample can be found in multiple banks, and one bank can have multiple samples
-				if(sample_bnk_idmap.find(sampleid) != sample_bnk_idmap.end()) {
-					// Must account for a sound being used multiple times in the same bank
-					bool found = false;
-					for (uint32_t bid : duplicatelists[sampleid]) {
-						if (bid == bnkid) {
-							found = true;
-							break;
-						}
-					}
+				assert(reader.ReadLE(sampleid));
+				assert(reader.ReadLE(stringlength));
+				assert(reader.GoRight(stringlength)); // Language string, not the sample name
 
-					if (!found) {
-						duplicate_sample_usages++;
-						duplicatelists[sampleid].push_back(bnkid);
-					}
-					//printf("%d - %s AND %s \n", sampleid, bnk_eventstring_map[bnkid].c_str(), bnk_eventstring_map[sample_bnk_idmap[sampleid]].c_str());
+				if (sample_bnk_idmap.find(sampleid) != sample_bnk_idmap.end()) {
+					duplicate_sample_usages++;
+					duplicatesets[sampleid].insert(bnkfnv);
 				}
 				else {
-					sample_bnk_idmap[sampleid] = bnkid;
+					sample_bnk_idmap[sampleid] = bnkfnv;
 				}
 			}
 		}
 	}
 
 	// Step 3: Write out the duplicate log
-	for (const auto& pair : duplicatelists) {
+	for (const auto& pair : duplicatesets) {
 		duplicateLog.append(std::to_string(pair.first));
 		duplicateLog.append(" - Extracted As: ");
 		duplicateLog.append(bnk_eventstring_map[sample_bnk_idmap[pair.first]]);
@@ -262,7 +258,7 @@ void AudioSampleMap::Build(std::string soundfolder)
 	}
 
 	// Step 4: Build the container mask
-	containermask.Build(soundfolder);
+	containermask.Build(reader.GetNext(), reader.GetRemaining(), soundfolder);
 }
 
 std::string AudioSampleMap::ResolveEventName(const uint32_t sampleId) const
@@ -290,122 +286,34 @@ size_t sndMetadata::FindContainerMask(const char* metastart, const size_t metale
 	uint32_t numevents = 0;
 	uint32_t stringlength = 0;
 
-	// Sound Event list
-	assert(reader.ReadLE(numevents));
-	for (uint32_t i = 0; i < numevents; i++) {
-		assert(reader.ReadLE(stringlength));
-		assert(reader.GoRight(stringlength));
-		assert(reader.GoRight(4)); // bnk id
-		assert(reader.ReadLE(byte)); // lang id
-		assert(reader.ReadLE(stringlength));
-		assert(reader.GoRight(stringlength));
-	}
+	reader.Goto(SoundMetaData_FindSection6(metastart, metalength));
 
-	// Unknown
-	assert(reader.ReadLE(numevents));
-	for (uint32_t i = 0; i < numevents; i++) {
-		assert(reader.GoRight(4)); // Some sort of id
-		assert(reader.ReadLE(stringlength));
-		assert(reader.GoRight(stringlength));
-	}
-
-	// Unknown
+	// Skip Section 6
 	assert(reader.ReadLE(numevents));
 	for (uint32_t i = 0; i < numevents; i++) {
 		assert(reader.ReadLE(stringlength));
 		assert(reader.GoRight(stringlength));
-		assert(reader.GoRight(4)); // Some sort of id
-	}
-
-	// Music Switches?
-	assert(reader.ReadLE(numevents));
-	for (uint32_t i = 0; i < numevents; i++) {
 		assert(reader.GoRight(4));
-		assert(reader.ReadLE(stringlength));
-		assert(reader.GoRight(stringlength));
 
+		uint8_t extralistflag = 0;
+		assert(reader.GoRight(5));
+		assert(reader.ReadLE(extralistflag));
+		assert(reader.GoRight(5));
 		uint32_t listlength = 0;
 		assert(reader.ReadLE(listlength));
 
-		for (uint32_t subindex = 0; subindex < listlength; subindex++)
-		{
-			assert(reader.GoRight(4));
-			assert(reader.ReadLE(stringlength));
-			assert(reader.GoRight(stringlength));
-		}
-	}
-
-	// Music States?
-	assert(reader.ReadLE(numevents));
-	for (uint32_t i = 0; i < numevents; i++) {
-		assert(reader.GoRight(4));
-		assert(reader.ReadLE(stringlength));
-		assert(reader.GoRight(stringlength));
-
-		uint32_t listlength;
-		assert(reader.ReadLE(listlength));
-
-		for (uint32_t subindex = 0; subindex < listlength; subindex++) {
-			assert(reader.GoRight(4));
-			assert(reader.ReadLE(stringlength));
-			assert(reader.GoRight(stringlength));
-		}
-	}
-
-	// Unknown
-	assert(reader.ReadLE(numevents));
-	for (uint32_t i = 0; i < numevents; i++) {
-		assert(reader.ReadLE(stringlength));
-		assert(reader.GoRight(stringlength));
-		assert(reader.GoRight(4));
-
-		assert(reader.GoRight(11)); // No idea what this is 
-		uint32_t listlength = 0;
-		assert(reader.ReadLE(listlength));
-
-		// This is hopefully a stable way of determining this.
-		// Really need to fully understand the soundmetadata
-		bool isLanguageList;
-		{
-			size_t position = reader.GetPosition();
-
-			const char* bytes = nullptr;
-			uint32_t testlen = 0;
-			assert(reader.ReadLE(testlen));
-
-			if (testlen == 11) {
-				assert(reader.ReadBytes(bytes, testlen));
-				isLanguageList = memcmp(bytes, "English(US)", 11) == 0;
-			}
-			else {
-				isLanguageList = false;
-			}
-
-			reader.Goto(position);
-		}
-
-		if (isLanguageList) { // Big language list
+		if (extralistflag == 0) {
 			for (uint32_t langind = 0; langind < listlength; langind++) {
-				if (langind > 0)
-					assert(reader.GoRight(4));
 				assert(reader.ReadLE(stringlength));
-				assert(reader.GoRight(stringlength));
+				assert(reader.GoRight(stringlength + 4));
 			}
-
-			assert(reader.GoRight(4));
 			assert(reader.ReadLE(listlength));
-			for (uint32_t langind = 0; langind < listlength; langind++) {
-				assert(reader.GoRight(4));
-				assert(reader.ReadLE(stringlength));
-				assert(reader.GoRight(stringlength));
-			}
 		}
-		else {
-			for (uint32_t langind = 0; langind < listlength; langind++) { // List of SFX
-				assert(reader.GoRight(4));
-				assert(reader.ReadLE(stringlength));
-				assert(reader.GoRight(stringlength));
-			}
+
+		for (uint32_t langind = 0; langind < listlength; langind++) {
+			assert(reader.GoRight(4));
+			assert(reader.ReadLE(stringlength));
+			assert(reader.GoRight(stringlength));
 		}
 	}
 

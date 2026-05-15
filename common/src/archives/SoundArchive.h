@@ -103,8 +103,6 @@ struct sndContainerMask {
 		std::string groupname;   // Should be the base archive's filename (i.e. "SFX.snd" or "MUSIC.snd")
 		uint32_t maskcount = 0;  // Number of masks in this group
 		uint32_t firstindex = 0; // Index into sndContainerMask.masks
-
-		std::string modfnvstring; // If not empty, will add an additional mask to this group with this string
 	};
 
 	std::vector<group> groups;
@@ -152,7 +150,8 @@ class AudioSampleMap
 	sndContainerMask containermask;
 
 	public:
-	void Build(std::string soundfolder);
+	void Build_V2(std::string soundfolder);
+
 	std::string ResolveEventName(const uint32_t sampleId) const;
 
 	const std::string& GetDuplicateLog() const {return duplicateLog;}
