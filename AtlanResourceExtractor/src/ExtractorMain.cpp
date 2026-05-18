@@ -5,6 +5,7 @@
 #include "atlan/AtlanLogger.h"
 #include "atlan/AtlanOodle.h"
 #include "DeserialMain.h"
+#include "io/BinaryReader.h"
 #include <iostream>
 #include <fstream>
 #include <set>
@@ -23,6 +24,7 @@ struct configdata_t {
 	bool run_extractor = true;
 	bool run_deserializer = true;
 	bool run_audio_extractor = false;
+	bool run_soundbank_extractor = false;
 
 	restypeset_t restypes;
 
@@ -186,7 +188,7 @@ void AudioExtractor(const configdata_t& config)
 	create_directories(audiodir);
 
 	AudioSampleMap sampleMap;
-	sampleMap.Build((config.inputdir / snddir).string());
+	sampleMap.Build_V2((config.inputdir / snddir).string());
 	const sndContainerMask& ContainerMask = sampleMap.GetMask();
 
 	// Prioritized Archive List
@@ -336,6 +338,94 @@ void FixLegacyDeclPath(const fspath& outputdir) {
 	atlog << "Successfully renamed legacy decl dir\n";
 }
 
+void SoundBankExtractor(const fspath& inputdir, fspath outputdir) {
+
+	using namespace std::filesystem;
+
+	outputdir /= "bnk";
+	create_directories(outputdir);
+	
+	akpck::LangMap_t     pcklangmap;
+	akpck::EntryList_t   pckentrylist;
+	akmetadata::fnvmap_t pckfnvmap;
+
+
+	const fspath path_metadata = inputdir / "base/sound/soundbanks/pc/soundmetadata.bin";
+	const fspath path_titanpck = inputdir / "base/sound/soundbanks/pc/Titan.pck";
+	
+	if(!exists(path_metadata)) {
+		atlog << "FATAL ERROR: Could not locate soundmetadata.bin\n";
+		return;
+	}
+	else {
+		BinaryOpener soundmetadata(path_metadata.string());
+		akmetadata::Build(pckfnvmap, soundmetadata.data(), soundmetadata.len());
+	}
+
+	if(!exists(path_titanpck)) {
+		atlog << "FATAL ERROR: Could not locate Titan.pck\n";
+		return;
+	}
+
+	BinaryOpener pckopener(path_titanpck.string());
+	akpck::Build(pcklangmap, pckopener.data(), pckopener.len());
+	akpck::Build(pckentrylist, pckopener.data(), pckopener.len());
+
+	// Pre-create language directories
+	for(const auto& pair : pcklangmap) {
+		fspath outfolder = outputdir / pair.second;
+		create_directories(outfolder);
+	}
+
+	atlog << "Extracting " << pckentrylist.size() << " Sound Banks\n";
+
+	int total_extracted = 0;
+	BinaryReader reader = pckopener.ToReader();
+	for(const akpck::entry& bnk : pckentrylist) {
+		assert(bnk.chunksize == 1);
+
+		printf("\rProgress: %d / %d", total_extracted, (int)pckentrylist.size());
+
+		if(pcklangmap.find(bnk.langid) == pcklangmap.end()) {
+			atlog << "ERROR: Could not resolve language id to string\n";
+			continue;
+		}
+
+		if (pckfnvmap.find(bnk.id) == pckfnvmap.end()) {
+			atlog << "ERROR: Could not resolve bnk hash to string\n";
+			continue;
+		}
+
+		if(!reader.Goto(bnk.offset * bnk.chunksize)) {
+			atlog << "ERROR: Sound bank out of bounds?\n";
+			continue;
+		}
+		if(reader.GetRemaining() < bnk.size * bnk.chunksize) {
+			atlog << "ERROR: Sound bank too big?\n";
+			continue;
+		}
+
+
+		std::string outputpath = outputdir.string();
+		outputpath.push_back('/');
+		outputpath.append(pcklangmap[bnk.langid]);
+		outputpath.push_back('/');
+		outputpath.append(pckfnvmap[bnk.id]);
+		outputpath.append(".bnk");
+
+		if(outputpath.length() > 250) {
+			atlog << "WARNING: Output path exceeding safe thresholds\n";
+		}
+
+		std::ofstream outwriter(outputpath, std::ios_base::binary);
+		outwriter.write(reader.GetNext(), bnk.chunksize * bnk.size);
+		outwriter.close();
+
+		total_extracted++;
+	}
+	printf("\rSound Banks extracted successfully\n");
+}
+
 /*
 * CONSOLIDATED RESOURCE EXTRACTOR FUNCTION
 */
@@ -343,7 +433,7 @@ void ExtractorMain() {
 	/*
 	* REMEMBER TO UPDATE VERSION NUMBER
 	*/
-	atlog << "Atlan Consolidated Resource Extractor v3.1.2 by FlavorfulGecko5\n";
+	atlog << "Atlan Resource Extractor v3.2 by FlavorfulGecko5\n";
 
 	/*
 	* Parse and validate config file
@@ -394,6 +484,9 @@ void ExtractorMain() {
 		}
 		if (!core["run_audio_extractor"].ValueBool(config.run_audio_extractor)) {
 			atlog << "WARNING: Failed to read config bool core/run_audio_extractor: assuming default\n";
+		}
+		if (!core["run_soundbank_extractor"].ValueBool(config.run_soundbank_extractor)) {
+			atlog << "WARNING: Failed to read config bool core/run_soundbank_extractor: assuming default\n";
 		}
 
 
@@ -656,6 +749,13 @@ void ExtractorMain() {
 	}
 	else {
 		atlog << "Skipping Audio Extractor\n";
+	}
+
+	if (config.run_soundbank_extractor) {
+		SoundBankExtractor(config.inputdir, config.outputdir);
+	}
+	else {
+		atlog << "Skipping Soundbank Extractor\n";
 	}
 }
 

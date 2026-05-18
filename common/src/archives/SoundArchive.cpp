@@ -445,3 +445,79 @@ void sndContainerMask::Build(const char* copyfrom, size_t length, const std::str
 		}
 	}
 }
+
+bool akmetadata::Build(fnvmap_t& fnvmap, const char* metastart, const size_t metalength)
+{
+	uint32_t total = 0, stringlength = 0, fnv = 0;
+	const char* string = nullptr;
+	BinaryReader reader(metastart, metalength);
+
+	// The SoundEvents section (Section #1) of soundmetadata.bin provides a complete
+	// mapping of soundbank fnv hashes to strings
+	assert(reader.ReadLE(total));
+	for (uint32_t i = 0; i < total; i++) {
+		assert(reader.ReadLE(stringlength));
+		assert(reader.ReadBytes(string, stringlength));
+		assert(reader.ReadLE(fnv));
+
+		assert(fnv == HashLib::akfnv_insensitive(string, stringlength));
+		fnvmap[fnv] = std::string(string, stringlength);
+
+		assert(reader.GoRight(1));
+		assert(reader.ReadLE(stringlength));
+		assert(reader.GoRight(stringlength));
+	}
+
+	return true;
+}
+
+bool akpck::Build(LangMap_t& langmap, const char* pckstart, const size_t pcklength)
+{
+	BinaryReader reader(pckstart, pcklength);
+
+	assert(reader.GoRight(28));
+	BinaryReader blobreader(reader.GetNext(), reader.GetRemaining());
+
+	uint32_t numlangs = 0, langoffset = 0, langid = 0;
+	assert(reader.ReadLE(numlangs));
+	for (uint32_t i = 0; i < numlangs; i++) {
+		assert(reader.ReadLE(langoffset));
+		assert(reader.ReadLE(langid));
+
+		// Offset is relative to the start of the language chunk
+		assert(blobreader.Goto(langoffset));
+
+		// Language chunk uses wide strings
+		// This jank converts them to normal strings
+		uint16_t widechar;
+		std::string langstring;
+
+		while (blobreader.ReadLE(widechar) && widechar) {
+			langstring.push_back(static_cast<char>(widechar));
+		}
+
+		langmap[langid] = langstring;
+	}
+	return true;
+}
+
+bool akpck::Build(EntryList_t& entries, const char* pckstart, const size_t pcklength)
+{
+	BinaryReader reader(pckstart, pcklength);
+
+	uint32_t langchunksize = 0;
+	assert(reader.GoRight(12));
+	assert(reader.ReadLE(langchunksize));
+	assert(reader.GoRight(12 + langchunksize));
+
+	uint32_t numentries = 0;
+	assert(reader.ReadLE(numentries));
+	entries.resize(numentries);
+
+	const size_t bytesize = numentries * sizeof(entry);
+	assert(reader.GetRemaining() >= bytesize);
+
+	memcpy(entries.data(), reader.GetNext(), bytesize);
+
+	return true;
+}

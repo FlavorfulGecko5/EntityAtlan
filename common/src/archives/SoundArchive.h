@@ -158,3 +158,33 @@ class AudioSampleMap
 
 	const sndContainerMask& GetMask() const {return containermask;}
 };
+
+namespace akmetadata {
+	
+	typedef std::unordered_map<uint32_t, std::string> fnvmap_t;
+
+	bool Build(fnvmap_t& fnvmap, const char* metastart, const size_t metalength);
+}
+
+namespace akpck {
+
+
+	typedef std::unordered_map<uint32_t, std::string> LangMap_t;
+
+	bool Build(LangMap_t& langmap, const char* pckstart, const size_t pcklength);
+
+	struct entry {
+		uint32_t id;
+		uint32_t chunksize;
+		uint32_t size;
+		uint32_t offset;
+		uint32_t langid;
+	};
+
+	typedef std::vector<entry> EntryList_t;
+
+	// Hardcoded to build for the banks section and nothing else
+	bool Build(EntryList_t& entries, const char* pckstart, const size_t pcklength);
+
+
+}

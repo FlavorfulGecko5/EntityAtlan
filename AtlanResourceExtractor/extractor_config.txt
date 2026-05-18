@@ -4,6 +4,7 @@ core = {
 	run_extractor = 1
 	run_deserializer = 1
 	run_audio_extractor = 0
+	run_soundbank_extractor = 0
 }
 extractor = {
 	resource_types = {
@@ -63,6 +64,8 @@ run_extractor: Set to 0 if you only want to run the deserializer
 run_deserializer: Set to 0 if you only want to run the extractor
 
 run_audio_extractor: Set to 1 to enable audio extraction. To just extract audio, set run_extractor and run_deserializer to 0
+
+run_soundbank_extractor: If set to 1, extract AudioKinetic Soundbank files that control audio mixing
 
 ------
 
