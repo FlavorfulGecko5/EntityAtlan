@@ -19,6 +19,8 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\archives\idImage.cpp" />
+    <ClCompile Include="src\archives\idImage_Encoder.cpp" />
     <ClCompile Include="src\archives\PackageMapSpec.cpp" />
     <ClCompile Include="src\archives\ResourceStructs.cpp" />
     <ClCompile Include="src\archives\SoundArchive.cpp" />
@@ -38,10 +40,12 @@
     <ClCompile Include="src\miniz\miniz.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\archives\idImage.h" />
     <ClInclude Include="src\archives\PackageMapSpec.h" />
     <ClInclude Include="src\archives\ResourceEnums.h" />
     <ClInclude Include="src\archives\ResourceStructs.h" />
     <ClInclude Include="src\archives\SoundArchive.h" />
+    <ClInclude Include="src\archives\StreamDB.h" />
     <ClInclude Include="src\atlan\AtlanLogger.h" />
     <ClInclude Include="src\atlan\AtlanOodle.h" />
     <ClInclude Include="src\atlan\AtlanProfiling.h" />
@@ -132,12 +136,15 @@
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>src/</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src/;external/</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
+    <Lib>
+      <AdditionalDependencies>d3d11.lib;DirectXTex.lib</AdditionalDependencies>
+    </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -148,7 +155,7 @@
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>src/</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src/;external/</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -156,6 +163,9 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
+    <Lib>
+      <AdditionalDependencies>d3d11.lib;DirectXTex.lib</AdditionalDependencies>
+    </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -164,12 +174,16 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>src/</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src/;external/</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
+    <Lib>
+      <AdditionalDependencies>d3d11.lib;DirectXTex.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>external/DirectXTex/Desktop_2022_Win10_Debug_x64</AdditionalLibraryDirectories>
+    </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -180,7 +194,7 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>src/</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>src/;external/</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -188,6 +202,10 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
+    <Lib>
+      <AdditionalDependencies>d3d11.lib;DirectXTex.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>external/DirectXTex/Desktop_2022_Win10_Release_x64</AdditionalLibraryDirectories>
+    </Lib>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

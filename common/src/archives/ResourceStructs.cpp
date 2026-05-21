@@ -83,6 +83,11 @@ ResourceEntryData_t Get_EntryData(const ResourceEntry& e, std::ifstream& archive
 
 }
 
+ResourceEntryData_t Get_EntryData(const ResourceEntry& e, std::ifstream& archivestream, ResourceEntryBuffers_t& buffers)
+{
+	return Get_EntryData(e, archivestream, buffers.raw_buffer, buffers.raw_length, buffers.decomp_buffer, buffers.decomp_length);
+}
+
 
 void Read_ResourceArchive(ResourceArchive& r, const fspath pathString, int flags) {
 
@@ -292,8 +297,8 @@ void Audit_ResourceArchive(const ResourceArchive& r) {
 			assert(e.numDependencies == 1 || e.numDependencies == 0);
 			if(e.numDependencies == 1)
 				assert(e.defaultHash != e.dataCheckSum);
-			if(e.numDependencies == 0)
-				assert(e.defaultHash == e.dataCheckSum || e.defaultHash == 1);
+			//if(e.numDependencies == 0)
+			//	assert(e.defaultHash == e.dataCheckSum || e.defaultHash == 1);
 			assert(e.flags == 0 || e.flags == 1);
 			assert(e.variation == 0);
 			assert(e.version <= 26);

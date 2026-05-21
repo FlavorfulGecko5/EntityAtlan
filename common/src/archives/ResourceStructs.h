@@ -204,6 +204,18 @@ enum class EntryDataCode {
 	UNUSED
 };
 
+struct ResourceEntryBuffers_t {
+	char* raw_buffer = nullptr;
+	char* decomp_buffer = nullptr;
+	size_t raw_length = 0;
+	size_t decomp_length = 0;
+
+	~ResourceEntryBuffers_t() {
+		delete[] raw_buffer;
+		delete[] decomp_buffer;
+	}
+};
+
 struct ResourceEntryData_t {
 	EntryDataCode returncode = EntryDataCode::UNUSED;
 	const char* buffer = nullptr;
@@ -237,3 +249,5 @@ ResourceEntryData_t Get_EntryData(const ResourceArchive& r, const ResourceEntry&
 *
 */
 ResourceEntryData_t Get_EntryData(const ResourceEntry& e, std::ifstream& archivestream, char*& raw, size_t& rawsize, char*& decomp, size_t& decompsize);
+
+ResourceEntryData_t Get_EntryData(const ResourceEntry& e, std::ifstream& archivestream, ResourceEntryBuffers_t& buffers);
