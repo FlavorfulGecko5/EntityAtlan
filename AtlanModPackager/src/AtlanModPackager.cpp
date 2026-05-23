@@ -11,10 +11,12 @@
 #include "io/BinaryWriter.h"
 #include "miniz/miniz.h"
 #include "atlan/AtlanOodle.h"
+#include "atlan/AtlanModConfig.h"
+#include "archives/idImage.h"
 
 typedef std::filesystem::path fspath;
 
-void PackagerMain()
+void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 {
 	using namespace std::filesystem;
 
@@ -28,74 +30,47 @@ void PackagerMain()
 		{"mapentities",   rt_mapentities}
 	};
 
-	std::unordered_map<std::string, std::string> configaliases;
+	AtlanModConfig ModConfig;
 
 	std::vector<fspath> filepaths;
 	const fspath modsfolder = absolute("./mods");
+	const size_t modsfolder_length = modsfolder.string().size();
 
-	#define CFG_NAME "darkagesmod.txt"
-	fspath configpath; // Will be empty if config was not found
-
-	/* Gather all mod filepaths */
-	{
-		if(!is_directory(modsfolder)) {
-			atlog << "FATAL ERROR: Could not find mods folder\n";
-			return;
-		}
-
-		// Put this after the mod folder is located, so
-		// we don't download Oodle in an incorrect place.
-		if (!Oodle::AtlanOodleInit("."))
-			return;
-
-		for (const directory_entry& entry : recursive_directory_iterator(modsfolder))
-		{
-			if(entry.is_directory())
-				continue;
-
-			std::string extension = entry.path().extension().string();
-			if(extension == ".zip" || extension == ".ZIP")
-				continue;
-
-			// If we've found the config file, parse it's aliasing data
-			if(entry.path().filename() == CFG_NAME) {
-				atlog << "Found " << CFG_NAME << "\n";
-				try {
-					EntityParser parser(entry.path().string(), ParsingMode::PERMISSIVE);
-					EntNode& root = *parser.getRoot();
-
-					EntNode& aliasNode = root["aliasing"];
-					for (int i = 0, max = aliasNode.getChildCount(); i < max; i++) {
-						EntNode& currentAlias = *aliasNode.ChildAt(i);
-						if (currentAlias.IsComment())
-							continue;
-
-						// Need to normalize the separators in the alias name to ensure
-						// they're correctly matched with their files
-						std::string normalizedname(currentAlias.getNameUQ());
-						for (char& c : normalizedname) {
-							if (c == '\\')
-								c = '/';
-						}
-
-						configaliases.emplace(normalizedname, currentAlias.getValueUQ());
-					}
-					if (configaliases.size() > 0)
-						atlog << "Found " << configaliases.size() << " alias definitions\n";
-
-				}
-				catch (...) {
-					atlog << "ERROR: Failed to read " << CFG_NAME << "\n";
-				}
-
-				
-				configpath = entry.path();
-			}
-
-			filepaths.push_back(entry.path());
-			//atlog << entry.path() << "\n"; 
-		}
+	if(!is_directory(modsfolder)) {
+		atlog << "FATAL ERROR: Could not find mods folder\n";
+		return;
 	}
+
+	// Put this after the mod folder is located, so
+	// we don't download Oodle in an incorrect place.
+	if (!Oodle::AtlanOodleInit("."))
+		return;
+	/* Gather all mod filepaths */
+	for (const directory_entry& entry : recursive_directory_iterator(modsfolder))
+	{
+		if(entry.is_directory())
+			continue;
+
+		const fspath entrypath = entry.path();
+		const fspath extension = entrypath.extension();
+		if(extension == L".zip" || extension == L".ZIP")
+			continue;
+
+		// If we've found the config file, parse it's aliasing data
+		// TODO: Possible edge case: mod config file in a subfolder?
+		if(entrypath.filename() == CFG_NAME) {
+			atlog << "Found " CFG_NAME "\n";
+			if(!ModConfig.TryRead(entrypath.string()))
+				return;
+		}
+
+		filepaths.push_back(entrypath);
+		//atlog << entry.path() << "\n"; 
+	}
+
+
+	idImageEncodingContext ImageEncoder;
+	idImageEncodingResults ImageOutput;
 
 	mz_zip_archive zipfile;
 	mz_zip_archive* zptr = &zipfile;
@@ -107,46 +82,45 @@ void PackagerMain()
 	/* iterate through all the files */
 	for(const fspath& modfile : filepaths) 
 	{
-		std::string zippedName = modfile.string().substr(modsfolder.string().size() + 1);
+		std::string zippedName = modfile.string().substr(modsfolder_length + 1);
 		atlog << "Packaging " << zippedName << "\n";
 
-
-		std::string typestring = "";
-		{
-			// Use a separate string for looking up the alias so we still zip the
-			// file using it's original name
-			std::string queryname = zippedName;
-
-			// Normalize separators to ensure correct alias lookup
-			for (char& c : queryname) {
-				if (c == '\\')
-					c = '/';
-			}
-
-			// Use alias path as query string if it exists
-			const auto& iter = configaliases.find(queryname);
-			if(iter != configaliases.end()) 
-				queryname = iter->second;
-
-			// Find the type string
-			size_t separator = -1;
-			for (size_t i = 0; i < queryname.size(); i++) {
-				char c = queryname[i];
-				if (c == '/' || c == '\\' || c == '@') {
-					separator = i;
-					break;
-				}
-			}
-
-			if (separator != -1) {
-				typestring = queryname.substr(0, separator);
-			}
-		}
+		std::string typestring, AssetName;
+		ModConfig.GetNormalizedName(zippedName, typestring, AssetName);
 
 		// Fail safe to prevent raw files from a previous package being zipped and overriding the real raw files
 		if(typestring == "noload")
 			continue;
 
+		if(typestring == "image") {
+			if (!ImageEncoder.m_initialized) {
+				std::string gamedir;
+				if(OVERRIDE_IMAGE_ENCODER_PATH) {
+					gamedir = OVERRIDE_IMAGE_ENCODER_PATH;
+				}
+				else {
+					gamedir = absolute(modsfolder / "..").string();
+				}
+
+				atlog << "Initializing Image Encoder with directory " << gamedir << "\n";
+				if(!ImageEncoder.InitializeContext(gamedir))
+					return;
+			}
+
+			bool result = ImageEncoder.EncodeImage(AssetName, modfile.c_str(), ImageOutput);
+			if (!result) {
+				continue;
+			}
+			result = mz_zip_writer_add_mem(zptr, zippedName.c_str(), ImageOutput.buffer, ImageOutput.file_length, MZ_DEFAULT_COMPRESSION);
+			if(!result) {
+				atlog << "ERROR: Failed to add image to zip file\n";
+			}
+			continue;
+		}
+
+		// TODO: Investigate the serialization codepath. CRT detects massive
+		// memory leaks. Most likely the global variables used in the serialization pipeline?
+		// Update: Probably the entity class map
 		const auto& iter = serialtypes.find(typestring);
 		if (iter != serialtypes.end()) {
 
@@ -155,6 +129,7 @@ void PackagerMain()
 			BinaryWriter serialized(static_cast<size_t>(file_size(modfile) * 0.5));
 			Reserializer::Serialize(modfile.string().c_str(), serialized, typeenum);
 
+			// TODO FIXME: This screws up the aliasing system if the file has an alias
 			std::string bin_name = fspath(zippedName).replace_extension(".bin").string();
 			bool result;
 
@@ -255,7 +230,7 @@ int main(int argc, char* argv[])
 
 		AtlanLogger::init(logpath);
 		atlog << "Atlan Mod Packager v1.2.1 by FlavorfulGecko5\n";
-		PackagerMain();
+		PackagerMain(argc > 1 ? argv[1] : nullptr);
 		
 
 	#ifndef _DEBUG

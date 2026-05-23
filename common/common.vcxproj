@@ -25,6 +25,7 @@
     <ClCompile Include="src\archives\ResourceStructs.cpp" />
     <ClCompile Include="src\archives\SoundArchive.cpp" />
     <ClCompile Include="src\atlan\AtlanLogger.cpp" />
+    <ClCompile Include="src\atlan\AtlanModConfig.cpp" />
     <ClCompile Include="src\atlan\AtlanOodle.cpp" />
     <ClCompile Include="src\atlan\AtlanProfiling.cpp" />
     <ClCompile Include="src\entityslayer\EntityLogger.cpp" />
@@ -47,6 +48,7 @@
     <ClInclude Include="src\archives\SoundArchive.h" />
     <ClInclude Include="src\archives\StreamDB.h" />
     <ClInclude Include="src\atlan\AtlanLogger.h" />
+    <ClInclude Include="src\atlan\AtlanModConfig.h" />
     <ClInclude Include="src\atlan\AtlanOodle.h" />
     <ClInclude Include="src\atlan\AtlanProfiling.h" />
     <ClInclude Include="src\entityslayer\EntityLogger.h" />

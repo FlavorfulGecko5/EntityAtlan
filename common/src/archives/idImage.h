@@ -131,8 +131,8 @@ struct ImageHeader {
     u32 always8;
     u32 padding2;
     u16 padding3;
-    u8  streamed;
-    u8  singleStream;
+    u8  streamed; // If true, there are mips stored in the streamdb files
+    u8  singleStream; // If true, all streamdb mips are placed in one streamdb entry. Only true for lightprobes in the vanilla files
     u8  noMips;
     u8  fftBloom;
 	u8  prefiltermips; // Only present when version >= 24
@@ -188,8 +188,13 @@ struct ID3D11DeviceContext;
 enum D3D_FEATURE_LEVEL : int;
 
 struct idImageEncodingResults {
-    uint8_t* data = nullptr; // Image File
-    size_t length = 0;
+    uint8_t* buffer = nullptr;
+    size_t buffer_max = 0;
+    size_t file_length = 0; // <= buffer_max
+
+    ~idImageEncodingResults() {
+        delete[] buffer;
+    }
 };
 
 struct idImageEncodingContext {

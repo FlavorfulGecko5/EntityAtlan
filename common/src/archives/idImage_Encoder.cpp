@@ -103,17 +103,19 @@ DXGI_FORMAT idFormat_To_DXGI(const textureFormat_t idFormat) {
 
 	switch (idFormat) {
 
-		// TODO: Verify that these are the correct conversions
-		case FMT_BC1:              return DXGI_FORMAT_BC1_TYPELESS;
+		case FMT_BC1:              return DXGI_FORMAT_BC1_UNORM;
 		case FMT_BC1_SRGB: 		   return DXGI_FORMAT_BC1_UNORM_SRGB;
+
+		// TODO: Monitor if this is correct
 		case FMT_BC1_ZERO_ALPHA:   return DXGI_FORMAT_BC1_UNORM;
-		case FMT_BC3: 			   return DXGI_FORMAT_BC3_TYPELESS;
+
+		case FMT_BC3: 			   return DXGI_FORMAT_BC3_UNORM;
 		case FMT_BC3_SRGB:		   return DXGI_FORMAT_BC3_UNORM_SRGB;
-		case FMT_BC4:			   return DXGI_FORMAT_BC4_TYPELESS;
-		case FMT_BC5:			   return DXGI_FORMAT_BC5_TYPELESS;
+		case FMT_BC4:			   return DXGI_FORMAT_BC4_UNORM;
+		case FMT_BC5:			   return DXGI_FORMAT_BC5_UNORM;
 		case FMT_BC6H_UF16:		   return DXGI_FORMAT_BC6H_UF16;
 		case FMT_BC6H_SF16:		   return DXGI_FORMAT_BC6H_SF16;
-		case FMT_BC7:			   return DXGI_FORMAT_BC7_TYPELESS;
+		case FMT_BC7:			   return DXGI_FORMAT_BC7_UNORM;
 		case FMT_BC7_SRGB:		   return DXGI_FORMAT_BC7_UNORM_SRGB;
 
 		default:
@@ -238,7 +240,15 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const wch
 	* STEP 5: Write the file 
 	*/
 
-	BinaryWriter writer(image.GetPixelsSize() + 5000, 1.25f);
+	BinaryWriter writer;
+
+	// Transfer ownership of the buffer to the writer
+	// So we can re-use the allocated memory
+	writer.AcquireBuffer((char*)FINAL_IMAGE.buffer, FINAL_IMAGE.buffer_max);
+	FINAL_IMAGE.buffer = nullptr; 
+	FINAL_IMAGE.buffer_max = 0; 
+	FINAL_IMAGE.file_length = 0;
+	writer.EnsureMaxCapacity(image.GetPixelsSize() + 5000);
 
 	writer.WriteBytes(header.magic, 3);
 	writer << header.version 
@@ -262,8 +272,8 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const wch
 
 		mipinfo.mipLevel = i;
 		mipinfo.mipSlice = 0;
-		mipinfo.mipPixelWidth = mipimage->width;
-		mipinfo.mipPixelHeight = mipimage->height;
+		mipinfo.mipPixelWidth = (uint32_t)mipimage->width;
+		mipinfo.mipPixelHeight = (uint32_t)mipimage->height;
 		mipinfo.mipPixelDepth = 1;
 
 		if (i == 0) {
@@ -275,7 +285,7 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const wch
 
 		size_t rowpitch = 0, slicepitch = 0;
 		DirectX::ComputePitch(dxgiFormat, mipimage->width, mipimage->height, rowpitch, slicepitch);
-		mipinfo.decompressedSize = slicepitch;
+		mipinfo.decompressedSize = (uint32_t)slicepitch;
 		mipinfo.flagIsCompressed = 0;
 		mipinfo.compressedSize = mipinfo.decompressedSize;
 
@@ -298,8 +308,9 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const wch
 	auditimage.audit();
 	#endif
 
-	FINAL_IMAGE.length = writer.GetFilledSize();
-	FINAL_IMAGE.data = (uint8_t*)writer.Finalize();
+	FINAL_IMAGE.file_length = writer.GetFilledSize();
+	FINAL_IMAGE.buffer_max = writer.GetMaxCapacity();
+	FINAL_IMAGE.buffer = (uint8_t*)writer.Finalize();
 
 	return true;
 }
@@ -361,5 +372,5 @@ bool idImageHeaderMap_Build(idImageHeaderMap_t& HEADER_MAP, const std::string& g
 		
 	}
 
-	return true;
+	return HEADER_MAP.size() > 0;
 }

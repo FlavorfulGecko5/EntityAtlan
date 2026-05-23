@@ -38,6 +38,10 @@ class BinaryWriter
 		return next - buffer;
 	}
 
+	size_t GetRemainingSpace() const {
+		return end - next;
+	}
+
 	const char* GetBuffer() const {
 		return buffer;
 	}
@@ -78,6 +82,22 @@ class BinaryWriter
 		GrowBuffer(newCapacity);
 	}
 
+	public:
+
+	// Ensures the maximum capacity of the buffer is at least the expected amount
+	void EnsureMaxCapacity(size_t expectedMaxCapacity) {
+		if (GetMaxCapacity() < expectedMaxCapacity) {
+			GrowBuffer(expectedMaxCapacity, defaultSizeMultiplier);
+		}
+	}
+
+	// Ensure the unfilled space is at least this size
+	void EnsureAvailable(size_t minimumAvailable) {
+		if (GetRemainingSpace() < minimumAvailable) {
+			GrowBuffer(GetFilledSize() + minimumAvailable, defaultSizeMultiplier);
+		}
+	}
+
 	/*
 	* CONSTRUCTION / DESTRUCTION
 	*/
@@ -87,6 +107,8 @@ class BinaryWriter
 	~BinaryWriter() {
 		delete[] buffer;
 	}
+
+	BinaryWriter() {}
 
 	BinaryWriter(size_t initialCapacity, float p_resizeMultiplier) : defaultSizeMultiplier(p_resizeMultiplier) {
 		GrowBuffer(initialCapacity);
@@ -107,6 +129,15 @@ class BinaryWriter
 		end = nullptr;
 		sizeStack.clear();
 		return final;
+	}
+
+	/* Assume ownership of the given buffer. Discards old buffer if present */
+	void AcquireBuffer(char* new_buffer, size_t buffer_size) {
+		delete[] buffer;
+		buffer = new_buffer;
+		next = new_buffer;
+		end = new_buffer + buffer_size;
+		sizeStack.clear();
 	}
 
 	void Empty() {
