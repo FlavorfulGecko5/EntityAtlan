@@ -148,6 +148,11 @@ struct ImageHeader {
     bool Read(const char* data, const size_t length);
 
     void tostring(std::string& addto) const;
+
+    size_t CalcHeaderSize() {
+        HEADER_LENGTH = version > 23 ? 64 : 63;
+        return HEADER_LENGTH;
+    }
 };
 
 struct ImageMipInfo {
@@ -207,4 +212,36 @@ struct idImageEncodingContext {
     bool InitializeContext(const std::string& gamedir);
     bool EncodeImage(const std::string& AssetPath, const wchar_t* FilePath, idImageEncodingResults& results);
     bool Release();
+};
+
+/*
+* Magic: 'ATIM'
+* atim_version: int
+* 
+* streamdb_mips: int
+* singlestream: int (Will only support multi-streamed for the time being)
+* prefetch_farmhash: uint64_t (Won't support for now)
+* 
+*/
+// Packaged image mod file
+struct idAtlanImage {
+    char magic[4]; // ATIM
+    int version; // Atlan Image file version (NOT resources version)
+    uint64_t prefetch_farmhash; // Unused currently
+    uint64_t singlestream;
+    uint64_t streamdbmips;
+
+    // uint32_t entry_length;
+    // uint8_t* entry_data[entry_length]
+    // 
+    // For Each streamDbMip:
+    // uint32_t mipLevel
+    // uint32_t mipSlice
+    // uint32_t mip_length
+    // uint8_t* mip_data[mip_length]
+
+    // Ensure the given data stream is a valid idAtlanImage
+    static bool Validate(const uint8_t* data, size_t length);
+
+
 };

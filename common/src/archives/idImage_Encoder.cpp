@@ -1,3 +1,4 @@
+#include "io/BinaryReader.h"
 
 #include <Windows.h>
 #include <d3d11.h>
@@ -5,6 +6,7 @@
 
 #include "idImage.h"
 #include "atlan/AtlanLogger.h"
+#include "entityslayer/Oodle.h"
 #include "io/BinaryWriter.h"
 
 bool idImageEncodingContext::InitializeContext(const std::string& gamedir) {
@@ -134,7 +136,7 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const wch
 	{
 		const auto& pair = m_headermap.find(AssetPath);
 		if (pair == m_headermap.end()) {
-			atlog << "ERROR: Could not find name in ImageHeaderMap\n";
+			atlog << "ERROR: Could not find name in ImageHeaderMap (" << AssetPath << ")\n";
 			return false;
 		}
 		header = pair->second;
@@ -205,36 +207,47 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const wch
 	* STEP 4: Header adjustments
 	*/
 
-	struct {
-		u32 width;
-		u32 height;
-		u32 mips;
-	} realvalues;
-
-	realvalues.width =  (u32)image.GetImage(0,0,0)->width;
-	realvalues.height = (u32)image.GetImage(0,0,0)->height;
-	realvalues.mips =   (u32)image.GetImageCount();
-
-	if (realvalues.width != header.pixelWidth) {
-		header.pixelWidth = realvalues.width;
-	}
-	if (realvalues.height != header.pixelHeight) {
-		header.pixelHeight = realvalues.height;
-	}
-	if (realvalues.mips != header.mipCount) {
-		header.mipCount = realvalues.mips;
-	}
-
-	// TODO: This is temporary until we start building
-	// our own streamdb file
-	header.streamDBMipCount = 0;
-	header.streamed = 0;
-
 	// Ask Tjoener if you want to know why we do this
 	// tl;dr is these variables are only necessary for id's method of encoding images
 	// (or something like that)
 	header.albedoSpecularBias = 0.0f;
 	header.albedoSpecularScale = 1.0f;
+
+	// TODO: Should we log if these change from their vanilla values?
+	header.pixelWidth = (u32)image.GetImage(0, 0, 0)->width;
+	header.pixelHeight = (u32)image.GetImage(0, 0, 0)->height;
+	header.mipCount = (u32)image.GetImageCount();
+	header.streamDBMipCount = 0;
+
+	std::vector<ImageMipInfo> mipdata;
+	mipdata.resize(header.mipCount);
+
+	// Pass #1: Calculate everything except for the
+	// compressed sizes and cumulativeStreamDbSizes (which uses the compressed sizes)
+	for (uint32_t i = 0; i < header.mipCount; i++) {
+		ImageMipInfo& m = mipdata[i];
+		const DirectX::Image* mipImage = image.GetImage(i, 0, 0);
+		m.mipLevel = i;
+		m.mipSlice = 0;
+		m.mipPixelWidth = mipImage->width;
+		m.mipPixelHeight = mipImage->height;
+		m.mipPixelDepth = 1;
+
+		size_t rowpitch = 0, slicepitch = 0;
+		DirectX::ComputePitch(dxgiFormat, mipImage->width, mipImage->height, rowpitch, slicepitch);
+		m.decompressedSize = (u32)slicepitch;
+
+		if (m.mipPixelWidth <= 32 && m.mipPixelHeight <= 32) {
+			m.flagIsCompressed = 0;
+			m.compressedSize = m.decompressedSize;
+		}
+		else {
+			m.flagIsCompressed = 1;
+			header.streamDBMipCount++;
+		}
+	}
+
+	header.streamed = (header.streamDBMipCount > 0);
 
 	/*
 	* STEP 5: Write the file 
@@ -250,6 +263,17 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const wch
 	FINAL_IMAGE.file_length = 0;
 	writer.EnsureMaxCapacity(image.GetPixelsSize() + 5000);
 
+	// Write the Atlan Image header
+	idAtlanImage atlanheader;
+	memcpy(atlanheader.magic, "ATIM", 4);
+	atlanheader.version = 1;
+	atlanheader.prefetch_farmhash = 0;
+	atlanheader.singlestream = 0;
+	atlanheader.streamdbmips = header.streamDBMipCount;
+	writer.WriteBytes((const char*)&atlanheader, 32); // IMPORTANT: Size of the above fields
+	
+	// Write the resources entry
+	writer.pushSizeStack();
 	writer.WriteBytes(header.magic, 3);
 	writer << header.version 
 		<< header.textureType 
@@ -258,62 +282,115 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const wch
 		<< header.mipCount << header.unkFloat1
 		<< header.albedoSpecularBias << header.albedoSpecularScale << header.padding1
 		<< header.textureFormat << header.always8 << header.padding2 << header.padding3
-		<< header.streamed << header.singleStream << header.noMips << header.fftBloom
-		<< header.prefiltermips << header.streamDBMipCount;
+		<< header.streamed << header.singleStream << header.noMips << header.fftBloom;
+	if(header.version > 23)
+		writer << header.prefiltermips;
+	writer << header.streamDBMipCount;
 
+	// Reserve space for the mipinfo array. We'll copy it in later
+	// once we've fully populated all fields
+	const size_t POSITION_MIPINFO = writer.GetPosition();
+	writer.AddBytes(header.mipCount * sizeof(ImageMipInfo));
 
-	ImageMipInfo mipinfo;
-	for (uint32_t i = 0; i < header.mipCount; i++) {
+	// Write the resource entry mips, completing that part of the file
+	u32 cumulativeSum = 32 * header.mipCount + 64;
+	for(uint32_t i = header.streamDBMipCount; i < header.mipCount; i++) {
+		writer.WriteBytes((char*)image.GetImage(i, 0, 0)->pixels, mipdata[i].compressedSize);
+		mipdata[i].cumulativeSizeStreamDB = cumulativeSum;
+		cumulativeSum += mipdata[i].compressedSize;
+	}
+	writer.popSizeStack();
 
+	// Now we compress and write each streamdb mip data
+	cumulativeSum = 0;
+	for(uint32_t i = 0; i < header.streamDBMipCount; i++) {
+
+		ImageMipInfo& m = mipdata[i];
 		const DirectX::Image* mipimage = image.GetImage(i, 0, 0);
 
-		// TODO: Will need to revise a lot of this once we start putting mips
-		// into the streamdb
+		writer << m.mipLevel << m.mipSlice;
+		writer.pushSizeStack();
 
-		mipinfo.mipLevel = i;
-		mipinfo.mipSlice = 0;
-		mipinfo.mipPixelWidth = (uint32_t)mipimage->width;
-		mipinfo.mipPixelHeight = (uint32_t)mipimage->height;
-		mipinfo.mipPixelDepth = 1;
+		// Some jank to avoid needing to copy the compressed data into the writer
+		// from a separate buffer
+		writer.EnsureAvailable(m.decompressedSize);
+		char* writeTo = writer.GetEditableNext();
+		size_t out_compressedSize = 0;
 
-		if (i == 0) {
-			mipinfo.cumulativeSizeStreamDB = 32 * header.mipCount + 64;
+		bool OodleResult = Oodle::CompressBuffer((char*)mipimage->pixels, m.decompressedSize, writeTo, out_compressedSize);
+
+		if (!OodleResult) {
+			atlog << "ERROR: Failed to Oodle compress mip level " << i << "\n";
+			return false;
 		}
-		else {
-			mipinfo.cumulativeSizeStreamDB += mipinfo.compressedSize;
-		}
-
-		size_t rowpitch = 0, slicepitch = 0;
-		DirectX::ComputePitch(dxgiFormat, mipimage->width, mipimage->height, rowpitch, slicepitch);
-		mipinfo.decompressedSize = (uint32_t)slicepitch;
-		mipinfo.flagIsCompressed = 0;
-		mipinfo.compressedSize = mipinfo.decompressedSize;
-
-		writer << mipinfo.mipLevel << mipinfo.mipSlice << mipinfo.mipPixelWidth
-			<< mipinfo.mipPixelHeight << mipinfo.mipPixelDepth
-			<< mipinfo.decompressedSize << mipinfo.flagIsCompressed << mipinfo.compressedSize
-			<< mipinfo.cumulativeSizeStreamDB;
+		m.compressedSize = (u32)out_compressedSize;
+		m.cumulativeSizeStreamDB = cumulativeSum;
+		cumulativeSum += m.compressedSize;
+		writer.AddBytes(m.compressedSize);
+		writer.popSizeStack();
 	}
-
-	for (uint32_t i = 0; i < header.mipCount; i++) {
-		const DirectX::Image* mipimage = image.GetImage(i, 0, 0);
-		size_t rowpitch = 0, slicepitch = 0;
-		DirectX::ComputePitch(DXGI_FORMAT_BC1_UNORM_SRGB, mipimage->width, mipimage->height, rowpitch, slicepitch);
-		writer.WriteBytes(reinterpret_cast<const char*>(mipimage->pixels), slicepitch);
-	}
-
-	#ifdef _DEBUG
-	idImage auditimage;
-	auditimage.Read(writer.GetBuffer(), writer.GetFilledSize());
-	auditimage.audit();
-	#endif
 
 	FINAL_IMAGE.file_length = writer.GetFilledSize();
 	FINAL_IMAGE.buffer_max = writer.GetMaxCapacity();
 	FINAL_IMAGE.buffer = (uint8_t*)writer.Finalize();
 
+	// Copy in the completed mipinfo
+	uint8_t* mipinfo_location = FINAL_IMAGE.buffer + POSITION_MIPINFO;
+	memcpy(mipinfo_location, mipdata.data(), header.mipCount * sizeof(ImageMipInfo));
+
+	if(!idAtlanImage::Validate(FINAL_IMAGE.buffer, FINAL_IMAGE.file_length))
+		atlog << "ERROR: Imaged failed final validation\n";
+
 	return true;
 }
+
+bool idAtlanImage::Validate(const uint8_t* data, size_t length) {
+	
+	BinaryReader reader((const char*)data, length);
+	int version = 0;
+	
+	const char* bytes = nullptr;
+	
+	if(!reader.ReadBytes(bytes, 4))
+		return false;
+	if(memcmp(bytes, "ATIM", 4) != 0)
+		return false;
+
+	reader.ReadLE(version);
+	if(version != 1)
+		return false;
+
+	reader.GoRight(16);
+
+	uint64_t streamdbmips = 0;
+	uint32_t entry_length = 0;
+	reader.ReadLE(streamdbmips);
+	if(!reader.ReadLE(entry_length))
+		return false;
+
+	idImage auditImage;
+	if(!auditImage.Read(reader.GetNext(), entry_length))
+		return false;
+	if(!auditImage.audit())
+		return false;
+
+	if(!reader.GoRight(entry_length))
+		return false;
+
+	for (uint64_t i = 0; i < streamdbmips; i++) {
+		uint32_t mipLevel = 0, mipSlice = 0;
+		uint32_t mipLength = 0;
+
+		reader.ReadLE(mipLevel);
+		reader.ReadLE(mipSlice);
+		if(!reader.ReadLE(mipLength))
+			return false;
+		if(!reader.GoRight(mipLength))
+			return false;
+	}
+
+	return reader.ReachedEOF();
+};
 
 #include "ResourceStructs.h"
 #include "PackageMapSpec.h"

@@ -144,3 +144,23 @@ uint32_t HashLib::akfnv_insensitive(const char* in_pData, size_t in_dataSize)
 
 	return hval;
 }
+
+uint64_t mix33(uint64_t num) {
+	return num ^ (num >> 33);
+}
+
+uint64_t HashLib::streamdb_miphash(uint64_t defaultHash, uint64_t mipId, uint64_t zero)
+{
+	const uint64_t C1 = 0xFF51AFD7ED558CCDULL;
+	const uint64_t C2 = 0xC4CEB9FE1A85EC53ULL;
+	const uint64_t C3 = 0x000000009E3779B9ULL;
+
+	uint64_t k0 = *reinterpret_cast<int64_t*>(&defaultHash);
+	uint64_t k1 = C1 * mipId;
+	uint64_t k2 = C1 * zero;
+
+	uint64_t p1 = mix33(k2);
+	uint64_t p2 = ((C2 * mix33(k1)) >> 33) ^ (C2 * mix33(k1));
+	uint64_t finalHash = k0 ^ ((k0 >> 2) + (k0 << 6) + (p2 ^ ((p2 >> 2) + (p2 << 6) + (mix33(C2 * p1)) + C3)) + C3);
+	return finalHash;
+}

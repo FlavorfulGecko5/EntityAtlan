@@ -24,6 +24,7 @@
     <ClCompile Include="src\archives\PackageMapSpec.cpp" />
     <ClCompile Include="src\archives\ResourceStructs.cpp" />
     <ClCompile Include="src\archives\SoundArchive.cpp" />
+    <ClCompile Include="src\archives\StreamDB.cpp" />
     <ClCompile Include="src\atlan\AtlanLogger.cpp" />
     <ClCompile Include="src\atlan\AtlanModConfig.cpp" />
     <ClCompile Include="src\atlan\AtlanOodle.cpp" />

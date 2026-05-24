@@ -71,11 +71,11 @@ bool idImage::Read(const char* data, size_t length)
 	const char* dummy = nullptr;
 	for (uint32_t i = header.streamDBMipCount; i < header.mipCount; i++) {
 
-		assert(mipinfos[i].flagIsCompressed == 0);
-		assert(mipinfos[i].compressedSize == mipinfos[i].decompressedSize);
-		assert(reader.ReadBytes(dummy, mipinfos[i].decompressedSize));
+		if(mipinfos[i].flagIsCompressed != 0) return false;
+		if(mipinfos[i].compressedSize != mipinfos[i].decompressedSize) return false;
+		if(reader.ReadBytes(dummy, mipinfos[i].decompressedSize) == false) return false;
 	}
-	assert(reader.ReachedEOF());
+	if(!reader.ReachedEOF()) return false;
 	#endif
 
 	return true;
@@ -110,6 +110,22 @@ bool idImage::audit() const
 		assert(left == right || left == right - 1);
 	}
 	assert(header.streamDBMipCount <= header.mipCount);
+
+	#if 1
+	if (header.textureType == TT_2D && header.textureMaterialKind != TMK_NONE) {
+		for (uint32_t i = 0; i < header.streamDBMipCount; i++) {
+			assert(mipinfos[i].mipPixelWidth > 32 || mipinfos[i].mipPixelHeight > 32);
+		}
+		for (uint32_t i = header.streamDBMipCount; i < header.mipCount; i++) {
+			assert(mipinfos[i].mipPixelWidth <= 32 && mipinfos[i].mipPixelHeight <= 32);
+		}
+	}
+	#endif
+
+	// Not IFF as mipCount can be 1 when noMips is false
+	if (header.noMips) {
+		assert(header.mipCount == 1);
+	}
 
 	return 1;
 }

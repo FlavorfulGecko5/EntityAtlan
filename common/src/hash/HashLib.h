@@ -18,4 +18,6 @@ namespace HashLib {
 	// AudioKinetic's Case-Insensitive FNV Hash algorithm
 	// Used on the filenames of snd archives
 	uint32_t akfnv_insensitive(const char* string, size_t length);
+
+	uint64_t streamdb_miphash(uint64_t defaultHash, uint64_t mipId, uint64_t parm2);
 }

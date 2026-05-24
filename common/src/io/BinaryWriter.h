@@ -50,6 +50,10 @@ class BinaryWriter
 		return buffer;
 	}
 
+	char* GetEditableNext() {
+		return next;
+	}
+
 	/*
 	* RESIZING
 	*/
