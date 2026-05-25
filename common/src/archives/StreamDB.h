@@ -19,7 +19,7 @@ struct idStreamDB {
         u32 pad1;
         u32 pad2;
         u32 numEntries;
-        headerflags_t flags;
+        u32 flags; // headerflags_t
         //Assert(magic == 0x61C7F32E29C2A550UL);
         //Assert(pad0 == 0);
         //Assert(pad1 == 0);
@@ -30,6 +30,10 @@ struct idStreamDB {
         u64 id;
         u32 offset16; // Multiply by 16 to get the entry's offset in the file
         u32 length;
+
+        bool operator<(const entry_t& other) {
+            return id < other.id;
+        }
     };
 
     struct prefetchheader_t {

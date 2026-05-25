@@ -59,17 +59,12 @@ bool idStreamDB::Read(const wchar_t* filepath)
     if(reader.tellg() != header.headerLength)
         return false;
 
-    // Entry data is not necessary stored in the order the entries appear in
-    // So we can't reliably audit for a running total like this
-    #if 0
-    size_t runningtotal = header.headerLength;
-    for (uint32_t i = 0; i < header.numEntries; i++) {
-        size_t realLocation = entries[i].offset16 * 16;
-        assert(realLocation == runningtotal);
-        runningtotal += entries[i].length + entries[i].length % 16;
+    // Entries are stored in order of ascending hash
+    // (This is REQUIRED or the StreamDB will not work)
+    for (u32 i = 1; i < header.numEntries; i++) {
+        if(entries[i].id < entries[i - 1].id)
+            return false;
     }
-    #endif
-
 
     return true;
 }

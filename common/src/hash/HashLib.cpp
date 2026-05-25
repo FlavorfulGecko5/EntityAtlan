@@ -155,7 +155,7 @@ uint64_t HashLib::streamdb_miphash(uint64_t defaultHash, uint64_t mipId, uint64_
 	const uint64_t C2 = 0xC4CEB9FE1A85EC53ULL;
 	const uint64_t C3 = 0x000000009E3779B9ULL;
 
-	uint64_t k0 = *reinterpret_cast<int64_t*>(&defaultHash);
+	uint64_t k0 = defaultHash;
 	uint64_t k1 = C1 * mipId;
 	uint64_t k2 = C1 * zero;
 

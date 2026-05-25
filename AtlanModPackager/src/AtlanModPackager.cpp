@@ -4,9 +4,9 @@
 #include <vector>
 #include <fstream>
 #include <unordered_map>
-#include "entityslayer/EntityParser.h"
 #include "archives/ResourceEnums.h"
 #include "atlan/AtlanLogger.h"
+#include "atlan/AtlanProfiling.h"
 #include "ReserialMain.h"
 #include "io/BinaryWriter.h"
 #include "miniz/miniz.h"
@@ -20,7 +20,15 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 {
 	using namespace std::filesystem;
 
-	const std::unordered_map<std::string, ResourceType> serialtypes = {
+	atlanstamp START_TIME("Packaging Time");
+
+	// TODO: Really need to synchronize this with the modloader so we're
+	// not updating two different maps per tool
+	const std::unordered_map<std::string, ResourceType> ValidResourceTypes = {
+		{"rs_streamfile", rt_rs_streamfile},
+		{"decls",         rt_rs_streamfile},
+		{"image",         rt_image},
+		{"audio",         rt_audio},
 		{"entityDef",     rt_entityDef},
 		{"logicClass",    rt_logicClass},
 		{"logicEntity",   rt_logicEntity},
@@ -45,6 +53,13 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 	// we don't download Oodle in an incorrect place.
 	if (!Oodle::AtlanOodleInit("."))
 		return;
+
+	// Keep init_heap values at zero or the finalized zip file will have some sort of offset error
+	mz_zip_archive zipfile;
+	mz_zip_archive* zptr = &zipfile;
+	mz_zip_zero_struct(zptr);
+	mz_zip_writer_init_heap(zptr, 0, 0);
+
 	/* Gather all mod filepaths */
 	for (const directory_entry& entry : recursive_directory_iterator(modsfolder))
 	{
@@ -56,12 +71,26 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 		if(extension == L".zip" || extension == L".ZIP")
 			continue;
 
-		// If we've found the config file, parse it's aliasing data
-		// TODO: Possible edge case: mod config file in a subfolder?
 		if(entrypath.filename() == CFG_NAME) {
+
+			// Edge Case: Mod config is in a subfolder - ignore it
+			if(entrypath.parent_path() != modsfolder) {
+				atlog << "Ignoring " CFG_NAME << " inside a subfolder\n";
+				continue;
+			}
+
 			atlog << "Found " CFG_NAME "\n";
 			if(!ModConfig.TryRead(entrypath.string()))
 				return;
+
+			// Need to add this to the zip now or else the config will be filtered out later
+			bool result = mz_zip_writer_add_file(zptr, CFG_NAME, entrypath.string().c_str(), 
+				"", 0, MZ_DEFAULT_COMPRESSION);
+			if (!result) {
+				atlog << "ERROR: Failed to add " CFG_NAME " to zip file\n";
+				return;
+			}
+			continue;
 		}
 
 		filepaths.push_back(entrypath);
@@ -72,27 +101,30 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 	idImageEncodingContext ImageEncoder;
 	idImageEncodingResults ImageOutput;
 
-	mz_zip_archive zipfile;
-	mz_zip_archive* zptr = &zipfile;
-	mz_zip_zero_struct(zptr);
-
-	// Keep both values at zero or the finalized zip file will have some sort of offset error
-	mz_zip_writer_init_heap(zptr, 0, 0);
+	int IgnoredFiles = 0;
+	std::string IgnoreLog;
 
 	/* iterate through all the files */
 	for(const fspath& modfile : filepaths) 
 	{
 		std::string zippedName = modfile.string().substr(modsfolder_length + 1);
-		atlog << "Packaging " << zippedName << "\n";
-
 		std::string typestring, AssetName;
 		ModConfig.GetNormalizedName(zippedName, typestring, AssetName);
 
-		// Fail safe to prevent raw files from a previous package being zipped and overriding the real raw files
-		if(typestring == "noload")
+		// Exclude any files from the zip that aren't valid mod files
+		const auto& TYPEITER = ValidResourceTypes.find(typestring);
+		if(TYPEITER == ValidResourceTypes.end()) {
+			IgnoredFiles++;
+			IgnoreLog.append("- IGNORING: ");
+			IgnoreLog.append(zippedName);
+			IgnoreLog.push_back('\n');
 			continue;
+		}
+		const ResourceType RESTYPE = TYPEITER->second;
 
-		if(typestring == "image") {
+		atlog << "Packaging " << zippedName << "\n";
+
+		if(RESTYPE == rt_image) {
 			if (!ImageEncoder.m_initialized) {
 				std::string gamedir;
 				if(OVERRIDE_IMAGE_ENCODER_PATH) {
@@ -121,21 +153,18 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 		// TODO: Investigate the serialization codepath. CRT detects massive
 		// memory leaks. Most likely the global variables used in the serialization pipeline?
 		// Update: Probably the entity class map
-		const auto& iter = serialtypes.find(typestring);
-		if (iter != serialtypes.end()) {
+		if (RESTYPE & rtc_serialized) {
 
 			atlog << "Serializing " << zippedName << "\n";
-			ResourceType typeenum = iter->second;
 			BinaryWriter serialized(static_cast<size_t>(file_size(modfile) * 0.5));
-			Reserializer::Serialize(modfile.string().c_str(), serialized, typeenum);
+			Reserializer::Serialize(modfile.string().c_str(), serialized, RESTYPE);
 
 			// TODO FIXME: This screws up the aliasing system if the file has an alias
 			std::string bin_name = fspath(zippedName).replace_extension(".bin").string();
 			bool result;
 
 			// Oodle Compress Mapentities
-			//if(0){
-			if (typestring == "mapentities") {
+			if (RESTYPE == rt_mapentities) {
 				char* compbuffer = nullptr;
 				size_t outputlength = 0, outputBufferLength = 0;
 
@@ -166,6 +195,11 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 			atlog << "ERROR: Failed to add " << zippedName << " to zip file\n";		
 	}
 
+	if(IgnoredFiles) {
+		atlog << "----------\n" << IgnoredFiles << " Files were not valid mod files and ignored\n";
+		atlog << IgnoreLog << "----------\n";
+	}
+
 	void* buffer = nullptr;
 	size_t buffersize = 0;
 	bool finalize = mz_zip_writer_finalize_heap_archive(zptr, &buffer, &buffersize);
@@ -180,9 +214,12 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 	zipoutput.write((char*)buffer, buffersize);
 	zipoutput.close();
 	delete[] buffer;
+
+	START_TIME.log();
 }
 
 // Unused
+#if 0
 void AlternateMode(int argc, char* argv[])
 {
 	atlog << "\n";
@@ -219,6 +256,7 @@ void AlternateMode(int argc, char* argv[])
 	outwriter.write(writer.GetBuffer(), writer.GetFilledSize());
 	outwriter.close();
 }
+#endif
 
 int main(int argc, char* argv[])
 {
