@@ -16,9 +16,17 @@
 
 typedef std::filesystem::path fspath;
 
+bool GetModFolder(fspath& output);
+
 void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 {
 	using namespace std::filesystem;
+
+	fspath DIR_INPUT = ".";
+	if(GetModFolder(DIR_INPUT) == false) {
+		atlog << "Folder dialog cancelled, or error encountered\n";
+		return;
+	}
 
 	atlanstamp START_TIME("Packaging Time");
 
@@ -41,13 +49,14 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 	AtlanModConfig ModConfig;
 
 	std::vector<fspath> filepaths;
-	const fspath modsfolder = absolute("./mods");
+	const fspath modsfolder = absolute(DIR_INPUT);
 	const size_t modsfolder_length = modsfolder.string().size();
 
 	if(!is_directory(modsfolder)) {
 		atlog << "FATAL ERROR: Could not find mods folder\n";
 		return;
 	}
+	atlog << "Packaging " << modsfolder << "\n";
 
 	// Put this after the mod folder is located, so
 	// we don't download Oodle in an incorrect place.
@@ -131,7 +140,7 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 					gamedir = OVERRIDE_IMAGE_ENCODER_PATH;
 				}
 				else {
-					gamedir = absolute(modsfolder / "..").string();
+					gamedir = absolute(".").string();
 				}
 
 				atlog << "Initializing Image Encoder with directory " << gamedir << "\n";
@@ -267,7 +276,7 @@ int main(int argc, char* argv[])
 	#endif
 
 		AtlanLogger::init(logpath);
-		atlog << "Atlan Mod Packager v1.2.1 by FlavorfulGecko5\n";
+		atlog << "Atlan Mod Packager 2.0 by FlavorfulGecko5\n";
 		PackagerMain(argc > 1 ? argv[1] : nullptr);
 		
 
@@ -287,4 +296,62 @@ int main(int argc, char* argv[])
 	#ifndef _DEBUG
 	std::this_thread::sleep_for(std::chrono::seconds(10));
 	#endif
+}
+
+#define WIN32_LEAN_AND_MEAN
+//#include <Windows.h>
+#include <shobjidl.h>
+
+bool GetModFolder(fspath& output_filepath) {
+	bool returnval = false;
+	HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+	if (SUCCEEDED(hr))
+	{
+		IFileOpenDialog* folderdialog;
+
+		// Create the FileOpenDialog object.
+		hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_ALL, IID_IFileOpenDialog, (void**)&folderdialog);
+
+		if (SUCCEEDED(hr))
+		{
+			DWORD options;
+			folderdialog->GetOptions(&options);
+			options |= FOS_PICKFOLDERS | FOS_FILEMUSTEXIST;
+			folderdialog->SetOptions(options);
+			folderdialog->SetTitle(L"Select Mod Folder to Package");
+
+			IShellItem *defaultFolder = NULL;
+			hr = SHCreateItemFromParsingName(std::filesystem::absolute(".").c_str(), NULL, IID_PPV_ARGS(&defaultFolder));
+			if (SUCCEEDED(hr)) {
+				folderdialog->SetDefaultFolder(defaultFolder);
+				defaultFolder->Release();
+			}
+
+			hr = folderdialog->Show(NULL);
+
+			// Get the file name from the dialog box.
+			if (SUCCEEDED(hr))
+			{
+				IShellItem* selectionItem;
+				hr = folderdialog->GetResult(&selectionItem);
+				if (SUCCEEDED(hr))
+				{
+					PWSTR selectionString;
+					hr = selectionItem->GetDisplayName(SIGDN_FILESYSPATH, &selectionString);
+
+					// Display the file name to the user.
+					if (SUCCEEDED(hr))
+					{
+						output_filepath = selectionString;
+						returnval = true;
+						CoTaskMemFree(selectionString);
+					}
+					selectionItem->Release();
+				}
+			}
+			folderdialog->Release();
+		}
+		CoUninitialize();
+	}
+	return returnval;
 }
