@@ -1,6 +1,8 @@
 #include "GlobalConfig.h"
 #include "ModReader.h"
 #include "archives/PackageMapSpec.h"
+#include "archives/StreamDB.h"
+#include "archives/idImage.h"
 #include "atlan/AtlanOodle.h"
 #include "entityslayer/Oodle.h"
 #include "hash/HashLib.h"
@@ -79,6 +81,95 @@ class StringTable {
 	}
 };
 
+#include <algorithm>
+
+void BuildStreamDB(const std::vector<ModFile*>& modfiles, const fspath outpath) {
+	
+	idStreamDB streamdb;
+	streamdb.header.magic = STREAMDB_MAGIC;
+	streamdb.header.pad0 = 0; streamdb.header.pad1 = 0; streamdb.header.pad2 = 0;
+	streamdb.header.flags = 3;
+	streamdb.prefetchheader.numblocks = 0;
+	streamdb.prefetchheader.totalLength = 8;
+
+	std::vector<idAtlanImage> imageheaders;
+	std::vector<idStreamDB::entry_t> entries;
+	entries.reserve(modfiles.size() * 6);
+	imageheaders.reserve(modfiles.size());
+
+	// Pass 1: Get the total number of entries and their lengths
+	for(const ModFile* file : modfiles) {
+		
+		if (file->typeenum != rt_image) {
+			atlog << "Unsupported resource type made it into streamdb builder\n";
+			continue;
+		}
+
+		idAtlanImage header;
+		if (!header.Read((uint8_t*)file->dataBuffer, file->dataLength)) {
+			atlog << "Image has not been packaged into an Atlan Image File!\n";
+			continue;
+		}
+
+		for(uint64_t i = 0; i < header.streamdbmips; i++) {
+			idStreamDB::entry_t e;
+			e.id = HashLib::streamdb_miphash(file->defaulthash, header.streamdbmips - i - 1, 0);
+			e.length = header.mip_sizes[i];
+			entries.push_back(e);
+		}
+
+		imageheaders.push_back(header);
+	}
+
+	streamdb.header.headerLength = sizeof(idStreamDB::header) + sizeof(idStreamDB::prefetchheader)
+		+ sizeof(idStreamDB::entry_t) * entries.size();
+	streamdb.header.numEntries = (u32)entries.size();
+
+	uint64_t runningoffset = streamdb.header.headerLength + (16 - streamdb.header.headerLength % 16);
+	for(idStreamDB::entry_t& e : entries) {
+		assert(runningoffset % 16 == 0);
+		e.offset16 = (uint32_t)(runningoffset / 16);
+		runningoffset += e.length + (16 - e.length % 16);
+	}
+
+	std::ofstream outwriter(outpath, std::ios_base::binary);
+	outwriter.write((char*)&streamdb.header, sizeof(streamdb.header));
+	//outwriter.write((char*)entries.data(), entries.size() * sizeof(idStreamDB::entry_t));
+	outwriter.seekp(sizeof(streamdb.header) + entries.size() * sizeof(idStreamDB::entry_t));
+	outwriter.write((char*)&streamdb.prefetchheader, sizeof(streamdb.prefetchheader));
+
+	size_t  ENTRY_ITER = 0;
+	for (const idAtlanImage& header : imageheaders) {
+		const char* buffer = header.mipblock;
+		const char* buffermax = buffer + header.mipblocklength;
+		for (size_t i = 0; i < header.streamdbmips; i++) {
+			buffer += 12; // skip slice data
+
+			idStreamDB::entry_t e = entries[ENTRY_ITER++];
+
+			assert(buffer + header.mip_sizes[i] <= buffermax);
+			assert(header.mip_sizes[i] == e.length);
+			assert(header.mip_sizes[i] == *(uint32_t*)(buffer - 4));
+			outwriter.seekp(e.offset16 * 16);
+			outwriter.write(buffer, header.mip_sizes[i]);
+			buffer += header.mip_sizes[i];
+		}
+
+		assert(buffer == buffermax);
+	}
+
+	std::sort(entries.begin(), entries.end());
+
+	outwriter.seekp(32);
+	outwriter.write((char*)entries.data(), entries.size() * sizeof(idStreamDB::entry_t));
+
+	outwriter.close();
+
+	#ifdef _DEBUG
+	idStreamDB audit;
+	assert(audit.Read(outpath.c_str()));
+	#endif
+}
 
 void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) {
 	bool HotReloadMode = modfiles.size() == 1 && !modfiles[0]->isAtlanCompressed && modfiles[0]->parentMod->IsUnzipped && modfiles[0]->typeenum == rt_mapentities;
@@ -216,7 +307,18 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 				}
 			}
 			else {
-				e.dataSize = f.dataLength;
+				if (f.typeenum == rt_image) {
+					idAtlanImage image;
+					image.Read((uint8_t*)f.dataBuffer, f.dataLength);
+
+					idImage auditimage;
+					assert(auditimage.Read((const char*)image.entry_data, image.entry_length, true));
+
+					e.dataSize = image.entry_length;
+				}
+				else {
+					e.dataSize = f.dataLength;
+				}
 			}
 			e.uncompressedSize = e.dataSize;
 			e.compMode = 0;
@@ -251,6 +353,11 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 			e.version = f.resourceVersion; // mapentities span multiple versions
 			e.flags = 2;
 			e.variation = 70;
+		}
+		else if (f.typeenum == rt_image) {
+			e.version = f.resourceVersion; // Same as the image header version
+			e.flags = 0;
+			e.variation = 0;
 		}
 		else {
 			atlog << "\nERROR: Unsupported resource type made it into build";
@@ -298,14 +405,22 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 		const ModFile& f = *modfiles[i];
 
 		writer.seekp(e.dataOffset, std::ios_base::beg);
-		writer.write(rc(f.dataBuffer) + (f.isAtlanCompressed ? ATCF_SIZE : 0), f.dataLength - (f.isAtlanCompressed ? ATCF_SIZE : 0));
+		if(f.typeenum == rt_image) {
+			idAtlanImage image;
+			image.Read((uint8_t*)f.dataBuffer, f.dataLength);
 
-		if(HotReloadMode) {
-			char* paddingbuffer = new char[HotReloadPadding];
-			memset(paddingbuffer, 0, HotReloadPadding);
-			writer.write(paddingbuffer, HotReloadPadding);
+			writer.write((const char*)image.entry_data, image.entry_length);
+		}
+		else {
+			writer.write(rc(f.dataBuffer) + (f.isAtlanCompressed ? ATCF_SIZE : 0), f.dataLength - (f.isAtlanCompressed ? ATCF_SIZE : 0));
 
-			delete[] paddingbuffer;
+			if (HotReloadMode) {
+				char* paddingbuffer = new char[HotReloadPadding];
+				memset(paddingbuffer, 0, HotReloadPadding);
+				writer.write(paddingbuffer, HotReloadPadding);
+
+				delete[] paddingbuffer;
+			}
 		}
 	}
 	writer.close();
@@ -438,6 +553,7 @@ bool CleanupLastLoad(const fspath gamedir)
 	fspath basedir = gamedir / "base";
 	fspath outdir = basedir / "modarchives";
 	fspath outarchivepath = outdir / "common_mod.resources";
+	fspath outstreamdbpath = outdir / "common_mod.streamdb";
 	fspath pmspath = basedir / "packagemapspec.json";
 	fspath metapath = basedir / "meta.resources";
 	fspath soundmetapath = basedir / "sound/soundbanks/pc/soundmetadata.bin";
@@ -504,6 +620,9 @@ bool CleanupLastLoad(const fspath gamedir)
 	if (exists(outarchivepath)) {
 		remove(outarchivepath, lastCode);
 	}
+	if (exists(outstreamdbpath)) {
+		remove(outstreamdbpath, lastCode);
+	}
 	#endif
 
 	if (exists(modsndpath)) {
@@ -518,6 +637,7 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 	fspath basedir = gamedir / "base";
 	fspath outdir = basedir / "modarchives";
 	fspath outarchivepath = outdir / "common_mod.resources";
+	fspath outstreamdbpath = outdir / "common_mod.streamdb";
 	fspath pmspath = basedir / "packagemapspec.json";
 	fspath metapath = basedir / "meta.resources";
 
@@ -581,6 +701,7 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 
 	std::vector<ModFile*> supermod;
 	std::vector<ModFile*> audiosupermod;
+	std::vector<ModFile*> streamdbsupermod;
 	std::unordered_map<std::string, ModFile*> find_defaulthashes;
 	std::unordered_map<std::string, ModFile*> priorityAssets;
 
@@ -664,10 +785,28 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 			}
 		}
 
-		// If an asset requires a streamdb hash, add it to the lookup map
+		#if 1
 		if (file.typeenum & rtc_streamdb_hash) {
 			find_defaulthashes[pair.first] = &file;
 		}
+		if (file.typeenum == rt_image) {
+			streamdbsupermod.push_back(&file);
+		}
+		#else
+		if (file.typeenum == rt_image) {
+			streamdbsupermod.push_back(&file);
+
+			static unsigned GLOBAL_START = 1234;
+			file.defaulthash = GLOBAL_START++;
+			file.resourceVersion = 26;
+		}
+		else {
+			// If an asset requires a streamdb hash, add it to the lookup map
+			if (file.typeenum & rtc_streamdb_hash) {
+				find_defaulthashes[pair.first] = &file;
+			}
+		}
+		#endif
 
 		if (file.typeenum == rt_audio) {
 			audiosupermod.push_back(&file);
@@ -729,8 +868,12 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 
 	if (supermod.size() > 0) {
 		BuildArchive(supermod, outarchivepath);
-		PackageMapSpec::InjectCommonArchive(gamedir, outarchivepath);
+		PackageMapSpec::InjectCommonArchive(gamedir, outarchivepath, streamdbsupermod.size() > 0);
 		RebuildContainerMask(metapath, outarchivepath);
+	}
+
+	if(streamdbsupermod.size() > 0) {
+		BuildStreamDB(streamdbsupermod, outstreamdbpath);
 	}
 
 	if (audiosupermod.size() > 0) {
@@ -752,6 +895,8 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 	}
 	delete[] realmods;
 }
+
+extern bool Executable_Patcher_Main(const fspath& gamedir);
 
 void InjectorMain(int argc, char* argv[], int& argflags) {
 
@@ -831,6 +976,11 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 		atlog << "FATAL ERROR: " << gamedirectory << " is not a valid directory";
 		return;
 	}
+
+	#if 0
+	//Executable_Patcher_Main(gamedirectory);
+	//return;
+	#endif
 
 	/* Identify the version for the archive we must build */
 	{
@@ -1049,9 +1199,14 @@ int main(int argc, char* argv[]) {
 
 	int argflags = 0;
 
+	#ifndef _DEBUG
 	try {
+	#endif
+
 		AtlanLogger::init(LOGPATH);
 		InjectorMain(argc, argv, argflags);
+
+	#ifndef _DEBUG
 	}
 	catch (std::exception e) {
 		atlog << "\n\nFATAL ERROR: An unexpected crash has occurred\n"
@@ -1060,6 +1215,7 @@ int main(int argc, char* argv[]) {
 			<< "Or use \"Restore Backups\" in Dark Ages Mod Manager\n"
 			<< "Error Message: " << e.what();
 	}
+	#endif
 	
 	std::cout << "\n\nOutput written to " << LOGPATH << "\n";
 	AtlanLogger::exit();

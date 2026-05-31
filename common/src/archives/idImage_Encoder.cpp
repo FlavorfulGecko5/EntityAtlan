@@ -178,7 +178,7 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const wch
 		return false;
 	}
 
-	atlog << "Generating Mips...\n";
+	printf("Generating Mips...");
 	result = DirectX::GenerateMipMaps(*image.GetImage(0, 0, 0), DirectX::TEX_FILTER_DEFAULT, 0, TEMP_IMAGE);
 	if (FAILED(result)) {
 		atlog << "ERROR: Failed to generate Mips (Error Code: "  << result << ")\n";
@@ -187,21 +187,21 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const wch
 
 	image.Release(); // Free the un-mipped image
 
-	atlog << "Compressing Texture...\n";
+	printf("\rCompressing Texture...");
 	if (DXGI_UseGpuEncoding(dxgiFormat)) {
 		result = Compress(m_device, TEMP_IMAGE.GetImages(), TEMP_IMAGE.GetImageCount(), TEMP_IMAGE.GetMetadata(),
-			dxgiFormat, DirectX::TEX_COMPRESS_DEFAULT, DirectX::TEX_ALPHA_WEIGHT_DEFAULT, image);
+			dxgiFormat, DirectX::TEX_COMPRESS_PARALLEL, DirectX::TEX_ALPHA_WEIGHT_DEFAULT, image);
 	}
 	else {
 		result = Compress(TEMP_IMAGE.GetImages(), TEMP_IMAGE.GetImageCount(), TEMP_IMAGE.GetMetadata(),
-			dxgiFormat, DirectX::TEX_COMPRESS_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, image);
+			dxgiFormat, DirectX::TEX_COMPRESS_PARALLEL, DirectX::TEX_THRESHOLD_DEFAULT, image);
 	}
 	if (FAILED(result)) {
 		atlog << "ERROR: Failed to encode texture (Error Code: " << result << ")\n";
 		return false;
 	}
 
-	atlog << "Formatting File\n";
+	printf("\rCreating output file...");
 
 	/*
 	* STEP 4: Header adjustments
@@ -229,8 +229,8 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const wch
 		const DirectX::Image* mipImage = image.GetImage(i, 0, 0);
 		m.mipLevel = i;
 		m.mipSlice = 0;
-		m.mipPixelWidth = mipImage->width;
-		m.mipPixelHeight = mipImage->height;
+		m.mipPixelWidth = (u32)mipImage->width;
+		m.mipPixelHeight = (u32)mipImage->height;
 		m.mipPixelDepth = 1;
 
 		size_t rowpitch = 0, slicepitch = 0;
@@ -264,17 +264,18 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const wch
 	writer.EnsureMaxCapacity(image.GetPixelsSize() + 5000);
 
 	// Write the Atlan Image header
-	idAtlanImage atlanheader;
-	memcpy(atlanheader.magic, "ATIM", 4);
-	atlanheader.version = 1;
-	atlanheader.prefetch_farmhash = 0;
-	atlanheader.singlestream = 0;
-	atlanheader.streamdbmips = header.streamDBMipCount;
-	writer.WriteBytes((const char*)&atlanheader, 32); // IMPORTANT: Size of the above fields
+	writer.WriteBytes("ATIM", 4);
+	writer << decltype(idAtlanImage::version)(1) 
+		<< decltype(idAtlanImage::prefetch_farmhash)(0) 
+		<< decltype(idAtlanImage::singlestream)(0)
+		<< decltype(idAtlanImage::streamdbmips)(header.streamDBMipCount);
+
+	const size_t POSITION_MIPSIZES = writer.GetPosition();
+	writer.AddBytes(header.streamDBMipCount * sizeof(uint64_t));
 	
 	// Write the resources entry
 	writer.pushSizeStack();
-	writer.WriteBytes(header.magic, 3);
+	writer.WriteBytes(header.magic, sizeof(header.magic));
 	writer << header.version 
 		<< header.textureType 
 		<< header.textureMaterialKind
@@ -328,6 +329,8 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const wch
 		cumulativeSum += m.compressedSize;
 		writer.AddBytes(m.compressedSize);
 		writer.popSizeStack();
+
+		((uint64_t*)(writer.GetEditableBuffer() + POSITION_MIPSIZES))[i] = out_compressedSize;
 	}
 
 	FINAL_IMAGE.file_length = writer.GetFilledSize();
@@ -341,41 +344,54 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const wch
 	if(!idAtlanImage::Validate(FINAL_IMAGE.buffer, FINAL_IMAGE.file_length))
 		atlog << "ERROR: Imaged failed final validation\n";
 
+	printf("\r");
 	return true;
 }
 
 bool idAtlanImage::Validate(const uint8_t* data, size_t length) {
 	
-	BinaryReader reader((const char*)data, length);
-	int version = 0;
-	
-	const char* bytes = nullptr;
-	
-	if(!reader.ReadBytes(bytes, 4))
-		return false;
-	if(memcmp(bytes, "ATIM", 4) != 0)
-		return false;
-
-	reader.ReadLE(version);
-	if(version != 1)
-		return false;
-
-	reader.GoRight(16);
-
-	uint64_t streamdbmips = 0;
-	uint32_t entry_length = 0;
-	reader.ReadLE(streamdbmips);
-	if(!reader.ReadLE(entry_length))
+	idAtlanImage testatlan;
+	if(testatlan.Read(data, length) == false)
 		return false;
 
 	idImage auditImage;
-	if(!auditImage.Read(reader.GetNext(), entry_length))
-		return false;
-	if(!auditImage.audit())
+	return auditImage.Read(testatlan.entry_data, testatlan.entry_length, true);
+};
+
+bool idAtlanImage::Read(const uint8_t* data, size_t length) {
+	BinaryReader reader((const char*)data, length);
+
+	const char* temp_bytes = nullptr;
+	if(reader.ReadBytes(temp_bytes, 4) == false)
 		return false;
 
-	if(!reader.GoRight(entry_length))
+	if(memcmp(temp_bytes, "ATIM", 4) != 0)
 		return false;
+
+	if(!reader.ReadLE(version))
+		return false;
+	if(version != 1)
+		return false;
+
+	reader.ReadLE(prefetch_farmhash);
+	reader.ReadLE(singlestream);
+	if(!reader.ReadLE(streamdbmips))
+		return false;
+
+	if(!reader.ReadBytes( temp_bytes, streamdbmips * sizeof(uint64_t)))
+		return false;
+	mip_sizes = (uint64_t*)temp_bytes;
+
+	if(!reader.ReadLE(entry_length))
+		return false;
+
+	if(!reader.ReadBytes(entry_data, entry_length))
+		return false;
+	
+	mipblocklength = reader.GetRemaining();
+	mipblock = reader.GetNext();
+
+	reader = BinaryReader(mipblock, mipblocklength);
 
 	for (uint64_t i = 0; i < streamdbmips; i++) {
 		uint32_t mipLevel = 0, mipSlice = 0;
@@ -383,14 +399,16 @@ bool idAtlanImage::Validate(const uint8_t* data, size_t length) {
 
 		reader.ReadLE(mipLevel);
 		reader.ReadLE(mipSlice);
-		if(!reader.ReadLE(mipLength))
+		if (!reader.ReadLE(mipLength))
 			return false;
-		if(!reader.GoRight(mipLength))
+		if (mip_sizes[i] != mipLength)
+			return false;
+		if (!reader.GoRight(mipLength))
 			return false;
 	}
 
 	return reader.ReachedEOF();
-};
+}
 
 #include "ResourceStructs.h"
 #include "PackageMapSpec.h"

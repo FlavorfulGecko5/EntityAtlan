@@ -177,9 +177,7 @@ struct idImage {
         delete[] mipinfos;
     }
 
-    bool audit() const;
-
-    bool Read(const char* data, size_t length);
+    bool Read(const char* data, size_t length, bool FullyValidate);
 
     void tostring(std::string& addto, const char* imageName) const;
 };
@@ -204,7 +202,7 @@ struct idImageEncodingResults {
 
 struct idImageEncodingContext {
     bool                 m_initialized = false;
-    ID3D11Device*        m_device = nullptr;
+    ID3D11Device*        m_device = nullptr; // Device is thread-safe, but context is NOT thread-safe
     ID3D11DeviceContext* m_context = nullptr;
     D3D_FEATURE_LEVEL    m_featurelevel;
     idImageHeaderMap_t   m_headermap;
@@ -214,25 +212,20 @@ struct idImageEncodingContext {
     bool Release();
 };
 
-/*
-* Magic: 'ATIM'
-* atim_version: int
-* 
-* streamdb_mips: int
-* singlestream: int (Will only support multi-streamed for the time being)
-* prefetch_farmhash: uint64_t (Won't support for now)
-* 
-*/
+
 // Packaged image mod file
 struct idAtlanImage {
-    char magic[4]; // ATIM
-    int version; // Atlan Image file version (NOT resources version)
+    char magic[4];              // ATIM
+    int version;                // Atlan Image file version (NOT resources version)
     uint64_t prefetch_farmhash; // Unused currently
-    uint64_t singlestream;
+    uint64_t singlestream;      // Unused currently
     uint64_t streamdbmips;
+    const uint64_t* mip_sizes = nullptr; // Length == streamdbmips
+    uint32_t entry_length;
+    const char* entry_data;
 
-    // uint32_t entry_length;
-    // uint8_t* entry_data[entry_length]
+    const char* mipblock = nullptr;
+    size_t mipblocklength = 0;
     // 
     // For Each streamDbMip:
     // uint32_t mipLevel
@@ -243,5 +236,6 @@ struct idAtlanImage {
     // Ensure the given data stream is a valid idAtlanImage
     static bool Validate(const uint8_t* data, size_t length);
 
+    bool Read(const uint8_t* data, size_t length);
 
 };

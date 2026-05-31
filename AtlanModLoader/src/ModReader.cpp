@@ -18,49 +18,16 @@ typedef std::filesystem::path fspath;
 
 // Key is the start of the file path
 const std::unordered_map<std::string, resourcetypeinfo_t> ValidResourceTypes = {
-	{
-		"rs_streamfile", 
-		{
-			"rs_streamfile",
-			rt_rs_streamfile,
-			allow_mod_yes
-		}
-	},
-
-	{"decls", {"rs_streamfile", rt_rs_streamfile, allow_mod_yes, "generated/decls/"}},
-
-	{
-		"entityDef",
-		{
-			"entityDef",
-			rt_entityDef,
-			allow_mod_yes
-		}
-	},
-
+	{"rs_streamfile", {"rs_streamfile", rt_rs_streamfile, allow_mod_yes}},
+	{"decls",         {"rs_streamfile", rt_rs_streamfile, allow_mod_yes, "generated/decls/"}},
+	{"entityDef",     {"entityDef",     rt_entityDef,     allow_mod_yes}},
 	{"logicClass",    {"logicClass",    rt_logicClass,    allow_mod_yes}},
 	{"logicEntity",   {"logicEntity",   rt_logicEntity,   allow_mod_yes}},
 	{"logicFX",       {"logicFX",       rt_logicFX,       allow_mod_yes}},
 	{"logicLibrary",  {"logicLibrary",  rt_logicLibrary,  allow_mod_yes}},
 	{"logicUIWidget", {"logicUIWidget", rt_logicUIWidget, allow_mod_yes}},
-
-	{
-		"mapentities",
-		{
-			"mapentities",
-			rt_mapentities,
-			allow_mod_yes
-		}
-	},
-
-	{
-		"image",
-		{
-			"image",
-			rt_image,
-			allow_mod_no
-		}
-	},
+	{"mapentities",   {"mapentities",   rt_mapentities,   allow_mod_yes}},
+	{"image",         {"image",         rt_image,         allow_mod_yes}},
 
 	// Audio will be handled differently by the loader
 	{"audio", {"audio", rt_audio, allow_mod_yes}}

@@ -1,6 +1,12 @@
 #include "idImage.h"
 #include "io/BinaryReader.h"
+
+#ifdef _DEBUG
 #include <cassert>
+#define check(OP) assert(OP)
+#else
+#define check(OP) if(!(OP)) {return false;}
+#endif
 
 #define checkread(VAR) if(!reader.ReadLE(VAR)) {return false;}
 
@@ -36,7 +42,7 @@ bool ImageHeader::Read(const char* data, const size_t length)
 	return true;
 }
 
-bool idImage::Read(const char* data, size_t length)
+bool idImage::Read(const char* data, size_t length, bool FullyValidate)
 {
 	/*
 	* Step 1: Read the Header
@@ -67,67 +73,55 @@ bool idImage::Read(const char* data, size_t length)
 	* Step 3: Some final debug checks
 	*/
 
-	#if 1
-	const char* dummy = nullptr;
-	for (uint32_t i = header.streamDBMipCount; i < header.mipCount; i++) {
+	if (FullyValidate) {
+		const char* dummy = nullptr;
+		for (uint32_t i = header.streamDBMipCount; i < header.mipCount; i++) {
+			check(mipinfos[i].flagIsCompressed == 0);
+			check(mipinfos[i].compressedSize == mipinfos[i].decompressedSize);
+			check(reader.ReadBytes(dummy, mipinfos[i].decompressedSize));
+		}
+		check(reader.ReachedEOF());
+		check(header.version >= 23 && header.version <= 26);
 
-		if(mipinfos[i].flagIsCompressed != 0) return false;
-		if(mipinfos[i].compressedSize != mipinfos[i].decompressedSize) return false;
-		if(reader.ReadBytes(dummy, mipinfos[i].decompressedSize) == false) return false;
+		// Largest texture sizes are 2^13 == 4096 hence 13 mips
+		if (header.textureType == TT_CUBIC) {
+			check(header.mipCount / 6 < 14);
+		}
+		else {
+			check(header.mipCount < 14);
+		}
+
+		check(header.unkFloat1 == 0.0);
+		check(header.padding1 == 0);
+		check(header.always8 == 8);
+		check(header.padding2 == 0);
+		check(header.padding3 == 0);
+
+		check(header.streamDBMipCount <= header.mipCount);
+		if (header.streamDBMipCount < header.mipCount) {
+			uint32_t left = mipinfos[header.streamDBMipCount].cumulativeSizeStreamDB;
+			uint32_t right = 32 * header.mipCount + 64;
+
+			// Only one image in the entire game passes the right-side check
+			check(left == right || left == right - 1);
+		}
+
+		if (header.textureType == TT_2D && header.textureMaterialKind != TMK_NONE) {
+			for (uint32_t i = 0; i < header.streamDBMipCount; i++) {
+				check(mipinfos[i].mipPixelWidth > 32 || mipinfos[i].mipPixelHeight > 32);
+			}
+			for (uint32_t i = header.streamDBMipCount; i < header.mipCount; i++) {
+				check(mipinfos[i].mipPixelWidth <= 32 && mipinfos[i].mipPixelHeight <= 32);
+			}
+		}
+
+		// Not IFF as mipCount can be 1 when noMips is false
+		if (header.noMips) {
+			check(header.mipCount == 1);
+		}
 	}
-	if(!reader.ReachedEOF()) return false;
-	#endif
 
 	return true;
-}
-
-bool idImage::audit() const
-{
-	assert(header.version >= 23 && header.version <= 26);
-
-	// Largest texture sizes are 2^13 == 4096 hence 13 mips
-
-	if (header.textureType == TT_CUBIC) {
-		assert(header.mipCount / 6 < 14);
-	}
-	else {
-		assert(header.mipCount < 14);
-	}
-	
-	//assert(header.albedoSpecularBias == 1);
-	//assert(header.albedoSpecularScale == 0);
-	assert(header.unkFloat1 == 0.0);
-	assert(header.padding1 == 0);
-	assert(header.always8 == 8);
-	assert(header.padding2 == 0);
-	assert(header.padding3 == 0);
-
-	if (header.streamDBMipCount < header.mipCount) {
-		uint32_t left = mipinfos[header.streamDBMipCount].cumulativeSizeStreamDB;
-		uint32_t right = 32 * header.mipCount + 64;
-
-		// Only one image in the entire game passes the right-side check
-		assert(left == right || left == right - 1);
-	}
-	assert(header.streamDBMipCount <= header.mipCount);
-
-	#if 1
-	if (header.textureType == TT_2D && header.textureMaterialKind != TMK_NONE) {
-		for (uint32_t i = 0; i < header.streamDBMipCount; i++) {
-			assert(mipinfos[i].mipPixelWidth > 32 || mipinfos[i].mipPixelHeight > 32);
-		}
-		for (uint32_t i = header.streamDBMipCount; i < header.mipCount; i++) {
-			assert(mipinfos[i].mipPixelWidth <= 32 && mipinfos[i].mipPixelHeight <= 32);
-		}
-	}
-	#endif
-
-	// Not IFF as mipCount can be 1 when noMips is false
-	if (header.noMips) {
-		assert(header.mipCount == 1);
-	}
-
-	return 1;
 }
 
 #define addprop(PROP) {addto.append("\t" #PROP " = "); addto.append(std::to_string(PROP)); addto.push_back('\n');}

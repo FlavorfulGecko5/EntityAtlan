@@ -53,7 +53,7 @@ void PackageMapSpec::ToString(const fspath gamedir) {
 
 // TODO: Will need to revisit this upon adding more advanced features
 // and allow for packagemapspec manipulation
-void PackageMapSpec::InjectCommonArchive(const fspath gamedir, const fspath newarchivepath)
+void PackageMapSpec::InjectCommonArchive(const fspath gamedir, const fspath newarchivepath, bool includeStreamDB)
 {
 	const fspath pmspath = gamedir / "base/packagemapspec.json";
 	EntityParser entparser(pmspath.string(), ParsingMode::JSON);
@@ -76,6 +76,10 @@ void PackageMapSpec::InjectCommonArchive(const fspath gamedir, const fspath newa
 	// We must insert it at the beginning since this list dictates patch priority
 	{
 		EntNode& filelist = jsonroot["\"files\""];
+		if (includeStreamDB) {
+			snprintf(buffer, 512, R"({ "name": "%s" })", "modarchives/common_mod.streamdb");
+			entparser.EditTree(buffer, &filelist, 0, 0, 0, 0);
+		}
 		snprintf(buffer, 512, R"({ "name": "%s" })", archrelativepath.c_str());
 		entparser.EditTree(buffer, &filelist, 0, 0, 0, 0);
 	}
@@ -91,7 +95,7 @@ void PackageMapSpec::InjectCommonArchive(const fspath gamedir, const fspath newa
 
 			assert(&file != EntNode::SEARCH_404);
 			assert(file.ValueInt(index, -999999, 999999));
-			index++;
+			index += includeStreamDB ? 2 : 1;
 
 			std::string newText = "\"file\"";
 			newText.append(std::to_string(index));
@@ -99,6 +103,9 @@ void PackageMapSpec::InjectCommonArchive(const fspath gamedir, const fspath newa
 		}
 
 		// Finally, we insert the new archive into common's mapFileRef
+		if (includeStreamDB) {
+			entparser.EditTree(R"({ "file": 1, "map": 0 })", &mapfilerefs, 0, 0, 0, 0);
+		}
 		entparser.EditTree(R"({ "file": 0, "map": 0 })", &mapfilerefs, 0, 0, 0, 0);
 	}
 

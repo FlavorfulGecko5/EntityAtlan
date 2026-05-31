@@ -11,7 +11,7 @@ namespace PackageMapSpec
 	void ToString(const fspath gamedir);
 
 	/* Injects an archive into the Common map */
-	void InjectCommonArchive(const fspath gamedir, const fspath newarchivepath);
+	void InjectCommonArchive(const fspath gamedir, const fspath newarchivepath, bool includeStreamDB);
 
 	/*
 	* Returns a list of archives paths (taken verbatim from the packagemapspec)
