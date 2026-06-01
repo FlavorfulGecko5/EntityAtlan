@@ -628,9 +628,9 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 	fspath pmspath = basedir / "packagemapspec.json";
 	fspath metapath = basedir / "meta.resources";
 
-	std::vector<fspath> loosemodpaths;
+	//std::vector<fspath> loosemodpaths;
 	std::vector<fspath> zipmodpaths;
-	loosemodpaths.reserve(20);
+	//loosemodpaths.reserve(20);
 	zipmodpaths.reserve(20);
 
 	if(argflags & argflag_resetvanilla) {
@@ -653,6 +653,7 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 				zipmodpaths.push_back(dirEntry.path());
 		}
 
+		#if 0
 		// Build list of loose mod files
 		for (const directory_entry& dirEntry : recursive_directory_iterator(modsdir)) {
 			if (dirEntry.is_directory())
@@ -663,6 +664,9 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 		}
 
 		atlog << "\nZipped Mods Found: " << zipmodpaths.size() << " Loose Mods Found: " << loosemodpaths.size() << "\n";
+		#endif
+		
+		atlog << "\nZipped Mods Found: " << zipmodpaths.size() << "\n";
 	}
 	
 
@@ -675,9 +679,7 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 	int totalmods = static_cast<int>(zipmodpaths.size() + 1); // + 1 for the loose mod
 	ModDef* realmods = new ModDef[totalmods];
 
-	realmods[0].loadPriority = -999;
-	realmods[0].IsUnzipped = true;
-	ModReader::ReadLooseMod(realmods[0], modsdir, loosemodpaths, argflags);
+	ModReader::ReadLooseModv2(realmods[0], modsdir, argflags);
 	for (int i = 1; i < totalmods; i++) {
 		ModReader::ReadZipMod(realmods[i], zipmodpaths[i - 1], argflags);
 	}

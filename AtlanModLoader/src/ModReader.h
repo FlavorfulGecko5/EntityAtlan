@@ -54,8 +54,7 @@ inline void ModDef_Free(ModDef& mod) {
 }
 
 namespace ModReader {
-	
-	void ReadLooseMod(ModDef& readto, const fspath& modsfolder, const std::vector<fspath>& pathlist, int argflags);
+	void ReadLooseModv2(ModDef& readto, const fspath modsfolder, int argflags);
 	void ReadZipMod(ModDef& readto, const fspath& zipPath, int argflags);
 }
 
