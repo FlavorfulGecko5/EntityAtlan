@@ -3,6 +3,12 @@
 #include <string>
 #include <unordered_map>
 
+#define DEBUG_COLLECT_EXTENSIONPROPS 0
+#if DEBUG_COLLECT_EXTENSIONPROPS
+#include <set>
+extern std::set<std::string> ALL_MATERIAL_PROPS;
+#endif
+
 typedef unsigned char u8;
 typedef unsigned short u16;
 typedef unsigned int u32;
@@ -153,6 +159,10 @@ struct ImageHeader {
         HEADER_LENGTH = version > 23 ? 64 : 63;
         return HEADER_LENGTH;
     }
+
+    void DefaultInitialize();
+
+    static bool FromAssetPath(const std::string& AssetPath, ImageHeader& header);
 };
 
 struct ImageMipInfo {
@@ -212,26 +222,33 @@ struct idImageEncodingContext {
     bool Release();
 };
 
+/*
+* File Format (Is different from the below structure):
+* char magic[4] "ATIM"
+* uint8_t version
+* uint8_t bimversion
+* uint8_t singlestream
+* uint8_t streamdbmips
+* uint64_t prefetch_farmhash
+* uint64_t header_size; // To jump to the mipinfos
+* uint32_t entry_length;
+* 
+* char* entry_data
+* char* mip_data[streamdbmips]
+*/
+
 
 // Packaged image mod file
 struct idAtlanImage {
-    char magic[4];              // ATIM
-    int version;                // Atlan Image file version (NOT resources version)
-    uint64_t prefetch_farmhash; // Unused currently
-    uint64_t singlestream;      // Unused currently
-    uint64_t streamdbmips;
-    const uint64_t* mip_sizes = nullptr; // Length == streamdbmips
-    uint32_t entry_length;
-    const char* entry_data;
 
-    const char* mipblock = nullptr;
-    size_t mipblocklength = 0;
-    // 
-    // For Each streamDbMip:
-    // uint32_t mipLevel
-    // uint32_t mipSlice
-    // uint32_t mip_length
-    // uint8_t* mip_data[mip_length]
+    uint8_t version;      // Atlan Image file version (NOT resources version)
+    uint8_t bimversion;   // id Image Header version
+    uint8_t singlestream; // Unused
+    uint8_t streamdbmips; 
+    uint32_t entry_length;
+    uint64_t prefetch_farmhash; // Unused
+    const ImageMipInfo* mipinfos = nullptr;
+    const char* binaryblob = nullptr;
 
     // Ensure the given data stream is a valid idAtlanImage
     static bool Validate(const uint8_t* data, size_t length);

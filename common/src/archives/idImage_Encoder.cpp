@@ -9,6 +9,13 @@
 #include "entityslayer/Oodle.h"
 #include "io/BinaryWriter.h"
 
+#ifdef _DEBUG
+#include <cassert>
+#define check(OP) assert(OP)
+#else
+#define check(OP) if(!(OP)) {return false;}
+#endif
+
 bool idImageEncodingContext::InitializeContext(const std::string& gamedir) {
 
 	/*
@@ -84,6 +91,8 @@ bool idImageEncodingContext::Release() {
 	m_headermap.rehash(0);
 
 	m_initialized = false;
+
+	CoUninitialize();
 	return true;
 }
 
@@ -123,6 +132,11 @@ DXGI_FORMAT idFormat_To_DXGI(const textureFormat_t idFormat) {
 		default:
 		return DXGI_FORMAT_UNKNOWN;
 	}
+}
+
+bool BuildOriginalImageHeader(const std::string& AssetPath, ImageHeader& header)
+{
+	return true;
 }
 
 bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const wchar_t* FilePath, idImageEncodingResults& FINAL_IMAGE)
@@ -265,13 +279,12 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const wch
 
 	// Write the Atlan Image header
 	writer.WriteBytes("ATIM", 4);
-	writer << decltype(idAtlanImage::version)(1) 
-		<< decltype(idAtlanImage::prefetch_farmhash)(0) 
+	writer << decltype(idAtlanImage::version)(2) 
+		<< decltype(idAtlanImage::bimversion)(header.version)
 		<< decltype(idAtlanImage::singlestream)(0)
-		<< decltype(idAtlanImage::streamdbmips)(header.streamDBMipCount);
-
-	const size_t POSITION_MIPSIZES = writer.GetPosition();
-	writer.AddBytes(header.streamDBMipCount * sizeof(uint64_t));
+		<< decltype(idAtlanImage::streamdbmips)(header.streamDBMipCount)
+		<< decltype(idAtlanImage::prefetch_farmhash)(0)
+		<< (uint64_t)(header.CalcHeaderSize());
 	
 	// Write the resources entry
 	writer.pushSizeStack();
@@ -309,9 +322,6 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const wch
 		ImageMipInfo& m = mipdata[i];
 		const DirectX::Image* mipimage = image.GetImage(i, 0, 0);
 
-		writer << m.mipLevel << m.mipSlice;
-		writer.pushSizeStack();
-
 		// Some jank to avoid needing to copy the compressed data into the writer
 		// from a separate buffer
 		writer.EnsureAvailable(m.decompressedSize);
@@ -328,9 +338,6 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const wch
 		m.cumulativeSizeStreamDB = cumulativeSum;
 		cumulativeSum += m.compressedSize;
 		writer.AddBytes(m.compressedSize);
-		writer.popSizeStack();
-
-		((uint64_t*)(writer.GetEditableBuffer() + POSITION_MIPSIZES))[i] = out_compressedSize;
 	}
 
 	FINAL_IMAGE.file_length = writer.GetFilledSize();
@@ -355,59 +362,48 @@ bool idAtlanImage::Validate(const uint8_t* data, size_t length) {
 		return false;
 
 	idImage auditImage;
-	return auditImage.Read(testatlan.entry_data, testatlan.entry_length, true);
+	return auditImage.Read(testatlan.binaryblob, testatlan.entry_length, true);
 };
 
 bool idAtlanImage::Read(const uint8_t* data, size_t length) {
 	BinaryReader reader((const char*)data, length);
 
-	const char* temp_bytes = nullptr;
-	if(reader.ReadBytes(temp_bytes, 4) == false)
-		return false;
+	const char* magic_bytes = nullptr;
+	check(reader.ReadBytes(magic_bytes, 4));
+	check(memcmp(magic_bytes, "ATIM", 4) == 0);
 
-	if(memcmp(temp_bytes, "ATIM", 4) != 0)
-		return false;
+	check(reader.ReadLE(version));
+	check(version == 2);
 
-	if(!reader.ReadLE(version))
-		return false;
-	if(version != 1)
-		return false;
+	check(reader.ReadLE(bimversion));
+	check(bimversion >= 23 && bimversion <= 26);
 
-	reader.ReadLE(prefetch_farmhash);
-	reader.ReadLE(singlestream);
-	if(!reader.ReadLE(streamdbmips))
-		return false;
+	check(reader.ReadLE(singlestream));
+	check(reader.ReadLE(streamdbmips));
+	check(reader.ReadLE(prefetch_farmhash));
+	check(singlestream == 0 && prefetch_farmhash == 0);
 
-	if(!reader.ReadBytes( temp_bytes, streamdbmips * sizeof(uint64_t)))
-		return false;
-	mip_sizes = (uint64_t*)temp_bytes;
-
-	if(!reader.ReadLE(entry_length))
-		return false;
-
-	if(!reader.ReadBytes(entry_data, entry_length))
-		return false;
+	uint64_t header_size;
+	check(reader.ReadLE(header_size));
+	check(reader.ReadLE(entry_length));
 	
-	mipblocklength = reader.GetRemaining();
-	mipblock = reader.GetNext();
+	size_t blobsize = reader.GetRemaining();
+	reader.ReadBytes(binaryblob, blobsize);
 
-	reader = BinaryReader(mipblock, mipblocklength);
+	check(entry_length >= header_size + sizeof(ImageMipInfo) * streamdbmips);
+	mipinfos = (ImageMipInfo*)(binaryblob + header_size);
 
-	for (uint64_t i = 0; i < streamdbmips; i++) {
-		uint32_t mipLevel = 0, mipSlice = 0;
-		uint32_t mipLength = 0;
-
-		reader.ReadLE(mipLevel);
-		reader.ReadLE(mipSlice);
-		if (!reader.ReadLE(mipLength))
-			return false;
-		if (mip_sizes[i] != mipLength)
-			return false;
-		if (!reader.GoRight(mipLength))
-			return false;
+	uint32_t testsum = entry_length;
+	for (int i = 0; i < streamdbmips; i++) {
+		check(mipinfos[i].mipLevel == i);
+		check(mipinfos[i].mipSlice == 0);
+		
+		testsum += mipinfos[i].compressedSize;
 	}
 
-	return reader.ReachedEOF();
+	check(testsum == blobsize);
+
+	return true;
 }
 
 #include "ResourceStructs.h"

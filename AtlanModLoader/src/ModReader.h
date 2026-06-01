@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <unordered_map>
 #include "archives/ResourceEnums.h"
+#include "archives/idImage.h"
 
 struct ModDef;
 struct ModFile;
@@ -38,6 +39,7 @@ struct ModFile {
 	uint64_t defaulthash;     // For resources types with a streamdb hash 
 	uint32_t resourceVersion; // For mapentities since they span multiple versions
 	bool isAtlanCompressed;   // Is this an Atlan Compressed file?
+	idAtlanImage imagedef; // typeenum == rt_image
 };
 
 inline void ModFile_Free(ModFile& mfile) {

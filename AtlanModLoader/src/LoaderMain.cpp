@@ -105,16 +105,12 @@ void BuildStreamDB(const std::vector<ModFile*>& modfiles, const fspath outpath) 
 			continue;
 		}
 
-		idAtlanImage header;
-		if (!header.Read((uint8_t*)file->dataBuffer, file->dataLength)) {
-			atlog << "Image has not been packaged into an Atlan Image File!\n";
-			continue;
-		}
+		const idAtlanImage& header = file->imagedef;
 
 		for(uint64_t i = 0; i < header.streamdbmips; i++) {
 			idStreamDB::entry_t e;
 			e.id = HashLib::streamdb_miphash(file->defaulthash, header.streamdbmips - i - 1, 0);
-			e.length = header.mip_sizes[i];
+			e.length = header.mipinfos[i].compressedSize;
 			entries.push_back(e);
 		}
 
@@ -140,22 +136,22 @@ void BuildStreamDB(const std::vector<ModFile*>& modfiles, const fspath outpath) 
 
 	size_t  ENTRY_ITER = 0;
 	for (const idAtlanImage& header : imageheaders) {
-		const char* buffer = header.mipblock;
-		const char* buffermax = buffer + header.mipblocklength;
+		const char* buffer = header.binaryblob + header.entry_length;
+		//const char* buffermax = buffer + header.mipblocklength;
 		for (size_t i = 0; i < header.streamdbmips; i++) {
-			buffer += 12; // skip slice data
+			//buffer += 12; // skip slice data
 
 			idStreamDB::entry_t e = entries[ENTRY_ITER++];
 
-			assert(buffer + header.mip_sizes[i] <= buffermax);
-			assert(header.mip_sizes[i] == e.length);
-			assert(header.mip_sizes[i] == *(uint32_t*)(buffer - 4));
+			//assert(buffer + header.mip_sizes[i] <= buffermax);
+			//assert(header.mip_sizes[i] == e.length);
+			//assert(header.mip_sizes[i] == *(uint32_t*)(buffer - 4));
 			outwriter.seekp(e.offset16 * 16);
-			outwriter.write(buffer, header.mip_sizes[i]);
-			buffer += header.mip_sizes[i];
+			outwriter.write(buffer, header.mipinfos[i].compressedSize);
+			buffer += header.mipinfos[i].compressedSize;
 		}
 
-		assert(buffer == buffermax);
+		//assert(buffer == buffermax);
 	}
 
 	std::sort(entries.begin(), entries.end());
@@ -308,13 +304,7 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 			}
 			else {
 				if (f.typeenum == rt_image) {
-					idAtlanImage image;
-					image.Read((uint8_t*)f.dataBuffer, f.dataLength);
-
-					idImage auditimage;
-					assert(auditimage.Read((const char*)image.entry_data, image.entry_length, true));
-
-					e.dataSize = image.entry_length;
+					e.dataSize = f.imagedef.entry_length;
 				}
 				else {
 					e.dataSize = f.dataLength;
@@ -355,7 +345,7 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 			e.variation = 70;
 		}
 		else if (f.typeenum == rt_image) {
-			e.version = f.resourceVersion; // Same as the image header version
+			e.version = f.imagedef.bimversion; // Same as the image header version
 			e.flags = 0;
 			e.variation = 0;
 		}
@@ -406,10 +396,7 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 
 		writer.seekp(e.dataOffset, std::ios_base::beg);
 		if(f.typeenum == rt_image) {
-			idAtlanImage image;
-			image.Read((uint8_t*)f.dataBuffer, f.dataLength);
-
-			writer.write((const char*)image.entry_data, image.entry_length);
+			writer.write(f.imagedef.binaryblob, f.imagedef.entry_length);
 		}
 		else {
 			writer.write(rc(f.dataBuffer) + (f.isAtlanCompressed ? ATCF_SIZE : 0), f.dataLength - (f.isAtlanCompressed ? ATCF_SIZE : 0));
@@ -751,6 +738,15 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 		// Must check whether a file is Atlan Compressed
 		file.isAtlanCompressed = Oodle::IsAtlanCompFile((const char*)file.dataBuffer, file.dataLength);
 
+		if (file.typeenum == rt_image) {
+			if (!file.imagedef.Read((uint8_t*)file.dataBuffer, file.dataLength)) {
+				atlog << "ERROR: Image resource is not a valid Atlan Image File! Please use Atlan Mod Packager"
+					" to package your texture mods!\n"
+					<< "   Mod: " << file.parentMod->modName << " - " << file.realPath << "\n";
+				continue;
+			}
+		}
+
 		// Handle serialized files
 		if (file.typeenum & rtc_serialized) {
 
@@ -779,7 +775,7 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 				// Filter out zipped mod files that aren't serialized
 				else {
 					atlog << "ERROR: Zipped file is not serialized! Please use AtlanModPackager to serialize your mod files before distributing them.\n"
-						<< "   Mod: " << file.parentMod->modName << " - " << file.realPath;
+						<< "   Mod: " << file.parentMod->modName << " - " << file.realPath << "\n";
 					continue;
 				}
 			}
