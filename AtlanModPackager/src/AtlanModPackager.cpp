@@ -16,15 +16,20 @@
 
 typedef std::filesystem::path fspath;
 
-bool GetModFolder(fspath& output);
+bool FileDialog(fspath& output_filepath, const fspath& in_zipname, bool SaveAs);
 
 void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 {
 	using namespace std::filesystem;
 
 	fspath DIR_INPUT = ".";
-	if(GetModFolder(DIR_INPUT) == false) {
+	fspath ZIP_OUTPUT;
+	if(FileDialog(DIR_INPUT, "NOT_USED", false) == false) {
 		atlog << "Folder dialog cancelled, or error encountered\n";
+		return;
+	}
+	if (FileDialog(ZIP_OUTPUT, DIR_INPUT.stem(), true) == false) {
+		atlog << "Save As dialog cancelled or encountered error\n";
 		return;
 	}
 
@@ -219,7 +224,7 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 
 	mz_zip_writer_end(zptr);
 
-	std::ofstream zipoutput("AtlanPackage.zip", std::ios_base::binary);
+	std::ofstream zipoutput(ZIP_OUTPUT, std::ios_base::binary);
 	zipoutput.write((char*)buffer, buffersize);
 	zipoutput.close();
 	delete[] buffer;
@@ -302,29 +307,48 @@ int main(int argc, char* argv[])
 //#include <Windows.h>
 #include <shobjidl.h>
 
-bool GetModFolder(fspath& output_filepath) {
+bool FileDialog(fspath& output_filepath, const fspath& in_zipname, bool SaveAs) {
 	bool returnval = false;
 	HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 	if (SUCCEEDED(hr))
 	{
-		IFileOpenDialog* folderdialog;
+		IFileDialog* folderdialog;
 
 		// Create the FileOpenDialog object.
-		hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_ALL, IID_IFileOpenDialog, (void**)&folderdialog);
+		if (SaveAs) {
+			hr = CoCreateInstance(CLSID_FileSaveDialog, NULL, CLSCTX_ALL, IID_IFileSaveDialog, (void**)&folderdialog);
+		}
+		else {
+			hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_ALL, IID_IFileOpenDialog, (void**)&folderdialog);
+		}
 
 		if (SUCCEEDED(hr))
 		{
-			DWORD options;
-			folderdialog->GetOptions(&options);
-			options |= FOS_PICKFOLDERS | FOS_FILEMUSTEXIST;
-			folderdialog->SetOptions(options);
-			folderdialog->SetTitle(L"Select Mod Folder to Package");
+			if (SaveAs) {
+				COMDLG_FILTERSPEC spec;
+				spec.pszName = L"Zip Files";
+				spec.pszSpec = L"*.zip";
+				folderdialog->SetFileTypes(1, &spec);
 
-			IShellItem *defaultFolder = NULL;
-			hr = SHCreateItemFromParsingName(std::filesystem::absolute(".").c_str(), NULL, IID_PPV_ARGS(&defaultFolder));
-			if (SUCCEEDED(hr)) {
-				folderdialog->SetDefaultFolder(defaultFolder);
-				defaultFolder->Release();
+				std::wstring default_zipname = in_zipname;
+				default_zipname.append(L"_AtlanPackage.zip");
+				folderdialog->SetFileName(default_zipname.c_str());
+
+				folderdialog->SetTitle(L"Save Zip File");
+			}
+			else {
+				DWORD options;
+				folderdialog->GetOptions(&options);
+				options |= FOS_PICKFOLDERS | FOS_FILEMUSTEXIST;
+				folderdialog->SetOptions(options);
+				folderdialog->SetTitle(L"Select Mod Folder to Package");
+
+				IShellItem *defaultFolder = NULL;
+				hr = SHCreateItemFromParsingName(std::filesystem::absolute(".").c_str(), NULL, IID_PPV_ARGS(&defaultFolder));
+				if (SUCCEEDED(hr)) {
+					folderdialog->SetDefaultFolder(defaultFolder);
+					defaultFolder->Release();
+				}
 			}
 
 			hr = folderdialog->Show(NULL);
