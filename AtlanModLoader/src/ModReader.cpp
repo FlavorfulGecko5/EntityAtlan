@@ -41,7 +41,7 @@ bool ModReader_HasRequiredVersion(ModDef& moddef, const AtlanModConfig& cfg) {
 	return true;
 }
 
-bool ModReader_ValidatePath(ModFile& modfile, const AtlanModConfig& cfg) {
+bool ModReader_ValidatePath(ModFile& modfile, const AtlanModConfig& cfg, std::string* EncodingInfo = nullptr) {
 	std::string TypeString, NameString;
 	cfg.GetNormalizedName(modfile.realPath, TypeString, NameString);
 
@@ -83,9 +83,12 @@ bool ModReader_ValidatePath(ModFile& modfile, const AtlanModConfig& cfg) {
 		char c = *nameEnd;
 
 		// Delimiter for explicit image encoding information
-		// TODO: Will need to store this in a variable if we
-		// allow encoding unzipped pngs
+		// For unzipped mods, we want to relay the encoding information back to the calling function
 		if ('~' == c) {
+			if (EncodingInfo) {
+				*EncodingInfo = NameString.substr(nameEnd - nameStart + 1);
+			}
+
 			break;
 		}
 
@@ -137,9 +140,11 @@ bool ModReader_ValidatePath(ModFile& modfile, const AtlanModConfig& cfg) {
 	return true;
 }
 
+#if 0
 bool ModReader_ValidateData(ModFile& modfile, bool AllowUnserialized) {
 	return true;
 }
+#endif
 
 void ModReader_ConfirmModFile(ModDef& moddef, ModFile& modfile, int argflags) {
 	if (argflags & argflag_verbose) {
@@ -156,7 +161,7 @@ void ModReader_ConfirmModFile(ModDef& moddef, ModFile& modfile, int argflags) {
 	moddef.modFiles.push_back(modfile);
 }
 
-void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, int argflags)
+void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fspath& gamedir, int argflags)
 {
 	using namespace std::filesystem;
 
@@ -166,7 +171,11 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, int argf
 
 	ModFilePaths.reserve(20);
 
-	atlog << "Reading Unzipped Mod Files\n---\n";
+	moddef.modName = "[Unzipped] ";
+	moddef.modName.append(modsfolder.stem().string());
+	moddef.IsUnzipped = true;
+
+	atlog << "\n\nReading " << moddef.modName << "\n---\n";
 
 	// TODO: This loop is mostly copied from the mod packager. Could we create a shared function for it?
 	for (const directory_entry& entry : recursive_directory_iterator(modsfolder)) {
@@ -194,8 +203,6 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, int argf
 		ModFilePaths.push_back(entrypath);
 	}
 
-	moddef.modName = "Unzipped Mod Files";
-	moddef.IsUnzipped = true;
 	moddef.loadPriority = -999;
 	if (!ModReader_HasRequiredVersion(moddef, cfg)) {
 		return;
@@ -203,27 +210,56 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, int argf
 
 	atlog << "Found " << ModFilePaths.size() << " Unzipped Mod Files\n";
 
+	idImageEncodingContext EncodingContext;
+	idImageEncodingResults EncodingResults;
+
 	for (const fspath& FilePath : ModFilePaths) {
 		ModFile modfile;
 		modfile.realPath = FilePath.string().substr(modsfolder_length + 1);
-		
-		if (!ModReader_ValidatePath(modfile, cfg)) {
+
+		std::string EncodingInfo;
+		if (!ModReader_ValidatePath(modfile, cfg, &EncodingInfo)) {
 			continue;
 		}
 
-		std::ifstream filereader(FilePath, std::ios_base::binary);
-		if (!filereader.good()) {
-			atlog << "ERROR: Failed to open file " << modfile.realPath << "\n";
-			continue;
+		// For simplicity, assume any unzipped image file is unencoded
+		// (This beats reading the image file, checking if it's an Atlan Image,
+		//    and then having the encoder re-read it when it's inevitably not an Atlan Image.
+		//	  Don't want to bother developing an Encode-From-Memory pipeline
+		//    just for this edge case that shouldn't reasonably happen)
+		if (modfile.typeenum == rt_image) {
+			if (!EncodingContext.m_initialized) {
+				atlog << "Initializing Image Encoder\n";
+				if (!EncodingContext.InitializeContext(gamedir.string())) {
+					return;
+				}
+			}
+
+			atlog << "Encoding " << modfile.realPath << "\n";
+			bool result = EncodingContext.EncodeImage(modfile.assetPath, EncodingInfo, FilePath.c_str(), EncodingResults);
+			if (!result) {
+				continue;
+			}
+
+			// Give modfile it's own copy of the data
+			modfile.dataLength = EncodingResults.file_length;
+			modfile.dataBuffer = new char[modfile.dataLength];
+			memcpy(modfile.dataBuffer, EncodingResults.buffer, modfile.dataLength);
 		}
+		else {
+			std::ifstream filereader(FilePath, std::ios_base::binary);
+			if (!filereader.good()) {
+				atlog << "ERROR: Failed to open file " << modfile.realPath << "\n";
+				continue;
+			}
 
-		filereader.seekg(0, std::ios_base::end);
-		modfile.dataLength = filereader.tellg();
-		modfile.dataBuffer = new char[modfile.dataLength];
-		filereader.seekg(0, std::ios_base::beg);
-		filereader.read((char*)modfile.dataBuffer, modfile.dataLength);
-		filereader.close();
-
+			filereader.seekg(0, std::ios_base::end);
+			modfile.dataLength = filereader.tellg();
+			modfile.dataBuffer = new char[modfile.dataLength];
+			filereader.seekg(0, std::ios_base::beg);
+			filereader.read((char*)modfile.dataBuffer, modfile.dataLength);
+			filereader.close();
+		}
 		ModReader_ConfirmModFile(moddef, modfile, argflags);
 	}
 }

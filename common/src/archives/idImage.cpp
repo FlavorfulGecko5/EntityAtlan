@@ -345,6 +345,8 @@ bool idImageExtensionData::FromAssetPath(const std::string& AssetPath)
 		ALL_MATERIAL_PROPS.insert(setstring);
 		#endif
 	}
+
+	return true;
 }
 
 void idImageExtensionData::InferFormatFromMaterial() {

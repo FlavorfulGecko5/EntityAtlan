@@ -628,10 +628,10 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 	fspath pmspath = basedir / "packagemapspec.json";
 	fspath metapath = basedir / "meta.resources";
 
-	//std::vector<fspath> loosemodpaths;
+	std::vector<fspath> UnzippedModFolders;
 	std::vector<fspath> zipmodpaths;
-	//loosemodpaths.reserve(20);
-	zipmodpaths.reserve(20);
+	UnzippedModFolders.reserve(20);
+	zipmodpaths.reserve(5);
 
 	if(argflags & argflag_resetvanilla) {
 		atlog << "Uninstalled all mods\n";
@@ -646,27 +646,29 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 
 		// Build list of zip mod files
 		for (const directory_entry& dirEntry : directory_iterator(modsdir)) {
-			if(dirEntry.is_directory())
+			if (dirEntry.is_directory()) {
+				
+				// Interpret each folder in the mods folder as it's own unzipped mod
+				// For easy debugging: Ignore folders whose first character is a $
+				if(*dirEntry.path().stem().c_str() != L'$') {
+					UnzippedModFolders.push_back(dirEntry.path());
+				}
 				continue;
+			}
 
 			if(dirEntry.path().extension() == ".zip")
 				zipmodpaths.push_back(dirEntry.path());
 		}
 
-		#if 0
-		// Build list of loose mod files
-		for (const directory_entry& dirEntry : recursive_directory_iterator(modsdir)) {
-			if (dirEntry.is_directory())
-				continue;
-
-			if (dirEntry.path().extension() != ".zip")
-				loosemodpaths.push_back(dirEntry.path());
+		// If there are no folders, treat the mods folder itself
+		// as an unzipped mod folder
+		// TODO: Currently this causes invalid resource type errors to be thrown because stuff inside
+		// dollar folders will be interpreted as mod files. Shouldn't be a big deal
+		if(UnzippedModFolders.size() == 0) {
+			UnzippedModFolders.push_back(modsdir);
 		}
 
-		atlog << "\nZipped Mods Found: " << zipmodpaths.size() << " Loose Mods Found: " << loosemodpaths.size() << "\n";
-		#endif
-		
-		atlog << "\nZipped Mods Found: " << zipmodpaths.size() << "\n";
+		atlog << "\nMod Zips: " << zipmodpaths.size() << " Unzipped Mod Folders: " << UnzippedModFolders.size() << "\n";
 	}
 	
 
@@ -676,13 +678,17 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 
 	atlog << "\n\nReading Mods:\n----------\n";
 
-	int totalmods = static_cast<int>(zipmodpaths.size() + 1); // + 1 for the loose mod
+	int totalmods = static_cast<int>(zipmodpaths.size() + UnzippedModFolders.size());
 	ModDef* realmods = new ModDef[totalmods];
 
-	ModReader::ReadLooseModv2(realmods[0], modsdir, argflags);
-	for (int i = 1; i < totalmods; i++) {
-		ModReader::ReadZipMod(realmods[i], zipmodpaths[i - 1], argflags);
+	int REALMOD_INCREMENTOR = 0;
+	for(const fspath& UnzippedFolder : UnzippedModFolders) {
+		ModReader::ReadLooseModv2(realmods[REALMOD_INCREMENTOR++], UnzippedFolder, gamedir, argflags);
 	}
+	for(const fspath& ZipPath : zipmodpaths) {
+		ModReader::ReadZipMod(realmods[REALMOD_INCREMENTOR++], ZipPath, argflags);
+	}
+	assert(REALMOD_INCREMENTOR == totalmods);
 
 	/*
 	* Build the supermod - the list of mod files we will actually load into the archive
@@ -734,6 +740,7 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 
 	atlog << "\n\nCompiling Mod Files:\n----------\n";
 	supermod.reserve(priorityAssets.size());
+	uint64_t NEXT_STREAMDB_HASH = 1234;
 	for (const auto& pair : priorityAssets) {
 		ModFile& file = *pair.second;
 
@@ -793,10 +800,7 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 		#else
 		if (file.typeenum == rt_image) {
 			streamdbsupermod.push_back(&file);
-
-			static unsigned GLOBAL_START = 1234;
-			file.defaulthash = GLOBAL_START++;
-			file.resourceVersion = 26;
+			file.defaulthash = NEXT_STREAMDB_HASH++;
 		}
 		else {
 			// If an asset requires a streamdb hash, add it to the lookup map

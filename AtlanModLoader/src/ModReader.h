@@ -54,7 +54,7 @@ inline void ModDef_Free(ModDef& mod) {
 }
 
 namespace ModReader {
-	void ReadLooseModv2(ModDef& readto, const fspath modsfolder, int argflags);
+	void ReadLooseModv2(ModDef& readto, const fspath modsfolder, const fspath& gamedir, int argflags);
 	void ReadZipMod(ModDef& readto, const fspath& zipPath, int argflags);
 }
 

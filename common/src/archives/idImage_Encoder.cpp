@@ -79,6 +79,9 @@ bool idImageEncodingContext::InitializeContext(const std::string& gamedir) {
 }
 
 bool idImageEncodingContext::Release() {
+	if(!m_initialized)
+		return false;
+
 	m_context->ClearState();
 	m_context->Flush();
 	m_context->Release();

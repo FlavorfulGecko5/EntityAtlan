@@ -234,6 +234,10 @@ struct idImageEncodingContext {
     bool InitializeContext(const std::string& gamedir);
     bool EncodeImage(const std::string& AssetPath, const std::string& EncodingInfo, const wchar_t* FilePath, idImageEncodingResults& results);
     bool Release();
+
+    ~idImageEncodingContext() {
+        Release();
+    }
 };
 
 /*
