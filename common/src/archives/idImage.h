@@ -119,6 +119,22 @@ enum textureFormat_t {
 std::string textureType_tostring(textureType_t type);
 std::string textureMaterialKind_tostring(textureMaterialKind_t type);
 std::string textureFormat_tostring(textureFormat_t type);
+bool textureMaterialKind_fromstring(const std::string& string, textureMaterialKind_t& output);
+bool textureFormat_fromstring(const std::string& string, textureFormat_t& output);
+
+struct idImageExtensionData {
+    textureMaterialKind_t m_material = TMK_NONE; // If TMK_NONE, no flag found
+    textureFormat_t m_format = FMT_NONE; // If FMT_NONE, no flag found
+
+    u8 m_streamed = 0;
+    u8 m_nomips = 0;
+    u8 m_prefiltermips = 0;
+    u8 m_uncompressed = 0;
+
+    bool FromAssetPath(const std::string& AssetPath);
+
+    void InferFormatFromMaterial();
+};
 
 struct ImageHeader {
     char magic[3];
@@ -161,8 +177,6 @@ struct ImageHeader {
     }
 
     void DefaultInitialize();
-
-    static bool FromAssetPath(const std::string& AssetPath, ImageHeader& header);
 };
 
 struct ImageMipInfo {
@@ -218,7 +232,7 @@ struct idImageEncodingContext {
     idImageHeaderMap_t   m_headermap;
     
     bool InitializeContext(const std::string& gamedir);
-    bool EncodeImage(const std::string& AssetPath, const wchar_t* FilePath, idImageEncodingResults& results);
+    bool EncodeImage(const std::string& AssetPath, const std::string& EncodingInfo, const wchar_t* FilePath, idImageEncodingResults& results);
     bool Release();
 };
 

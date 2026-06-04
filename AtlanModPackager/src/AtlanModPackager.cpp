@@ -153,7 +153,22 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 					return;
 			}
 
-			bool result = ImageEncoder.EncodeImage(AssetName, modfile.c_str(), ImageOutput);
+			// Extract encoding info from end of filename if it exists
+			std::string EncodingInfo;
+			{
+				const char* c = AssetName.data();
+				while (*c) {
+					if ('~' == *c) {
+						size_t subindex = c - AssetName.data();
+						EncodingInfo = AssetName.substr(subindex + 1);
+						AssetName.erase(AssetName.begin() + subindex, AssetName.end());
+						break;
+					}
+					c++;
+				}
+			}
+
+			bool result = ImageEncoder.EncodeImage(AssetName, EncodingInfo, modfile.c_str(), ImageOutput);
 			if (!result) {
 				continue;
 			}

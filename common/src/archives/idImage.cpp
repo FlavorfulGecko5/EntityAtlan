@@ -196,7 +196,204 @@ void ImageHeader::tostring(std::string& addto) const
 	addprop(streamDBMipCount);
 }
 
+void ImageHeader::DefaultInitialize() {
+	magic[0] = 'B'; magic[1] = 'I'; magic[2] = 'M';
+	version = 26;
+	textureType = TT_2D;
+	textureMaterialKind = TMK_NONE;
+	pixelWidth = 0; pixelHeight = 0;
+	depth = 0;
+	mipCount = 0;
+	unkFloat1 = 0;
+	albedoSpecularBias = 0;
+	albedoSpecularScale = 1;
+	padding1 = 0;
+	textureFormat = FMT_NONE;
+	always8 = 8;
+	padding2 = 0; padding3 = 0;
+	streamed = 1;
+	singleStream = 0;
+	noMips = 0;
+	fftBloom = 0;
+	prefiltermips = 0;
+	streamDBMipCount = 0;
+	CalcHeaderSize();
+}
+
+#if DEBUG_COLLECT_EXTENSIONPROPS
+std::set<std::string> ALL_MATERIAL_PROPS;
+#endif
+
+// Attempts to parse
+bool idImageExtensionData::FromAssetPath(const std::string& AssetPath)
+{
+	const std::unordered_map<std::string, textureMaterialKind_t> StringTMKmap = {
+		{"albedo"          , TMK_ALBEDO },
+		{"ao"			   , TMK_AO },
+		{"blendmask"	   , TMK_BLENDMASK },
+		{"bloommask"	   , TMK_BLOOMMASK },
+		{"colormask"	   , TMK_COLORMASK },
+		{"cover"		   , TMK_COVER },
+		{"decalalbedo"	   , TMK_DECALALBEDO },
+		{"decalheight"	   , TMK_DECALHEIGHTMAP }, // An enum value exists, but "None" is used in the entries instead
+		{"decalnormal"	   , TMK_DECALNORMAL },
+		{"decalspecular"   , TMK_DECALSPECULAR },
+		{"font"			   , TMK_FONT },
+		{"heightmap"	   , TMK_HEIGHTMAP },
+		{"lightproject"	   , TMK_LIGHTPROJECT },
+		{"normal"		   , TMK_NORMAL },
+		{"painteddatagrid" , TMK_PAINTEDDATAGRID },
+		{"particle"		   , TMK_PARTICLE },
+		{"smoothness"	   , TMK_SMOOTHNESS },
+		{"specular"		   , TMK_SPECULAR },
+		{"sssmask"		   , TMK_SSSMASK },
+		{"ui"			   , TMK_UI },
+	};
+
+	const std::unordered_map<std::string, textureFormat_t> StringFMTmap = {
+		{"alpha", FMT_ALPHA },
+		{"bc1", FMT_BC1},
+		{"bc1srgb", FMT_BC1_SRGB},
+		{"bc1za", FMT_BC1_ZERO_ALPHA},
+		{"bc3", FMT_BC3},
+		{"bc3srgb", FMT_BC3_SRGB},
+		{"bc4",FMT_BC4},
+		{"bc5", FMT_BC5},
+		{"bc6huf16", FMT_BC6H_UF16},
+		{"bc7", FMT_BC7},
+		{"bc7srgb", FMT_BC7_SRGB},
+		{"r8", FMT_R8},
+		{"rg16f", FMT_RG16F},
+		{"rg8", FMT_RG8},
+		{"rgba8", FMT_RGBA8}
+	};
+
+	const char* iter = AssetPath.data();
+	const char* itermax = AssetPath.data() + AssetPath.length();
+
+	while (*iter) {
+		char c = *iter++;
+
+		if(c != '$')
+			continue;
+
+		bool hasValue = false;
+		std::string propkey;
+		std::string propvalue;
+		while (*iter) {
+			c = *iter;
+
+			if(c == '$')
+				break;
+
+			iter++;
+			if (c != '=') {
+				propkey.push_back(c);
+				continue;
+			}
+
+			hasValue = true;
+			break;
+		}
+
+		if (hasValue) {
+			while (*iter) {
+				c = *iter;
+				if(c == '$')
+					break;
+
+				iter++;
+				propvalue.push_back(c);
+			}
+		}
+
+		//printf("['%s' = '%s']", propkey.c_str(), propvalue.c_str());
+
+		if (hasValue) {
+			if(propkey != "mtlkind")
+				continue;
+
+			const auto& mtliter = StringTMKmap.find(propvalue);
+			check(mtliter != StringTMKmap.end());
+
+			m_material = mtliter->second;
+		}
+		else {
+			if (propkey == "streamed") {
+				m_streamed = 1;
+			}
+			else if (propkey == "nomips") {
+				m_nomips = 1;
+			}
+			else if (propkey == "prefiltermips") {
+				m_prefiltermips = 1;
+			}
+			else if (propkey == "uncompressed") {
+				m_uncompressed = 1;
+			}
+			else {
+				const auto& FMTIter = StringFMTmap.find(propkey);
+				check(FMTIter != StringFMTmap.end());
+				m_format = FMTIter->second;
+			}
+		}
+
+		#if DEBUG_COLLECT_EXTENSIONPROPS
+		std::string setstring = propkey;
+		setstring.push_back('=');
+		setstring.append(propvalue);
+		ALL_MATERIAL_PROPS.insert(setstring);
+		#endif
+	}
+}
+
+void idImageExtensionData::InferFormatFromMaterial() {
+	//const std::unordered_map<textureMaterialKind_t, textureFormat_t> TmkFmtMap = {
+	//	{TMK_SSSMASK     , FMT_BC7},
+	//	{TMK_BLENDMASK   , FMT_BC7},
+	//};
+
+	if(m_format != FMT_NONE)
+		return;
+
+	// https://github.com/jandk/valen/blob/142d78b25be280c71032036aba2d5134873fdfdd/valen-game-idtech/src/main/java/be/twofold/valen/game/idtech/material/AbstractMaterialReader.java#L398
+	switch (m_material) {
+		case TMK_ALBEDO: 
+		case TMK_SPECULAR:
+		case TMK_BLOOMMASK:
+		m_format = FMT_BC1_SRGB;
+		return;
+
+		case TMK_SMOOTHNESS: 
+		case TMK_COVER: 
+		case TMK_AO:
+		m_format = FMT_BC4;
+		return;
+
+		case TMK_NORMAL:
+		m_format = FMT_BC5;
+		return;
+
+		case TMK_COLORMASK:
+		m_format = FMT_BC1;
+		return;
+
+		// Ambiguous: Can be multiple encodings depending on material template
+		case TMK_BLENDMASK:
+		case TMK_SSSMASK:
+		case TMK_PAINTEDDATAGRID:
+		return;
+
+		// Every other image type *should* have it's encoding specified
+		// in the extension (although it can still be wrong in some cases)
+		default:
+		return;
+	}
+}
+
 #define CASE(PARM) case PARM: return #PARM;
+
+#define ENTRY(PARM) { #PARM, PARM },
 
 std::string textureType_tostring(textureType_t type)
 {
@@ -238,6 +435,43 @@ std::string textureMaterialKind_tostring(textureMaterialKind_t type)
 		CASE(TMK_COUNT			  )
 		default: return "ERROR_UNKNOWN";
 	}
+}
+
+bool textureMaterialKind_fromstring(const std::string& string, textureMaterialKind_t& output)
+{
+	const std::unordered_map<std::string, textureMaterialKind_t> stringmap = {
+		ENTRY(TMK_NONE)
+		ENTRY(TMK_ALBEDO)
+		ENTRY(TMK_SPECULAR)
+		ENTRY(TMK_NORMAL)
+		ENTRY(TMK_SMOOTHNESS)
+		ENTRY(TMK_COVER)
+		ENTRY(TMK_SSSMASK)
+		ENTRY(TMK_COLORMASK)
+		ENTRY(TMK_BLOOMMASK)
+		ENTRY(TMK_HEIGHTMAP)
+		ENTRY(TMK_DECALALBEDO)
+		ENTRY(TMK_DECALNORMAL)
+		ENTRY(TMK_DECALSPECULAR)
+		ENTRY(TMK_LIGHTPROJECT)
+		ENTRY(TMK_PARTICLE)
+		ENTRY(TMK_DECALHEIGHTMAP)
+		ENTRY(TMK_AO)
+		ENTRY(TMK_UNUSED_3)
+		ENTRY(TMK_UI)
+		ENTRY(TMK_FONT)
+		ENTRY(TMK_LEGACY_FLASH_UI)
+		ENTRY(TMK_UNUSED_4)
+		ENTRY(TMK_BLENDMASK)
+		ENTRY(TMK_PAINTEDDATAGRID)
+		ENTRY(TMK_COUNT)
+	};
+
+	const auto& iter = stringmap.find(string);
+	if(iter == stringmap.end())
+		return false;
+	output = iter->second;
+	return true;
 }
 
 std::string textureFormat_tostring(textureFormat_t type)
@@ -314,3 +548,78 @@ std::string textureFormat_tostring(textureFormat_t type)
 	return "";
 }
 
+bool textureFormat_fromstring(const std::string& string, textureFormat_t& output)
+{
+	const std::unordered_map<std::string, textureFormat_t> stringmap = {
+		ENTRY(FMT_NONE)
+		ENTRY(FMT_RGBA32F)
+		ENTRY(FMT_RGBA16F)
+		ENTRY(FMT_RGBA8)
+		ENTRY(FMT_RGBA8_SRGB)
+		ENTRY(FMT_ARGB8)
+		ENTRY(FMT_ALPHA)
+		ENTRY(FMT_L8A8_DEPRECATED)
+		ENTRY(FMT_RG8)
+		ENTRY(FMT_LUM8_DEPRECATED)
+		ENTRY(FMT_INT8_DEPRECATED)
+		ENTRY(FMT_BC1)
+		ENTRY(FMT_BC1_SRGB)
+		ENTRY(FMT_BC1_ZERO_ALPHA)
+		ENTRY(FMT_BC3)
+		ENTRY(FMT_BC3_SRGB)
+		ENTRY(FMT_BC4)
+		ENTRY(FMT_BC5)
+		ENTRY(FMT_BC6H_UF16)
+		ENTRY(FMT_BC6H_SF16)
+		ENTRY(FMT_BC7)
+		ENTRY(FMT_BC7_SRGB)
+		ENTRY(FMT_DEPTH)
+		ENTRY(FMT_DEPTH_STENCIL)
+		ENTRY(FMT_DEPTH16)
+		ENTRY(FMT_X32F)
+		ENTRY(FMT_Y16F_X16F)
+		ENTRY(FMT_X16)
+		ENTRY(FMT_Y16_X16)
+		ENTRY(FMT_RGB565)
+		ENTRY(FMT_R8)
+		ENTRY(FMT_R11FG11FB10F)
+		ENTRY(FMT_R9G9B9E5)
+		ENTRY(FMT_X16F)
+		ENTRY(FMT_SMALLF)
+		ENTRY(FMT_MAINVIEW_SMALLF)
+		ENTRY(FMT_RG16F)
+		ENTRY(FMT_R10G10B10A2)
+		ENTRY(FMT_RG32F)
+		ENTRY(FMT_R32_UINT)
+		ENTRY(FMT_RG32_UINT)
+		ENTRY(FMT_R16_UINT)
+		ENTRY(FMT_R8_UINT)
+		ENTRY(FMT_ASTC_4X4)
+		ENTRY(FMT_ASTC_4X4_SRGB)
+		ENTRY(FMT_ASTC_5X4)
+		ENTRY(FMT_ASTC_5X4_SRGB)
+		ENTRY(FMT_ASTC_5X5)
+		ENTRY(FMT_ASTC_5X5_SRGB)
+		ENTRY(FMT_ASTC_6X5)
+		ENTRY(FMT_ASTC_6X5_SRGB)
+		ENTRY(FMT_ASTC_6X6)
+		ENTRY(FMT_ASTC_6X6_SRGB)
+		ENTRY(FMT_ASTC_8X5)
+		ENTRY(FMT_ASTC_8X5_SRGB)
+		ENTRY(FMT_ASTC_8X6)
+		ENTRY(FMT_ASTC_8X6_SRGB)
+		ENTRY(FMT_ASTC_8X8)
+		ENTRY(FMT_ASTC_8X8_SRGB)
+		ENTRY(FMT_DEPTH32F)
+		ENTRY(FMT_RGBA16_UINT)
+		ENTRY(FMT_RG16_UINT)
+		ENTRY(FMT_RGBA16)
+		ENTRY(FMT_NEXTAVAILABLE)
+	};
+
+	const auto& iter = stringmap.find(string);
+	if (iter == stringmap.end())
+		return false;
+	output = iter->second;
+	return true;
+}

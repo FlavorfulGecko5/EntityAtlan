@@ -81,6 +81,14 @@ bool ModReader_ValidatePath(ModFile& modfile, const AtlanModConfig& cfg) {
 	while (*nameEnd) {
 
 		char c = *nameEnd;
+
+		// Delimiter for explicit image encoding information
+		// TODO: Will need to store this in a variable if we
+		// allow encoding unzipped pngs
+		if ('~' == c) {
+			break;
+		}
+
 		if ('.' == c && modfile.typeenum & rtc_no_extension) {
 			break;
 		}

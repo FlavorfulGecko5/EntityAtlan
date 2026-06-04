@@ -783,7 +783,7 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 			}
 		}
 
-		#if 1
+		#if 0
 		if (file.typeenum & rtc_streamdb_hash) {
 			find_defaulthashes[pair.first] = &file;
 		}

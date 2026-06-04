@@ -134,12 +134,60 @@ DXGI_FORMAT idFormat_To_DXGI(const textureFormat_t idFormat) {
 	}
 }
 
-bool BuildOriginalImageHeader(const std::string& AssetPath, ImageHeader& header)
+bool BuildOriginalImageHeader(const std::string& AssetPath, const std::string& EncodingInfo, ImageHeader& header)
 {
-	return true;
+	header.DefaultInitialize();
+
+	if (EncodingInfo.length()) {
+
+		const char* c = EncodingInfo.data();
+
+		atlog << "   Approach: Explicit Encoding " << EncodingInfo << "\n";
+
+		// Format is "FORMAT_ENUM~MATERIAL_ENUM"
+		std::string inputstring;
+		while (*c) {
+			if ('~' == *c) {
+				size_t delimindex = c - EncodingInfo.data();
+				inputstring = EncodingInfo.substr(0, delimindex);
+
+				if (!textureFormat_fromstring(inputstring, header.textureFormat)) {
+					return false;
+				}
+
+				inputstring = EncodingInfo.substr(delimindex + 1);
+				return textureMaterialKind_fromstring(inputstring, header.textureMaterialKind);
+			}
+			c++;
+		}
+		return false;
+	}
+	else {
+		atlog << "   Approach: Extension Inference\n";
+		idImageExtensionData ext;
+		ext.FromAssetPath(AssetPath);
+
+		if (ext.m_material == TMK_NONE)
+			return false;
+
+		if (ext.m_format == FMT_NONE) {
+			ext.InferFormatFromMaterial();
+
+			if (ext.m_format == FMT_NONE)
+				return false;
+		}
+
+		header.textureMaterialKind = ext.m_material;
+		header.textureFormat = ext.m_format;
+		header.noMips = ext.m_nomips;
+		header.prefiltermips = ext.m_prefiltermips;
+		header.streamed = ext.m_streamed;
+
+		return true;
+	}
 }
 
-bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const wchar_t* FilePath, idImageEncodingResults& FINAL_IMAGE)
+bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const std::string& EncodingInfo, const wchar_t* FilePath, idImageEncodingResults& FINAL_IMAGE)
 {
 	/*
 	* Step 1: Locate the vanilla ImageHeader for this file
@@ -150,10 +198,19 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const wch
 	{
 		const auto& pair = m_headermap.find(AssetPath);
 		if (pair == m_headermap.end()) {
-			atlog << "ERROR: Could not find name in ImageHeaderMap (" << AssetPath << ")\n";
-			return false;
+			
+			if (BuildOriginalImageHeader(AssetPath, EncodingInfo, header)) {
+				atlog << "   New Image Recognized ( " << textureFormat_tostring(header.textureFormat)
+					<< ", " << textureMaterialKind_tostring(header.textureMaterialKind) << " )\n";
+			}
+			else {
+				atlog << "   ERROR: Not enough data to build ImageHeader (" << AssetPath << ")\n";
+				return false;
+			}
 		}
-		header = pair->second;
+		else {
+			header = pair->second;
+		}
 	}
 
 	/*
@@ -262,6 +319,7 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const wch
 	}
 
 	header.streamed = (header.streamDBMipCount > 0);
+	header.singleStream = 0;
 
 	/*
 	* STEP 5: Write the file 
