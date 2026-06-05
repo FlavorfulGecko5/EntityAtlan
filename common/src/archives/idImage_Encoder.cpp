@@ -16,23 +16,28 @@
 #define check(OP) if(!(OP)) {return false;}
 #endif
 
-bool idImageEncodingContext::InitializeContext(const std::string& gamedir) {
+bool idImageEncodingContext::COMThreadInit() {
+	HRESULT result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
-	/*
-	* Step 1: Global Initialization
-	*/
-	static bool Global_Init = false;
-	if (Global_Init == false) {
-		HRESULT result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-
-		if (FAILED(result)) {
-			atlog << "FATAL ERROR: Failed to initialize COM for image encoder (Code: " << result << ")\n";
-			return false;
-		}
-		
-		Global_Init = true;
+	if (FAILED(result)) {
+		atlog << "FATAL ERROR: Failed to initialize COM for image encoder (Code: " << result << ")\n";
+		return false;
 	}
+	return true;
+}
 
+// Uninitializing during destruction of the image encoder appears to free up persistent resources
+// used by DirectXTex, causing a crash when attempting to use 
+// another image encoder after one is already released
+// Hence, we really should ensure that COM is being initialized/uninitialized once per thread
+void idImageEncodingContext::COMThreadRelease() {
+	CoUninitialize();
+}
+
+bool idImageEncodingContext::InitializeContext(const std::string& gamedir, int in_CompressionLevel) {
+
+	m_CompressionLevel = in_CompressionLevel;
+		
 	/*
 	* Step 2: Intialize device
 	*/
@@ -95,7 +100,6 @@ bool idImageEncodingContext::Release() {
 
 	m_initialized = false;
 
-	CoUninitialize();
 	return true;
 }
 
@@ -387,15 +391,13 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const std
 		// from a separate buffer
 		writer.EnsureAvailable(m.decompressedSize);
 		char* writeTo = writer.GetEditableNext();
-		size_t out_compressedSize = 0;
-
-		bool OodleResult = Oodle::CompressBuffer((char*)mipimage->pixels, m.decompressedSize, writeTo, out_compressedSize);
-
-		if (!OodleResult) {
+		
+		int OodleResult = Oodle::CompressBuffer((char*)mipimage->pixels, m.decompressedSize, writeTo, m_CompressionLevel);
+		if (OodleResult == 0) {
 			atlog << "ERROR: Failed to Oodle compress mip level " << i << "\n";
 			return false;
 		}
-		m.compressedSize = (u32)out_compressedSize;
+		m.compressedSize = (u32)OodleResult;
 		m.cumulativeSizeStreamDB = cumulativeSum;
 		cumulativeSum += m.compressedSize;
 		writer.AddBytes(m.compressedSize);

@@ -97,3 +97,11 @@ bool Oodle::CompressBuffer(char* inputBuffer, size_t inputSize, char* outputBuff
     outputSize = (size_t)compressedSize;
     return true;
 }
+
+int Oodle::CompressBuffer(char* inputBuffer, size_t inputSize, char* outputBuffer, int compLevel)
+{
+    if (!initializedSuccessfully && !init())
+        return false;
+
+    return OodLZ_Compress(13, (byte*)inputBuffer, inputSize, (byte*)outputBuffer, compLevel, 0, 0, 0, 0, 0);
+}

@@ -3,6 +3,7 @@
 #include <thread>
 #include <vector>
 #include <fstream>
+#include <mutex>
 #include <unordered_map>
 #include "archives/ResourceEnums.h"
 #include "atlan/AtlanLogger.h"
@@ -149,7 +150,7 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 				}
 
 				atlog << "Initializing Image Encoder with directory " << gamedir << "\n";
-				if(!ImageEncoder.InitializeContext(gamedir))
+				if(!ImageEncoder.InitializeContext(gamedir, 6))
 					return;
 			}
 
@@ -295,6 +296,9 @@ int main(int argc, char* argv[])
 	try {
 	#endif
 
+		// The packager also needs COM for the file dialogs
+		if(!idImageEncodingContext::COMThreadInit())
+			return 0;
 		AtlanLogger::init(logpath);
 		atlog << "Atlan Mod Packager 2.0 by FlavorfulGecko5\n";
 		PackagerMain(argc > 1 ? argv[1] : nullptr);
@@ -312,6 +316,7 @@ int main(int argc, char* argv[])
 	atlog << "\n\nThis window will close in 10 seconds\n";
 	atlog << "Output written to " << logpath << "\n";
 	AtlanLogger::exit();
+	idImageEncodingContext::COMThreadRelease();
 	
 	#ifndef _DEBUG
 	std::this_thread::sleep_for(std::chrono::seconds(10));
@@ -324,73 +329,69 @@ int main(int argc, char* argv[])
 
 bool FileDialog(fspath& output_filepath, const fspath& in_zipname, bool SaveAs) {
 	bool returnval = false;
-	HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+	IFileDialog* folderdialog;
+	HRESULT hr;
+
+	// Create the FileOpenDialog object.
+	if (SaveAs) {
+		hr = CoCreateInstance(CLSID_FileSaveDialog, NULL, CLSCTX_ALL, IID_IFileSaveDialog, (void**)&folderdialog);
+	}
+	else {
+		hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_ALL, IID_IFileOpenDialog, (void**)&folderdialog);
+	}
+
 	if (SUCCEEDED(hr))
 	{
-		IFileDialog* folderdialog;
-
-		// Create the FileOpenDialog object.
 		if (SaveAs) {
-			hr = CoCreateInstance(CLSID_FileSaveDialog, NULL, CLSCTX_ALL, IID_IFileSaveDialog, (void**)&folderdialog);
+			COMDLG_FILTERSPEC spec;
+			spec.pszName = L"Zip Files";
+			spec.pszSpec = L"*.zip";
+			folderdialog->SetFileTypes(1, &spec);
+
+			std::wstring default_zipname = in_zipname;
+			default_zipname.append(L"_AtlanPackage.zip");
+			folderdialog->SetFileName(default_zipname.c_str());
+
+			folderdialog->SetTitle(L"Save Zip File");
 		}
 		else {
-			hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_ALL, IID_IFileOpenDialog, (void**)&folderdialog);
+			DWORD options;
+			folderdialog->GetOptions(&options);
+			options |= FOS_PICKFOLDERS | FOS_FILEMUSTEXIST;
+			folderdialog->SetOptions(options);
+			folderdialog->SetTitle(L"Select Mod Folder to Package");
+
+			IShellItem *defaultFolder = NULL;
+			hr = SHCreateItemFromParsingName(std::filesystem::absolute(".").c_str(), NULL, IID_PPV_ARGS(&defaultFolder));
+			if (SUCCEEDED(hr)) {
+				folderdialog->SetDefaultFolder(defaultFolder);
+				defaultFolder->Release();
+			}
 		}
 
+		hr = folderdialog->Show(NULL);
+
+		// Get the file name from the dialog box.
 		if (SUCCEEDED(hr))
 		{
-			if (SaveAs) {
-				COMDLG_FILTERSPEC spec;
-				spec.pszName = L"Zip Files";
-				spec.pszSpec = L"*.zip";
-				folderdialog->SetFileTypes(1, &spec);
-
-				std::wstring default_zipname = in_zipname;
-				default_zipname.append(L"_AtlanPackage.zip");
-				folderdialog->SetFileName(default_zipname.c_str());
-
-				folderdialog->SetTitle(L"Save Zip File");
-			}
-			else {
-				DWORD options;
-				folderdialog->GetOptions(&options);
-				options |= FOS_PICKFOLDERS | FOS_FILEMUSTEXIST;
-				folderdialog->SetOptions(options);
-				folderdialog->SetTitle(L"Select Mod Folder to Package");
-
-				IShellItem *defaultFolder = NULL;
-				hr = SHCreateItemFromParsingName(std::filesystem::absolute(".").c_str(), NULL, IID_PPV_ARGS(&defaultFolder));
-				if (SUCCEEDED(hr)) {
-					folderdialog->SetDefaultFolder(defaultFolder);
-					defaultFolder->Release();
-				}
-			}
-
-			hr = folderdialog->Show(NULL);
-
-			// Get the file name from the dialog box.
+			IShellItem* selectionItem;
+			hr = folderdialog->GetResult(&selectionItem);
 			if (SUCCEEDED(hr))
 			{
-				IShellItem* selectionItem;
-				hr = folderdialog->GetResult(&selectionItem);
+				PWSTR selectionString;
+				hr = selectionItem->GetDisplayName(SIGDN_FILESYSPATH, &selectionString);
+
+				// Display the file name to the user.
 				if (SUCCEEDED(hr))
 				{
-					PWSTR selectionString;
-					hr = selectionItem->GetDisplayName(SIGDN_FILESYSPATH, &selectionString);
-
-					// Display the file name to the user.
-					if (SUCCEEDED(hr))
-					{
-						output_filepath = selectionString;
-						returnval = true;
-						CoTaskMemFree(selectionString);
-					}
-					selectionItem->Release();
+					output_filepath = selectionString;
+					returnval = true;
+					CoTaskMemFree(selectionString);
 				}
+				selectionItem->Release();
 			}
-			folderdialog->Release();
 		}
-		CoUninitialize();
+		folderdialog->Release();
 	}
 	return returnval;
 }

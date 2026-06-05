@@ -226,18 +226,23 @@ struct idImageEncodingResults {
 
 struct idImageEncodingContext {
     bool                 m_initialized = false;
+    int                  m_CompressionLevel;
     ID3D11Device*        m_device = nullptr; // Device is thread-safe, but context is NOT thread-safe
     ID3D11DeviceContext* m_context = nullptr;
     D3D_FEATURE_LEVEL    m_featurelevel;
     idImageHeaderMap_t   m_headermap;
     
-    bool InitializeContext(const std::string& gamedir);
+    bool InitializeContext(const std::string& gamedir, int in_CompressionLevel);
     bool EncodeImage(const std::string& AssetPath, const std::string& EncodingInfo, const wchar_t* FilePath, idImageEncodingResults& results);
     bool Release();
 
     ~idImageEncodingContext() {
         Release();
     }
+
+    // Wrapper for WinAPI CoInitializeEx
+    static bool COMThreadInit();
+    static void COMThreadRelease();
 };
 
 /*

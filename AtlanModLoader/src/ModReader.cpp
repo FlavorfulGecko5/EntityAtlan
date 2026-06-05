@@ -230,7 +230,9 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 		if (modfile.typeenum == rt_image) {
 			if (!EncodingContext.m_initialized) {
 				atlog << "Initializing Image Encoder\n";
-				if (!EncodingContext.InitializeContext(gamedir.string())) {
+
+				// Use a faster compression level than the mod packager to improve iteration times.
+				if (!EncodingContext.InitializeContext(gamedir.string(), 3)) { 
 					return;
 				}
 			}

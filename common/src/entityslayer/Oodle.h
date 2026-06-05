@@ -10,4 +10,6 @@ namespace Oodle
     bool IsInitialized();
     bool DecompressBuffer(char* inputBuffer, size_t inputSize, char* outputBuffer, size_t outputSize);
     bool CompressBuffer(char* inputBuffer, size_t inputSize, char* outputBuffer, size_t& outputSize);
+
+    int CompressBuffer(char* inputBuffer, size_t inputSize, char* outputBuffer, int compLevel);
 }

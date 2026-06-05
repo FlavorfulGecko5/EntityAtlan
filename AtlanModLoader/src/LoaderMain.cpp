@@ -1205,6 +1205,8 @@ int main(int argc, char* argv[]) {
 	try {
 	#endif
 
+		if(!idImageEncodingContext::COMThreadInit())
+			return 0;
 		AtlanLogger::init(LOGPATH);
 		InjectorMain(argc, argv, argflags);
 
@@ -1221,6 +1223,7 @@ int main(int argc, char* argv[]) {
 	
 	std::cout << "\n\nOutput written to " << LOGPATH << "\n";
 	AtlanLogger::exit();
+	idImageEncodingContext::COMThreadRelease();
 
 	if (!(argflags & argflag_noExitTimer)) {
 		std::cout << "This window will close in 10 seconds\n";
