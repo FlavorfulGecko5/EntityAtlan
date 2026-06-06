@@ -233,7 +233,7 @@ struct idImageEncodingContext {
     idImageHeaderMap_t   m_headermap;
     
     bool InitializeContext(const std::string& gamedir, int in_CompressionLevel);
-    bool EncodeImage(const std::string& AssetPath, const std::string& EncodingInfo, const wchar_t* FilePath, idImageEncodingResults& results);
+    bool EncodeImage(const std::string& AssetPath, const std::string& EncodingInfo, const wchar_t* FilePath, idImageEncodingResults& results, std::string& OutputLog) const;
     bool Release();
 
     ~idImageEncodingContext() {

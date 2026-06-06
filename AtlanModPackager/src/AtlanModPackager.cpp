@@ -4,6 +4,7 @@
 #include <vector>
 #include <fstream>
 #include <mutex>
+#include <thread>
 #include <unordered_map>
 #include "archives/ResourceEnums.h"
 #include "atlan/AtlanLogger.h"
@@ -18,6 +19,68 @@
 typedef std::filesystem::path fspath;
 
 bool FileDialog(fspath& output_filepath, const fspath& in_zipname, bool SaveAs);
+
+struct idImageJob {
+	fspath filepath;
+	std::string assetpath;
+	std::string encodinginfo;
+	std::string zippath;
+};
+
+struct idImageJobList {
+	std::vector<idImageJob> jobs;
+	idImageEncodingContext* context = nullptr;
+	mz_zip_archive* zptr = nullptr;
+};
+
+std::mutex g_getjob_mutex;
+std::mutex g_addzip_mutex;
+
+void ImageEncodingThread(idImageJobList* joblist) {
+	
+	idImageJob CurrentJob;
+	idImageEncodingResults ImageOutput;
+	std::string OutputLog;
+
+	if(!idImageEncodingContext::COMThreadInit())
+		return;
+
+	while (1) {
+
+		// Fetch next image job
+		{
+			std::lock_guard<std::mutex> lock(g_getjob_mutex);
+			if(joblist->jobs.size() == 0)
+				break;
+
+			CurrentJob = joblist->jobs.back();
+			joblist->jobs.pop_back();
+		}
+
+		OutputLog = CurrentJob.zippath;
+		OutputLog.append(" (");
+		OutputLog.append(CurrentJob.assetpath);
+		OutputLog.append(" )\n");
+		bool success = joblist->context->EncodeImage(CurrentJob.assetpath, CurrentJob.encodinginfo, CurrentJob.filepath.c_str(), ImageOutput, OutputLog);
+		if(!success)
+			continue;
+
+		// Add to image
+		// todo finish and test
+		{
+			std::lock_guard<std::mutex> lock(g_addzip_mutex);
+
+			success = mz_zip_writer_add_mem(joblist->zptr, CurrentJob.zippath.c_str(), ImageOutput.buffer, ImageOutput.file_length, MZ_DEFAULT_COMPRESSION);
+			if (!success) {
+				OutputLog.append("   ERROR: Failed to add image to zip file\n");
+			}
+		}
+
+		atlog << OutputLog;
+	}
+
+	idImageEncodingContext::COMThreadRelease();
+}
 
 void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 {
@@ -112,9 +175,8 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 		//atlog << entry.path() << "\n"; 
 	}
 
-
-	idImageEncodingContext ImageEncoder;
-	idImageEncodingResults ImageOutput;
+	idImageJobList ImageJobs;
+	ImageJobs.jobs.reserve(filepaths.size());
 
 	int IgnoredFiles = 0;
 	std::string IgnoreLog;
@@ -137,22 +199,7 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 		}
 		const ResourceType RESTYPE = TYPEITER->second;
 
-		atlog << "Packaging " << zippedName << "\n";
-
 		if(RESTYPE == rt_image) {
-			if (!ImageEncoder.m_initialized) {
-				std::string gamedir;
-				if(OVERRIDE_IMAGE_ENCODER_PATH) {
-					gamedir = OVERRIDE_IMAGE_ENCODER_PATH;
-				}
-				else {
-					gamedir = absolute(".").string();
-				}
-
-				atlog << "Initializing Image Encoder with directory " << gamedir << "\n";
-				if(!ImageEncoder.InitializeContext(gamedir, 6))
-					return;
-			}
 
 			// Extract encoding info from end of filename if it exists
 			std::string EncodingInfo;
@@ -169,16 +216,16 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 				}
 			}
 
-			bool result = ImageEncoder.EncodeImage(AssetName, EncodingInfo, modfile.c_str(), ImageOutput);
-			if (!result) {
-				continue;
-			}
-			result = mz_zip_writer_add_mem(zptr, zippedName.c_str(), ImageOutput.buffer, ImageOutput.file_length, MZ_DEFAULT_COMPRESSION);
-			if(!result) {
-				atlog << "ERROR: Failed to add image to zip file\n";
-			}
+			ImageJobs.jobs.emplace_back();
+			idImageJob& j = ImageJobs.jobs.back();
+			j.assetpath = AssetName;
+			j.encodinginfo = EncodingInfo;
+			j.filepath = modfile;
+			j.zippath = zippedName;
 			continue;
 		}
+
+		atlog << "Packaging " << zippedName << "\n";
 
 		// TODO: Investigate the serialization codepath. CRT detects massive
 		// memory leaks. Most likely the global variables used in the serialization pipeline?
@@ -223,6 +270,38 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 		bool result = mz_zip_writer_add_file(zptr, zippedName.c_str(), modfile.string().c_str(), "", 0, MZ_DEFAULT_COMPRESSION);
 		if(!result)
 			atlog << "ERROR: Failed to add " << zippedName << " to zip file\n";		
+	}
+
+	if(ImageJobs.jobs.size()) {
+		const int NUMTHREADS = 8;
+		std::thread threadpool[NUMTHREADS];
+
+		atlog << "Running " << ImageJobs.jobs.size() 
+			<< " Image Encoding Jobs on " << NUMTHREADS << " threads\n";
+
+		idImageEncodingContext ImageEncoder;
+		{
+			std::string gamedir;
+			if (OVERRIDE_IMAGE_ENCODER_PATH) {
+				gamedir = OVERRIDE_IMAGE_ENCODER_PATH;
+			}
+			else {
+				gamedir = absolute(".").string();
+			}
+
+			atlog << "Initializing Image Encoder with directory " << gamedir << "\n";
+			if (!ImageEncoder.InitializeContext(gamedir, 6))
+				return;
+		}
+
+		ImageJobs.context = &ImageEncoder;
+		ImageJobs.zptr = zptr;
+
+		for(int i = 0; i < NUMTHREADS; i++)
+			threadpool[i] = std::thread(ImageEncodingThread, &ImageJobs);
+
+		for(int i = 0; i < NUMTHREADS; i++)
+			threadpool[i].join();
 	}
 
 	if(IgnoredFiles) {
@@ -317,7 +396,7 @@ int main(int argc, char* argv[])
 	atlog << "Output written to " << logpath << "\n";
 	AtlanLogger::exit();
 	idImageEncodingContext::COMThreadRelease();
-	
+
 	#ifndef _DEBUG
 	std::this_thread::sleep_for(std::chrono::seconds(10));
 	#endif

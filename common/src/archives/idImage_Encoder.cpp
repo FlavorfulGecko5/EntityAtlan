@@ -141,7 +141,7 @@ DXGI_FORMAT idFormat_To_DXGI(const textureFormat_t idFormat) {
 	}
 }
 
-bool BuildOriginalImageHeader(const std::string& AssetPath, const std::string& EncodingInfo, ImageHeader& header)
+bool BuildOriginalImageHeader(const std::string& AssetPath, const std::string& EncodingInfo, ImageHeader& header, std::string& OutputLog)
 {
 	header.DefaultInitialize();
 
@@ -149,7 +149,9 @@ bool BuildOriginalImageHeader(const std::string& AssetPath, const std::string& E
 
 		const char* c = EncodingInfo.data();
 
-		atlog << "   Approach: Explicit Encoding " << EncodingInfo << "\n";
+		OutputLog.append("   Approach: Explicit Encoding ");
+		OutputLog.append(EncodingInfo);
+		OutputLog.append("\n");
 
 		// Format is "FORMAT_ENUM~MATERIAL_ENUM"
 		std::string inputstring;
@@ -170,7 +172,7 @@ bool BuildOriginalImageHeader(const std::string& AssetPath, const std::string& E
 		return false;
 	}
 	else {
-		atlog << "   Approach: Extension Inference\n";
+		OutputLog.append("   Approach: Extension Inference\n");
 		idImageExtensionData ext;
 		ext.FromAssetPath(AssetPath);
 
@@ -194,7 +196,7 @@ bool BuildOriginalImageHeader(const std::string& AssetPath, const std::string& E
 	}
 }
 
-bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const std::string& EncodingInfo, const wchar_t* FilePath, idImageEncodingResults& FINAL_IMAGE)
+bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const std::string& EncodingInfo, const wchar_t* FilePath, idImageEncodingResults& FINAL_IMAGE, std::string& OutputLog) const
 {
 	/*
 	* Step 1: Locate the vanilla ImageHeader for this file
@@ -206,12 +208,15 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const std
 		const auto& pair = m_headermap.find(AssetPath);
 		if (pair == m_headermap.end()) {
 			
-			if (BuildOriginalImageHeader(AssetPath, EncodingInfo, header)) {
-				atlog << "   New Image Recognized ( " << textureFormat_tostring(header.textureFormat)
-					<< ", " << textureMaterialKind_tostring(header.textureMaterialKind) << " )\n";
+			if (BuildOriginalImageHeader(AssetPath, EncodingInfo, header, OutputLog)) {
+				OutputLog.append("   New Image Recognized ( ");
+				OutputLog.append(textureFormat_tostring(header.textureFormat));
+				OutputLog.append(", ");
+				OutputLog.append(textureMaterialKind_tostring(header.textureMaterialKind));
+				OutputLog.append(")\n");
 			}
 			else {
-				atlog << "   ERROR: Not enough data to build ImageHeader (" << AssetPath << ")\n";
+				OutputLog.append("   ERROR: Not enough data to build ImageHeader\n");
 				return false;
 			}
 		}
@@ -225,17 +230,17 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const std
 	*/
 
 	if (header.version < 23 || header.version > 26) {
-		atlog << "ERROR: Unsupported Image File Version\n";
+		OutputLog.append("   ERROR: Unsupported Image File Version\n");
 		return false;
 	}
 	if (header.textureType != TT_2D) {
-		atlog << "ERROR: Only 2D textures are supported\n";
+		OutputLog.append("   ERROR: Only 2D textures are supported\n");
 		return false;
 	}
 
 	dxgiFormat = idFormat_To_DXGI(header.textureFormat);
 	if (dxgiFormat == DXGI_FORMAT_UNKNOWN) {
-		atlog << "ERROR: Unsupported texture format\n";
+		OutputLog.append("   ERROR: Unsupported texture format\n");
 		return false;
 	}
 
@@ -252,20 +257,24 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const std
 
 	HRESULT result = DirectX::LoadFromWICFile(FilePath, DirectX::WIC_FLAGS_NONE, nullptr, image);
 	if (FAILED(result)) {
-		atlog << "ERROR: Failed to read raw image file into ScratchImage (Error Code: " << result << ")\n";
+		OutputLog.append("   ERROR: Failed to read raw image file into ScratchImage (Error Code: ");
+		OutputLog.append(std::to_string(result));
+		OutputLog.append(")\n");
 		return false;
 	}
 
-	printf("Generating Mips...");
+	//printf("Generating Mips...");
 	result = DirectX::GenerateMipMaps(*image.GetImage(0, 0, 0), DirectX::TEX_FILTER_DEFAULT, 0, TEMP_IMAGE);
 	if (FAILED(result)) {
-		atlog << "ERROR: Failed to generate Mips (Error Code: "  << result << ")\n";
+		OutputLog.append("   ERROR: Failed to generate Mips (Error Code: ");
+		OutputLog.append(std::to_string(result));
+		OutputLog.append(")\n");
 		return false;
 	}
 
 	image.Release(); // Free the un-mipped image
 
-	printf("\rCompressing Texture...");
+	//printf("\rCompressing Texture...");
 	if (DXGI_UseGpuEncoding(dxgiFormat)) {
 		result = Compress(m_device, TEMP_IMAGE.GetImages(), TEMP_IMAGE.GetImageCount(), TEMP_IMAGE.GetMetadata(),
 			dxgiFormat, DirectX::TEX_COMPRESS_PARALLEL, DirectX::TEX_ALPHA_WEIGHT_DEFAULT, image);
@@ -275,11 +284,13 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const std
 			dxgiFormat, DirectX::TEX_COMPRESS_PARALLEL, DirectX::TEX_THRESHOLD_DEFAULT, image);
 	}
 	if (FAILED(result)) {
-		atlog << "ERROR: Failed to encode texture (Error Code: " << result << ")\n";
+		OutputLog.append("   ERROR: Failed to encode texture (Error Code: ");
+		OutputLog.append(std::to_string(result));
+		OutputLog.append(")\n");
 		return false;
 	}
 
-	printf("\rCreating output file...");
+	//printf("\rCreating output file...");
 
 	/*
 	* STEP 4: Header adjustments
@@ -394,7 +405,9 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const std
 		
 		int OodleResult = Oodle::CompressBuffer((char*)mipimage->pixels, m.decompressedSize, writeTo, m_CompressionLevel);
 		if (OodleResult == 0) {
-			atlog << "ERROR: Failed to Oodle compress mip level " << i << "\n";
+			OutputLog.append("   ERROR: Failed to Oodle compress mip level ");
+			OutputLog.append(std::to_string(i));
+			OutputLog.append("\n");
 			return false;
 		}
 		m.compressedSize = (u32)OodleResult;
@@ -412,9 +425,9 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const std
 	memcpy(mipinfo_location, mipdata.data(), header.mipCount * sizeof(ImageMipInfo));
 
 	if(!idAtlanImage::Validate(FINAL_IMAGE.buffer, FINAL_IMAGE.file_length))
-		atlog << "ERROR: Imaged failed final validation\n";
+		OutputLog.append("   ERROR: Image failed final validation\n");
 
-	printf("\r");
+	//printf("\r");
 	return true;
 }
 

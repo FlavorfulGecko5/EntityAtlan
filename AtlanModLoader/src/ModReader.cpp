@@ -237,8 +237,11 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 				}
 			}
 
-			atlog << "Encoding " << modfile.realPath << "\n";
-			bool result = EncodingContext.EncodeImage(modfile.assetPath, EncodingInfo, FilePath.c_str(), EncodingResults);
+			std::string EncodingLog;
+			atlog << "Encoding " << modfile.realPath << " (" << modfile.assetPath << ")\n";
+			bool result = EncodingContext.EncodeImage(modfile.assetPath, EncodingInfo, FilePath.c_str(), EncodingResults, EncodingLog);
+			if(EncodingLog.length())
+				atlog << EncodingLog;
 			if (!result) {
 				continue;
 			}
