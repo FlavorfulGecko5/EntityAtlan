@@ -75,7 +75,8 @@ bool idImageEncodingContext::InitializeContext(const std::string& gamedir, int i
 	*/
 
 	if (idImageHeaderMap_Build(m_headermap, gamedir) == false) {
-		atlog << "FATAL ERROR: Failed to create ImageHeaderMap for image encoder\n";
+		atlog << "FATAL ERROR: Failed to create ImageHeaderMap for image encoder.\n";
+			"Please ensure AtlanModPackager and AtlanModLoader are placed in your game directory\n";
 		return false;
 	}
 

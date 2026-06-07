@@ -83,91 +83,7 @@ class StringTable {
 
 #include <algorithm>
 
-void BuildStreamDB(const std::vector<ModFile*>& modfiles, const fspath outpath) {
-	
-	idStreamDB streamdb;
-	streamdb.header.magic = STREAMDB_MAGIC;
-	streamdb.header.pad0 = 0; streamdb.header.pad1 = 0; streamdb.header.pad2 = 0;
-	streamdb.header.flags = 3;
-	streamdb.prefetchheader.numblocks = 0;
-	streamdb.prefetchheader.totalLength = 8;
-
-	std::vector<idAtlanImage> imageheaders;
-	std::vector<idStreamDB::entry_t> entries;
-	entries.reserve(modfiles.size() * 6);
-	imageheaders.reserve(modfiles.size());
-
-	// Pass 1: Get the total number of entries and their lengths
-	for(const ModFile* file : modfiles) {
-		
-		if (file->typeenum != rt_image) {
-			atlog << "Unsupported resource type made it into streamdb builder\n";
-			continue;
-		}
-
-		const idAtlanImage& header = file->imagedef;
-
-		for(uint64_t i = 0; i < header.streamdbmips; i++) {
-			idStreamDB::entry_t e;
-			e.id = HashLib::streamdb_miphash(file->defaulthash, header.streamdbmips - i - 1, 0);
-			e.length = header.mipinfos[i].compressedSize;
-			entries.push_back(e);
-		}
-
-		imageheaders.push_back(header);
-	}
-
-	streamdb.header.headerLength = sizeof(idStreamDB::header) + sizeof(idStreamDB::prefetchheader)
-		+ sizeof(idStreamDB::entry_t) * entries.size();
-	streamdb.header.numEntries = (u32)entries.size();
-
-	uint64_t runningoffset = streamdb.header.headerLength + (16 - streamdb.header.headerLength % 16);
-	for(idStreamDB::entry_t& e : entries) {
-		assert(runningoffset % 16 == 0);
-		e.offset16 = (uint32_t)(runningoffset / 16);
-		runningoffset += e.length + (16 - e.length % 16);
-	}
-
-	std::ofstream outwriter(outpath, std::ios_base::binary);
-	outwriter.write((char*)&streamdb.header, sizeof(streamdb.header));
-	//outwriter.write((char*)entries.data(), entries.size() * sizeof(idStreamDB::entry_t));
-	outwriter.seekp(sizeof(streamdb.header) + entries.size() * sizeof(idStreamDB::entry_t));
-	outwriter.write((char*)&streamdb.prefetchheader, sizeof(streamdb.prefetchheader));
-
-	size_t  ENTRY_ITER = 0;
-	for (const idAtlanImage& header : imageheaders) {
-		const char* buffer = header.binaryblob + header.entry_length;
-		//const char* buffermax = buffer + header.mipblocklength;
-		for (size_t i = 0; i < header.streamdbmips; i++) {
-			//buffer += 12; // skip slice data
-
-			idStreamDB::entry_t e = entries[ENTRY_ITER++];
-
-			//assert(buffer + header.mip_sizes[i] <= buffermax);
-			//assert(header.mip_sizes[i] == e.length);
-			//assert(header.mip_sizes[i] == *(uint32_t*)(buffer - 4));
-			outwriter.seekp(e.offset16 * 16);
-			outwriter.write(buffer, header.mipinfos[i].compressedSize);
-			buffer += header.mipinfos[i].compressedSize;
-		}
-
-		//assert(buffer == buffermax);
-	}
-
-	std::sort(entries.begin(), entries.end());
-
-	outwriter.seekp(32);
-	outwriter.write((char*)entries.data(), entries.size() * sizeof(idStreamDB::entry_t));
-
-	outwriter.close();
-
-	#ifdef _DEBUG
-	idStreamDB audit;
-	assert(audit.Read(outpath.c_str()));
-	#endif
-}
-
-void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) {
+void BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES, fspath outarchivepath, fspath outstreamdbpath) {
 	bool HotReloadMode = modfiles.size() == 1 
 		&& !modfiles[0]->isAtlanCompressed 
 		&& modfiles[0]->parentMod->IsUnzipped 
@@ -176,7 +92,22 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 		atlog << "Experimental Hot Reload Mode Engaged\n";
 	}
 
-	const size_t ATCF_SIZE = Oodle::AtlanCompHeaderSize();
+	idStreamDB streamdb;
+	streamdb.header.magic = STREAMDB_MAGIC;
+	streamdb.header.pad0 = 0; streamdb.header.pad1 = 0; streamdb.header.pad2 = 0;
+	streamdb.header.flags = 3;
+	streamdb.prefetchheader.numblocks = 0;
+	streamdb.prefetchheader.totalLength = 8;
+
+	std::vector<idStreamDB::entry_t> streamdb_entries;
+	streamdb_entries.reserve(NUM_IMAGES * 8);
+
+	// We don't know how many streamdb entries an image will have until we've loaded the data
+	// Hence we must overestimate the start of the data block
+	// TODO: If we ever support 3D or cubic images, we may need to overestimate even harder
+	const size_t streamdb_DataOffset = sizeof(idStreamDB::header) + sizeof(idStreamDB::prefetchheader_t)
+		+ 9 * NUM_IMAGES * sizeof(idStreamDB::entry_t);
+	size_t streamdb_RunningOffset = streamdb_DataOffset + (16 - streamdb_DataOffset % 16);
 
 	ResourceArchive archive;
 	ResourceHeader& h = archive.header;
@@ -239,15 +170,18 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 	assert(h.dataOffset % 8 == 0);
 
 	std::ofstream ResourceWriter(outarchivepath, std::ios_base::binary);
+	std::ofstream StreamDBWriter;
+	if(NUM_IMAGES)
+		StreamDBWriter.open(outstreamdbpath, std::ios_base::binary);
 
 	/*
 	* Build the resource entries
 	*/
 	archive.entries = new ResourceEntry[modfiles.size()];
 	uint64_t runningDataOffset = h.dataOffset;
-	for(size_t i = 0; i < modfiles.size(); i++) {
-		ResourceEntry& e = archive.entries[i];
-		const ModFile& f = *modfiles[i];
+	for(size_t MODFILE_INDEX = 0; MODFILE_INDEX < modfiles.size(); MODFILE_INDEX++) {
+		ResourceEntry& e = archive.entries[MODFILE_INDEX];
+		const ModFile& f = *modfiles[MODFILE_INDEX];
 
 		/*
 		* Set universal values
@@ -255,7 +189,7 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 		e.resourceTypeString = 0;
 		e.nameString = 1;
 		e.descString = -1;
-		e.strings = i * 2;
+		e.strings = MODFILE_INDEX * 2;
 		e.specialHashes = 0;
 		e.metaEntries = 0;
 		e.reserved0 = 0;
@@ -322,6 +256,7 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 
 		const char* BufferToWrite = nullptr;
 		if(f.isAtlanCompressed) {
+			const size_t ATCF_SIZE = Oodle::AtlanCompHeaderSize();
 			e.dataSize = f.dataLength - ATCF_SIZE;
 			e.uncompressedSize = Oodle::atcf_uncompressedSize((char*)f.dataBuffer);
 			e.compMode = 2;
@@ -349,6 +284,30 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 
 		ResourceWriter.seekp(e.dataOffset, std::ios_base::beg);
 		ResourceWriter.write(BufferToWrite, e.dataSize);
+
+		// StreamDB Stuff
+		if(f.typeenum != rt_image)
+			continue;
+
+		const idAtlanImage imgdef = f.imagedef;
+		BufferToWrite += imgdef.entry_length;
+
+		for (uint64_t mipindex = 0; mipindex < imgdef.streamdbmips; mipindex++) {
+			idStreamDB::entry_t streamdb_entry;
+
+			streamdb_entry.id       = HashLib::streamdb_miphash(f.defaulthash, imgdef.streamdbmips - mipindex - 1, 0);
+			streamdb_entry.length   = imgdef.mipinfos[mipindex].compressedSize;
+			streamdb_entry.offset16 = (u32)(streamdb_RunningOffset / 16);
+			streamdb_entries.push_back(streamdb_entry);
+
+			StreamDBWriter.seekp(streamdb_RunningOffset, std::ios_base::beg);
+			StreamDBWriter.write(BufferToWrite, streamdb_entry.length);
+			
+			assert(streamdb_RunningOffset % 16 == 0);
+			streamdb_RunningOffset += streamdb_entry.length + (16 - streamdb_entry.length % 16);
+			BufferToWrite += streamdb_entry.length;
+		}
+		assert(BufferToWrite == (char*)f.dataBuffer + f.dataLength);
 	}
 
 	Audit_ResourceArchive(archive);
@@ -385,6 +344,34 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 		ResourceWriter.put('\0');
 
 	ResourceWriter.close();
+
+	/*
+	* Finish writing the StreamDB data
+	*/
+	if(NUM_IMAGES == 0)
+		return;
+
+	streamdb.header.headerLength = sizeof(idStreamDB::header) + sizeof(idStreamDB::prefetchheader)
+		+ sizeof(idStreamDB::entry_t) * streamdb_entries.size();
+	streamdb.header.numEntries = (u32)streamdb_entries.size();
+	if (streamdb.header.headerLength > streamdb_DataOffset) {
+		atlog << "FATAL ERROR: StreamDB Header Length > Data Offset. Please report this problem!";
+		return;
+	}
+
+	std::sort(streamdb_entries.begin(), streamdb_entries.end());
+
+	StreamDBWriter.seekp(0, std::ios_base::beg);
+	StreamDBWriter.write((char*)&streamdb.header, sizeof(streamdb.header));
+	StreamDBWriter.write((char*)streamdb_entries.data(), streamdb_entries.size() * sizeof(idStreamDB::entry_t));
+	StreamDBWriter.write((char*)&streamdb.prefetchheader, sizeof(streamdb.prefetchheader));
+	StreamDBWriter.close();
+
+	#ifdef _DEBUG
+	idStreamDB audit;
+	assert(audit.Read(outstreamdbpath.c_str()));
+	#endif
+
 }
 
 void BuildArchives2(const std::vector<ModFile*>& modfiles,
@@ -848,14 +835,14 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 	*/
 
 	if (supermod.size() > 0) {
-		BuildArchive(supermod, outarchivepath);
+		BuildArchive(supermod, streamdbsupermod.size(), outarchivepath, outstreamdbpath);
 		PackageMapSpec::InjectCommonArchive(gamedir, outarchivepath, streamdbsupermod.size() > 0);
 		RebuildContainerMask(metapath, outarchivepath);
 	}
 
-	if(streamdbsupermod.size() > 0) {
-		BuildStreamDB(streamdbsupermod, outstreamdbpath);
-	}
+	//if(streamdbsupermod.size() > 0) {
+	//	BuildStreamDB(streamdbsupermod, outstreamdbpath);
+	//}
 
 	if (audiosupermod.size() > 0) {
 		atlog << "Constructing audio archives\n";
