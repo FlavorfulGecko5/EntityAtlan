@@ -172,7 +172,6 @@
   <ItemGroup>
     <ClInclude Include="src\GlobalConfig.h" />
     <ClInclude Include="src\ModReader.h" />
-    <ClInclude Include="src\StreamDB.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -168,12 +168,13 @@ void BuildStreamDB(const std::vector<ModFile*>& modfiles, const fspath outpath) 
 }
 
 void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) {
-	bool HotReloadMode = modfiles.size() == 1 && !modfiles[0]->isAtlanCompressed && modfiles[0]->parentMod->IsUnzipped && modfiles[0]->typeenum == rt_mapentities;
+	bool HotReloadMode = modfiles.size() == 1 
+		&& !modfiles[0]->isAtlanCompressed 
+		&& modfiles[0]->parentMod->IsUnzipped 
+		&& modfiles[0]->typeenum == rt_mapentities;
 	if (HotReloadMode) {
 		atlog << "Experimental Hot Reload Mode Engaged\n";
 	}
-
-	size_t HotReloadPadding = 0;
 
 	const size_t ATCF_SIZE = Oodle::AtlanCompHeaderSize();
 
@@ -207,12 +208,9 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 		archive.stringIndex = new uint64_t[h.numStringIndices];
 
 		uint64_t* ptr = archive.stringIndex;
-		for (uint64_t i = 0; i < modfiles.size(); i++) {
-			const ModFile& f = *modfiles[i];
-
-			*ptr = stable.indexof(f.typestring);
-			*(ptr + 1) = stable.indexof(f.assetPath);
-			
+		for (const ModFile* f : modfiles) {
+			*ptr = stable.indexof(f->typestring);
+			*(ptr + 1) = stable.indexof(f->assetPath);
 			ptr += 2;
 		}
 	}
@@ -240,6 +238,7 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 	h.dataOffset = archive.metaheader.metaOffset + idclsize;
 	assert(h.dataOffset % 8 == 0);
 
+	std::ofstream ResourceWriter(outarchivepath, std::ios_base::binary);
 
 	/*
 	* Build the resource entries
@@ -275,43 +274,70 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 		// Executable patcher disables these checksums. 
 		// Plus these are calculated using the uncompressed data - bad if we want to pre-compress mod files
 		// HashLib::ResourceMurmurHash
-		e.dataCheckSum = -1; 
+		e.dataCheckSum = -1;
+		e.defaultHash = (f.typeenum & rtc_streamdb_hash) ? f.defaulthash : e.dataCheckSum;
 
-		if (f.typeenum & rtc_streamdb_hash) {
-			e.defaultHash = f.defaulthash;
-		}
-		else {
-			e.defaultHash = e.dataCheckSum;
+		// These values vary based on resource type
+		// Mapentities version can vary while the image version is the same as it's BIM version
+		// TODO KEEP IN MIND: MUST HAVE IMAGEDEF LOADED BY THIS POINT
+		switch(f.typeenum) {
+			case rt_rs_streamfile: e.version = 0;                     e.flags = 0; e.variation = 0;  break;
+			case rt_entityDef:     e.version = 21;                    e.flags = 2; e.variation = 70; break;
+			case rt_mapentities:   e.version = f.resourceVersion;     e.flags = 2; e.variation = 70; break;
+			case rt_image:         e.version = f.imagedef.bimversion; e.flags = 0; e.variation = 0;  break;
+
+			default:
+			if(f.typeenum & rtc_logic_decl) {
+				e.version = 4; e.flags = 2; e.variation = 70; break;
+			}
+
+			atlog << "ERROR: Unsupported resource type made it into build\n";
+			continue;
 		}
 
-		// If this is an Atlan Compressed File, we must account for the ATCF header size
-		if (f.isAtlanCompressed) {
-			e.dataSize = f.dataLength - ATCF_SIZE;
-			e.uncompressedSize = Oodle::atcf_uncompressedSize((const char*)f.dataBuffer);
-			e.compMode = 2;
-		}
-		else {
-			if (HotReloadMode) { // We assume Hot Reload mode + Comp files are mutually exclusive
-				e.dataSize = 40000000;
-				if (e.dataSize >= f.dataLength) {
-					HotReloadPadding = e.dataSize - f.dataLength;
-				}
-				else {
-					atlog << "ERROR: Hot Reload padding threshold exceeded. Please report this error.\n";
-					e.dataSize = f.dataLength;
-					HotReloadPadding = 0;
-				}
+		// Isolate the Hot Reload code path to keep everything else simpler
+		if (HotReloadMode) {
+			size_t HotReloadPadding;
+			e.dataSize = 40000000;
+			if (e.dataSize >= f.dataLength) {
+				HotReloadPadding = e.dataSize - f.dataLength;
 			}
 			else {
-				if (f.typeenum == rt_image) {
-					e.dataSize = f.imagedef.entry_length;
-				}
-				else {
-					e.dataSize = f.dataLength;
-				}
+				atlog << "ERROR: Hot Reload padding threshold exceeded. Please report this error.\n";
+				e.dataSize = f.dataLength;
+				HotReloadPadding = 0;
 			}
 			e.uncompressedSize = e.dataSize;
 			e.compMode = 0;
+			e.dataOffset = runningDataOffset;
+			ResourceWriter.seekp(e.dataOffset, std::ios_base::beg);
+			ResourceWriter.write((char*)f.dataBuffer, f.dataLength);
+
+			char* paddingbuffer = new char[HotReloadPadding];
+			memset(paddingbuffer, 0, HotReloadPadding);
+			ResourceWriter.write(paddingbuffer, HotReloadPadding);
+			delete[] paddingbuffer;
+			break;
+		}
+
+		const char* BufferToWrite = nullptr;
+		if(f.isAtlanCompressed) {
+			e.dataSize = f.dataLength - ATCF_SIZE;
+			e.uncompressedSize = Oodle::atcf_uncompressedSize((char*)f.dataBuffer);
+			e.compMode = 2;
+			BufferToWrite = (char*)f.dataBuffer + ATCF_SIZE;
+		}
+		else if(f.typeenum == rt_image) {
+			e.dataSize = f.imagedef.entry_length;
+			e.uncompressedSize = e.dataSize;
+			e.compMode = 0;
+			BufferToWrite = f.imagedef.binaryblob;
+		}
+		else {
+			e.dataSize = f.dataLength;
+			e.uncompressedSize = e.dataSize;
+			e.compMode = 0;
+			BufferToWrite = (char*)f.dataBuffer;
 		}
 
 		// TODO: There's a fair bit of padding between each resource data block.
@@ -321,38 +347,8 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 		runningDataOffset += e.dataSize;
 		runningDataOffset += 8 - runningDataOffset % 8;
 
-		/*
-		* Set values that vary based on resource type
-		*/
-		if (f.typeenum == rt_rs_streamfile) {
-			e.version = 0;
-			e.flags = 0;
-			e.variation = 0;
-		}
-		else if (f.typeenum == rt_entityDef) {
-			e.version = 21;
-			e.flags = 2;
-			e.variation = 70;
-		}
-		else if (f.typeenum & rtc_logic_decl) {
-			e.version = 4;
-			e.flags = 2;
-			e.variation = 70;
-		}
-		else if (f.typeenum == rt_mapentities) {
-			e.version = f.resourceVersion; // mapentities span multiple versions
-			e.flags = 2;
-			e.variation = 70;
-		}
-		else if (f.typeenum == rt_image) {
-			e.version = f.imagedef.bimversion; // Same as the image header version
-			e.flags = 0;
-			e.variation = 0;
-		}
-		else {
-			atlog << "\nERROR: Unsupported resource type made it into build";
-			continue;
-		}
+		ResourceWriter.seekp(e.dataOffset, std::ios_base::beg);
+		ResourceWriter.write(BufferToWrite, e.dataSize);
 	}
 
 	Audit_ResourceArchive(archive);
@@ -360,57 +356,40 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, fspath outarchivepath) 
 	/*
 	* Write the archive
 	*/
-	#define rc(PARM) reinterpret_cast<char*>(PARM)
 
-	std::ofstream writer(outarchivepath, std::ios_base::binary);
-	writer.write(rc(&archive.header), sizeof(ResourceHeader));
+	ResourceWriter.seekp(0, std::ios_base::beg);
+	ResourceWriter.write((char*)&archive.header, sizeof(ResourceHeader));
 
 	if (g_archiveversion < 13) {
-		writer.write(rc(&archive.metaheader), sizeof(ResourceMetaHeader));
+		ResourceWriter.write((char*)&archive.metaheader, sizeof(ResourceMetaHeader));
 	}
 
-	writer.write(rc(archive.entries), sizeof(ResourceEntry) * h.numResources);
+	ResourceWriter.write((char*)archive.entries, sizeof(ResourceEntry) * h.numResources);
 
 	// String Chunk
 	uint64_t blobSize = h.stringTableSize - sizeof(uint64_t) - sizeof(uint64_t) * archive.stringChunk.numStrings - archive.stringChunk.paddingCount;
-	writer.write(rc(&archive.stringChunk.numStrings), sizeof(uint64_t));
-	writer.write(rc(archive.stringChunk.offsets), archive.stringChunk.numStrings * sizeof(uint64_t));
-	writer.write(archive.stringChunk.dataBlock, blobSize);
+	ResourceWriter.write((char*)&archive.stringChunk.numStrings, sizeof(uint64_t));
+	ResourceWriter.write((char*)archive.stringChunk.offsets, archive.stringChunk.numStrings * sizeof(uint64_t));
+	ResourceWriter.write(archive.stringChunk.dataBlock, blobSize);
 	for(uint64_t i = 0; i < archive.stringChunk.paddingCount; i++)
-		writer.put('\0');
+		ResourceWriter.put('\0');
 
 	// Dependencies
-	writer.write(rc(archive.dependencies), h.numDependencies * sizeof(ResourceDependency));
-	writer.write(rc(archive.dependencyIndex), h.numDepIndices * sizeof(uint32_t));
-	writer.write(rc(archive.stringIndex), h.numStringIndices * sizeof(uint64_t));
+	ResourceWriter.write((char*)archive.dependencies, h.numDependencies * sizeof(ResourceDependency));
+	ResourceWriter.write((char*)archive.dependencyIndex, h.numDepIndices * sizeof(uint32_t));
+	ResourceWriter.write((char*)archive.stringIndex, h.numStringIndices * sizeof(uint64_t));
 
 	// IDCL
-	writer.write("IDCL", 4);
+	ResourceWriter.write("IDCL", 4);
 	for(int i = 0; i < idclsize - 4; i++);
-		writer.put('\0');
+		ResourceWriter.put('\0');
 
-	// Write data chunks
-	for (size_t i = 0; i < modfiles.size(); i++) {
-		ResourceEntry& e = archive.entries[i];
-		const ModFile& f = *modfiles[i];
+	ResourceWriter.close();
+}
 
-		writer.seekp(e.dataOffset, std::ios_base::beg);
-		if(f.typeenum == rt_image) {
-			writer.write(f.imagedef.binaryblob, f.imagedef.entry_length);
-		}
-		else {
-			writer.write(rc(f.dataBuffer) + (f.isAtlanCompressed ? ATCF_SIZE : 0), f.dataLength - (f.isAtlanCompressed ? ATCF_SIZE : 0));
-
-			if (HotReloadMode) {
-				char* paddingbuffer = new char[HotReloadPadding];
-				memset(paddingbuffer, 0, HotReloadPadding);
-				writer.write(paddingbuffer, HotReloadPadding);
-
-				delete[] paddingbuffer;
-			}
-		}
-	}
-	writer.close();
+void BuildArchives2(const std::vector<ModFile*>& modfiles,
+	fspath outarchivepath, fspath outstreamdbpath)
+{
 
 }
 
@@ -904,7 +883,7 @@ void InjectorMain(int argc, char* argv[], int& argflags) {
 
 	atlog << R"(
 ----------------------------------------------
-Atlan Mod Loader v)" << MOD_LOADER_VERSION << R"(.0.1 for DOOM: The Dark Ages
+Atlan Mod Loader v)" << MOD_LOADER_VERSION << R"(.0 EXPERIMENTAL BETA for DOOM: The Dark Ages
 By FlavorfulGecko5
 With Special Thanks to: Proteh, Zwip-Zwap-Zapony, Tjoener, and many other talented modders!
 https://github.com/FlavorfulGecko5/EntityAtlan/
