@@ -1,5 +1,6 @@
 #include "GlobalConfig.h"
 #include "ModReader.h"
+#include "atlan/AtlanProfiling.h"
 #include "archives/PackageMapSpec.h"
 #include "archives/StreamDB.h"
 #include "archives/idImage.h"
@@ -83,7 +84,9 @@ class StringTable {
 
 #include <algorithm>
 
-void BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES, fspath outarchivepath, fspath outstreamdbpath) {
+// Build the resources and streamdb archive. 
+// If this returns false something went wrong and we should abort mod loading
+bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES, fspath outarchivepath, fspath outstreamdbpath) {
 	bool HotReloadMode = modfiles.size() == 1 
 		&& !modfiles[0]->isAtlanCompressed 
 		&& modfiles[0]->parentMod->IsUnzipped 
@@ -91,6 +94,11 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 	if (HotReloadMode) {
 		atlog << "Experimental Hot Reload Mode Engaged\n";
 	}
+
+	// Buffer for doing just-in-time reading of large mod files
+	// This way we're not loading every mod file into memory simultaneously
+	// before loading it
+	JustInTimeBuffer_t JIT;
 
 	idStreamDB streamdb;
 	streamdb.header.magic = STREAMDB_MAGIC;
@@ -183,6 +191,21 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 		ResourceEntry& e = archive.entries[MODFILE_INDEX];
 		const ModFile& f = *modfiles[MODFILE_INDEX];
 
+		// Because of just-in-time loading, we can no longer filter out all invalid modfiles
+		// prior to this function. For now, we'll simply abort mod loading. But perhaps
+		// there's a better way we can skip over the invalid files while loading the rest?
+		idAtlanImage imgdef;
+		if (!ModReader::LoadModData(*modfiles[MODFILE_INDEX], JIT)) {
+			atlog << "FATAL ERROR: Just-in-time loading failed\n";
+			return false; // This codepath would imply a legitimately bad error
+		}
+		if (f.typeenum == rt_image && !imgdef.Read((uint8_t*)f.dataBuffer, f.dataLength)) {
+			atlog << "FATAL ERROR: Image resource is not a valid Atlan Image File!\n"
+				"Please use Atlan Mod Packager to package your texture mods!\n"
+				"   Mod: " << f.parentMod->modName << " - " << f.realPath << "\n";
+			return false;
+		}
+
 		/*
 		* Set universal values
 		*/
@@ -213,12 +236,11 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 
 		// These values vary based on resource type
 		// Mapentities version can vary while the image version is the same as it's BIM version
-		// TODO KEEP IN MIND: MUST HAVE IMAGEDEF LOADED BY THIS POINT
 		switch(f.typeenum) {
 			case rt_rs_streamfile: e.version = 0;                     e.flags = 0; e.variation = 0;  break;
 			case rt_entityDef:     e.version = 21;                    e.flags = 2; e.variation = 70; break;
 			case rt_mapentities:   e.version = f.resourceVersion;     e.flags = 2; e.variation = 70; break;
-			case rt_image:         e.version = f.imagedef.bimversion; e.flags = 0; e.variation = 0;  break;
+			case rt_image:         e.version = imgdef.bimversion;     e.flags = 0; e.variation = 0;  break;
 
 			default:
 			if(f.typeenum & rtc_logic_decl) {
@@ -226,7 +248,7 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 			}
 
 			atlog << "ERROR: Unsupported resource type made it into build\n";
-			continue;
+			return false;
 		}
 
 		// Isolate the Hot Reload code path to keep everything else simpler
@@ -263,10 +285,10 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 			BufferToWrite = (char*)f.dataBuffer + ATCF_SIZE;
 		}
 		else if(f.typeenum == rt_image) {
-			e.dataSize = f.imagedef.entry_length;
+			e.dataSize = imgdef.entry_length;
 			e.uncompressedSize = e.dataSize;
 			e.compMode = 0;
-			BufferToWrite = f.imagedef.binaryblob;
+			BufferToWrite = imgdef.binaryblob;
 		}
 		else {
 			e.dataSize = f.dataLength;
@@ -289,7 +311,6 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 		if(f.typeenum != rt_image)
 			continue;
 
-		const idAtlanImage imgdef = f.imagedef;
 		BufferToWrite += imgdef.entry_length;
 
 		for (uint64_t mipindex = 0; mipindex < imgdef.streamdbmips; mipindex++) {
@@ -349,14 +370,14 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 	* Finish writing the StreamDB data
 	*/
 	if(NUM_IMAGES == 0)
-		return;
+		return true;
 
 	streamdb.header.headerLength = sizeof(idStreamDB::header) + sizeof(idStreamDB::prefetchheader)
 		+ sizeof(idStreamDB::entry_t) * streamdb_entries.size();
 	streamdb.header.numEntries = (u32)streamdb_entries.size();
 	if (streamdb.header.headerLength > streamdb_DataOffset) {
 		atlog << "FATAL ERROR: StreamDB Header Length > Data Offset. Please report this problem!";
-		return;
+		return false;
 	}
 
 	std::sort(streamdb_entries.begin(), streamdb_entries.end());
@@ -372,12 +393,7 @@ void BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 	assert(audit.Read(outstreamdbpath.c_str()));
 	#endif
 
-}
-
-void BuildArchives2(const std::vector<ModFile*>& modfiles,
-	fspath outarchivepath, fspath outstreamdbpath)
-{
-
+	return true;
 }
 
 #define MODDED_TIMESTAMP 123456
@@ -713,15 +729,6 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 		// Must check whether a file is Atlan Compressed
 		file.isAtlanCompressed = Oodle::IsAtlanCompFile((const char*)file.dataBuffer, file.dataLength);
 
-		if (file.typeenum == rt_image) {
-			if (!file.imagedef.Read((uint8_t*)file.dataBuffer, file.dataLength)) {
-				atlog << "ERROR: Image resource is not a valid Atlan Image File! Please use Atlan Mod Packager"
-					" to package your texture mods!\n"
-					<< "   Mod: " << file.parentMod->modName << " - " << file.realPath << "\n";
-				continue;
-			}
-		}
-
 		// Handle serialized files
 		if (file.typeenum & rtc_serialized) {
 
@@ -835,14 +842,17 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 	*/
 
 	if (supermod.size() > 0) {
-		BuildArchive(supermod, streamdbsupermod.size(), outarchivepath, outstreamdbpath);
-		PackageMapSpec::InjectCommonArchive(gamedir, outarchivepath, streamdbsupermod.size() > 0);
-		RebuildContainerMask(metapath, outarchivepath);
-	}
+		atlog << "\n\nBuilding Archives:\n----------\n";
 
-	//if(streamdbsupermod.size() > 0) {
-	//	BuildStreamDB(streamdbsupermod, outstreamdbpath);
-	//}
+		bool okay = BuildArchive(supermod, streamdbsupermod.size(), outarchivepath, outstreamdbpath);
+		if(okay) {
+			PackageMapSpec::InjectCommonArchive(gamedir, outarchivepath, streamdbsupermod.size() > 0);
+			RebuildContainerMask(metapath, outarchivepath);
+		}
+		else {
+			atlog << "Resource Mod Loading aborted due to the above error\n";
+		}
+	}
 
 	if (audiosupermod.size() > 0) {
 		atlog << "Constructing audio archives\n";
@@ -1174,7 +1184,10 @@ int main(int argc, char* argv[]) {
 		if(!idImageEncodingContext::COMThreadInit())
 			return 0;
 		AtlanLogger::init(LOGPATH);
+
+		atlanstamp timer("Mod Loading Time");
 		InjectorMain(argc, argv, argflags);
+		timer.log();
 
 	#ifndef _DEBUG
 	}

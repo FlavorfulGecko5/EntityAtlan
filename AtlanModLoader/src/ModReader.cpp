@@ -174,6 +174,7 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 	moddef.modName = "[Unzipped] ";
 	moddef.modName.append(modsfolder.stem().string());
 	moddef.IsUnzipped = true;
+	moddef.ActiveZip = false;
 
 	atlog << "\n\nReading " << moddef.modName << "\n---\n";
 
@@ -269,15 +270,14 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 	}
 }
 
-void ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& readto, int argflags);
+bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& readto, int argflags);
 
 void ModReader::ReadZipMod(ModDef& mod, const fspath& zipPath, int argflags)
 {
 	atlog << "\n\nReading " << zipPath.filename() << "\n---\n";
 
 	// Open the zip file
-	mz_zip_archive zipfile;
-	mz_zip_archive* zptr = &zipfile;
+	mz_zip_archive* zptr = &mod.zipfile;
 	mz_zip_zero_struct(zptr);
 	if (!mz_zip_reader_init_file(zptr, zipPath.string().c_str(), 0))
 	{
@@ -286,13 +286,18 @@ void ModReader::ReadZipMod(ModDef& mod, const fspath& zipPath, int argflags)
 	}
 
 	mod.modName = zipPath.stem().string();
-	ReadZipMod_Internal(zptr, mod, argflags);
-	mz_zip_reader_end(zptr);
+	mod.ActiveZip = ReadZipMod_Internal(zptr, mod, argflags);
+	if (!mod.ActiveZip) {
+		mz_zip_reader_end(zptr);
+	}
 }
 
-void ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, int argflags)
+// If return value is true, we should keep the zip file alive after reading
+// to enable just-in-time loading
+bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, int argflags)
 {
-	
+	bool KEEP_ZIP_ALIVE = false;
+
 	/*
 	* Read config files if they exist
 	*/
@@ -317,7 +322,7 @@ void ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, int argflags)
 
 	mod.loadPriority = cfg.loadPriority;
 	if (!ModReader_HasRequiredVersion(mod, cfg)) {
-		return;
+		return false;
 	}
 
 	/*
@@ -361,18 +366,60 @@ void ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, int argflags)
 		* Read the mod data
 		*/
 
-		void* dataBuffer = nullptr;
-		size_t dataLength = 0;
-		dataBuffer = mz_zip_reader_extract_to_heap(zptr, i, &dataLength, 0);
-		if (!dataBuffer) {
-			atlog << "ERROR: Failed to extract file " << modfile.realPath << "\n";
-			continue;
+		if (modfile.typeenum != rt_image) {
+			void* dataBuffer = nullptr;
+			size_t dataLength = 0;
+			dataBuffer = mz_zip_reader_extract_to_heap(zptr, i, &dataLength, 0);
+			if (!dataBuffer) {
+				atlog << "ERROR: Failed to extract file " << modfile.realPath << "\n";
+				continue;
+			}
+			modfile.dataBuffer = dataBuffer;
+			modfile.dataLength = dataLength;
 		}
-		modfile.dataBuffer = dataBuffer;
-		modfile.dataLength = dataLength;
+		else {
+			KEEP_ZIP_ALIVE = true;
+		}
 
 		ModReader_ConfirmModFile(mod, modfile, argflags);
 	}
 
 	delete[] ZipNameBuffer;
+	return KEEP_ZIP_ALIVE;
+}
+
+bool ModReader::LoadModData(ModFile& modfile, JustInTimeBuffer_t& buffer) {
+	if(modfile.dataBuffer)
+		return true;
+
+	if(!modfile.parentMod->ActiveZip)
+		return false;
+	mz_zip_archive* zptr = &modfile.parentMod->zipfile;
+	
+	// todo should store index in modfile
+	int zipindex = mz_zip_reader_locate_file(zptr, modfile.realPath.c_str(), nullptr, 0);
+	if(zipindex == -1)
+		return false;
+
+	mz_zip_archive_file_stat fstats;
+	if(!mz_zip_reader_file_stat(zptr, zipindex, &fstats))
+		return false;
+
+
+	if (buffer.maxcapacity < fstats.m_uncomp_size) {
+		delete[] buffer.buffer;
+
+		buffer.maxcapacity = fstats.m_uncomp_size + 2048;
+		buffer.buffer = new char[buffer.maxcapacity];
+	}
+	buffer.filelength = fstats.m_uncomp_size;
+
+	if(!mz_zip_reader_extract_to_mem_no_alloc(zptr, zipindex, buffer.buffer, buffer.maxcapacity, 0, NULL, 0))
+		return false;
+
+	modfile.ownsData = false;
+	modfile.dataBuffer = buffer.buffer;
+	modfile.dataLength = buffer.filelength;
+
+	return true;
 }
