@@ -8,6 +8,8 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <mutex>
+#include <thread>
 
 #define RESTYPE_NOLOAD "noload"
 
@@ -161,6 +163,67 @@ void ModReader_ConfirmModFile(ModDef& moddef, ModFile& modfile, int argflags) {
 	moddef.modFiles.push_back(modfile);
 }
 
+struct idUnzippedImageJob {
+	fspath filepath;
+	std::string assetpath;
+	std::string encodinginfo;
+	std::string realPath;
+	int ModFileIndex = 0;
+};
+
+struct idUnzippedImageJobList {
+	std::vector<idUnzippedImageJob> jobs;
+	idImageEncodingContext* context = nullptr;
+	ModDef* mod = nullptr;
+};
+
+std::mutex g_getunzippedjob_mutex;
+
+void UnzippedImageEncodingThread(idUnzippedImageJobList* joblist) {
+
+	idUnzippedImageJob CurrentJob;
+	idImageEncodingResults ImageOutput;
+	std::string OutputLog;
+
+	if (!idImageEncodingContext::COMThreadInit())
+		return;
+
+	while (1) {
+
+		// Fetch next image job
+		{
+			std::lock_guard<std::mutex> lock(g_getunzippedjob_mutex);
+			if (joblist->jobs.size() == 0)
+				break;
+
+			CurrentJob = joblist->jobs.back();
+			joblist->jobs.pop_back();
+		}
+
+		OutputLog = CurrentJob.realPath;
+		OutputLog.append(" (");
+		OutputLog.append(CurrentJob.assetpath);
+		OutputLog.append(" )\n");
+		bool success = joblist->context->EncodeImage(CurrentJob.assetpath, 
+			CurrentJob.encodinginfo, CurrentJob.filepath.c_str(), ImageOutput, OutputLog);
+		if (!success)
+			continue;
+
+		// Transfer ownership of output buffer to the mod file
+		ModFile& modfile = joblist->mod->modFiles[CurrentJob.ModFileIndex];
+		modfile.dataBuffer = ImageOutput.buffer;
+		modfile.dataLength = ImageOutput.file_length;
+		modfile.ownsData = true;
+		ImageOutput.buffer = nullptr;
+		ImageOutput.buffer_max = 0;
+		ImageOutput.file_length = 0;
+
+		atlog << OutputLog;
+	}
+
+	idImageEncodingContext::COMThreadRelease();
+}
+
 void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fspath& gamedir, int argflags)
 {
 	using namespace std::filesystem;
@@ -211,8 +274,7 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 
 	atlog << "Found " << ModFilePaths.size() << " Unzipped Mod Files\n";
 
-	idImageEncodingContext EncodingContext;
-	idImageEncodingResults EncodingResults;
+	idUnzippedImageJobList ImageJobs;
 
 	for (const fspath& FilePath : ModFilePaths) {
 		ModFile modfile;
@@ -229,28 +291,15 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 		//	  Don't want to bother developing an Encode-From-Memory pipeline
 		//    just for this edge case that shouldn't reasonably happen)
 		if (modfile.typeenum == rt_image) {
-			if (!EncodingContext.m_initialized) {
-				atlog << "Initializing Image Encoder\n";
-
-				// Use a faster compression level than the mod packager to improve iteration times.
-				if (!EncodingContext.InitializeContext(gamedir.string(), 3)) { 
-					return;
-				}
-			}
-
-			std::string EncodingLog;
-			atlog << "Encoding " << modfile.realPath << " (" << modfile.assetPath << ")\n";
-			bool result = EncodingContext.EncodeImage(modfile.assetPath, EncodingInfo, FilePath.c_str(), EncodingResults, EncodingLog);
-			if(EncodingLog.length())
-				atlog << EncodingLog;
-			if (!result) {
-				continue;
-			}
-
-			// Give modfile it's own copy of the data
-			modfile.dataLength = EncodingResults.file_length;
-			modfile.dataBuffer = new char[modfile.dataLength];
-			memcpy(modfile.dataBuffer, EncodingResults.buffer, modfile.dataLength);
+			
+			ImageJobs.jobs.emplace_back();
+			
+			idUnzippedImageJob& job = ImageJobs.jobs.back();
+			job.filepath = FilePath;
+			job.realPath = modfile.realPath;
+			job.assetpath = modfile.assetPath;
+			job.encodinginfo = EncodingInfo;
+			job.ModFileIndex = (int)moddef.modFiles.size();
 		}
 		else {
 			std::ifstream filereader(FilePath, std::ios_base::binary);
@@ -267,6 +316,27 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 			filereader.close();
 		}
 		ModReader_ConfirmModFile(moddef, modfile, argflags);
+	}
+
+	if(ImageJobs.jobs.size()) {
+		const int NUMTHREADS = 8;
+		std::thread threadpool[NUMTHREADS];
+
+		atlog << "Running " << ImageJobs.jobs.size()
+			<< " Image Encoding Jobs on " << NUMTHREADS << " threads\n";
+
+		idImageEncodingContext ImageEncoder;
+		atlog << "Initializing Image Encoder with directory " << gamedir << "\n";
+		if(!ImageEncoder.InitializeContext(gamedir.string(), 3))
+			return;
+
+		ImageJobs.context = &ImageEncoder;
+		ImageJobs.mod = &moddef;
+
+		for (int i = 0; i < NUMTHREADS; i++)
+			threadpool[i] = std::thread(UnzippedImageEncodingThread, &ImageJobs);
+		for (int i = 0; i < NUMTHREADS; i++)
+			threadpool[i].join();
 	}
 }
 
