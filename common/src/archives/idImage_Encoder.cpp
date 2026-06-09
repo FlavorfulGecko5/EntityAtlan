@@ -244,6 +244,7 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const std
 		OutputLog.append("   ERROR: Unsupported texture format\n");
 		return false;
 	}
+	bool IsSRGB = header.textureFormat == FMT_BC1_SRGB || header.textureFormat == FMT_BC3_SRGB || header.textureFormat == FMT_BC7_SRGB;
 
 	/*
 	* Step 3: Perform the encoding
@@ -252,11 +253,7 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const std
 	DirectX::ScratchImage image;
 	DirectX::ScratchImage TEMP_IMAGE;
 	
-	// We could read from memory, but at this point we should refactor our unzipped mod reader so we're not zipping everything internally
-	// It's bearable for standard mods, but for image mods will be very wasteful
-	//HRESULT result = DirectX::LoadFromWICMemory(parms.data, parms.datalength, DirectX::WIC_FLAGS_NONE, nullptr, image);
-
-	HRESULT result = DirectX::LoadFromWICFile(FilePath, DirectX::WIC_FLAGS_NONE, nullptr, image);
+	HRESULT result = DirectX::LoadFromWICFile(FilePath, IsSRGB ? DirectX::WIC_FLAGS_DEFAULT_SRGB : DirectX::WIC_FLAGS_NONE, nullptr, image);
 	if (FAILED(result)) {
 		OutputLog.append("   ERROR: Failed to read raw image file into ScratchImage (Error Code: ");
 		OutputLog.append(std::to_string(result));
@@ -278,11 +275,15 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const std
 	//printf("\rCompressing Texture...");
 	if (DXGI_UseGpuEncoding(dxgiFormat)) {
 		result = Compress(m_device, TEMP_IMAGE.GetImages(), TEMP_IMAGE.GetImageCount(), TEMP_IMAGE.GetMetadata(),
-			dxgiFormat, DirectX::TEX_COMPRESS_PARALLEL, DirectX::TEX_ALPHA_WEIGHT_DEFAULT, image);
+			dxgiFormat, 
+			DirectX::TEX_COMPRESS_PARALLEL | (IsSRGB ? DirectX::TEX_COMPRESS_SRGB : DirectX::TEX_COMPRESS_DEFAULT), 
+			DirectX::TEX_ALPHA_WEIGHT_DEFAULT, image);
 	}
 	else {
 		result = Compress(TEMP_IMAGE.GetImages(), TEMP_IMAGE.GetImageCount(), TEMP_IMAGE.GetMetadata(),
-			dxgiFormat, DirectX::TEX_COMPRESS_PARALLEL, DirectX::TEX_THRESHOLD_DEFAULT, image);
+			dxgiFormat, 
+			DirectX::TEX_COMPRESS_PARALLEL | (IsSRGB ? DirectX::TEX_COMPRESS_SRGB : DirectX::TEX_COMPRESS_DEFAULT),
+			DirectX::TEX_THRESHOLD_DEFAULT, image);
 	}
 	if (FAILED(result)) {
 		OutputLog.append("   ERROR: Failed to encode texture (Error Code: ");

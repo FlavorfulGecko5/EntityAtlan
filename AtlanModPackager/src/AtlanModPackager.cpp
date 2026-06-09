@@ -62,8 +62,10 @@ void ImageEncodingThread(idImageJobList* joblist) {
 		OutputLog.append(CurrentJob.assetpath);
 		OutputLog.append(" )\n");
 		bool success = joblist->context->EncodeImage(CurrentJob.assetpath, CurrentJob.encodinginfo, CurrentJob.filepath.c_str(), ImageOutput, OutputLog);
-		if(!success)
+		if (!success) {
+			atlog << OutputLog;
 			continue;
+		}
 
 		// Add to image
 		// todo finish and test

@@ -206,6 +206,7 @@ void UnzippedImageEncodingThread(idUnzippedImageJobList* joblist) {
 		OutputLog.append(" )\n");
 		bool success = joblist->context->EncodeImage(CurrentJob.assetpath, 
 			CurrentJob.encodinginfo, CurrentJob.filepath.c_str(), ImageOutput, OutputLog);
+		atlog << OutputLog;
 		if (!success)
 			continue;
 
@@ -218,7 +219,6 @@ void UnzippedImageEncodingThread(idUnzippedImageJobList* joblist) {
 		ImageOutput.buffer_max = 0;
 		ImageOutput.file_length = 0;
 
-		atlog << OutputLog;
 	}
 
 	idImageEncodingContext::COMThreadRelease();
