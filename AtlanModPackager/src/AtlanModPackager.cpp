@@ -67,12 +67,15 @@ void ImageEncodingThread(idImageJobList* joblist) {
 			continue;
 		}
 
-		// Add to image
-		// todo finish and test
+		// We'll zip image assets by their asset path instead of their unaliased PNG path
+		// 1. This makes packaged vs unpackaged mod zips easily distinguishable
+		// 2. Packaged image assets won't be mistaken for normal PNGs
+		std::string DealiasedZipName = "image/";
+		DealiasedZipName.append(CurrentJob.assetpath);
 		{
 			std::lock_guard<std::mutex> lock(g_addzip_mutex);
 
-			success = mz_zip_writer_add_mem(joblist->zptr, CurrentJob.zippath.c_str(), ImageOutput.buffer, ImageOutput.file_length, MZ_DEFAULT_COMPRESSION);
+			success = mz_zip_writer_add_mem(joblist->zptr, DealiasedZipName.c_str(), ImageOutput.buffer, ImageOutput.file_length, MZ_DEFAULT_COMPRESSION);
 			if (!success) {
 				OutputLog.append("   ERROR: Failed to add image to zip file\n");
 			}
