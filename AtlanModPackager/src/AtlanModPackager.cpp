@@ -93,10 +93,12 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 
 	fspath DIR_INPUT = ".";
 	fspath ZIP_OUTPUT;
+	atlog << "Select Mod Folder to Package\n";
 	if(FileDialog(DIR_INPUT, "NOT_USED", false) == false) {
 		atlog << "Folder dialog cancelled, or error encountered\n";
 		return;
 	}
+	atlog << "Select location and name of your packaged mod zip\n";
 	if (FileDialog(ZIP_OUTPUT, DIR_INPUT.stem(), true) == false) {
 		atlog << "Save As dialog cancelled or encountered error\n";
 		return;
@@ -431,6 +433,7 @@ bool FileDialog(fspath& output_filepath, const fspath& in_zipname, bool SaveAs) 
 			spec.pszName = L"Zip Files";
 			spec.pszSpec = L"*.zip";
 			folderdialog->SetFileTypes(1, &spec);
+			folderdialog->SetDefaultExtension(L".zip");
 
 			std::wstring default_zipname = in_zipname;
 			default_zipname.append(L"_AtlanPackage.zip");
