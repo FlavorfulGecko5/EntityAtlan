@@ -880,7 +880,7 @@ void InjectorMain(int argc, char* argv[], int& argflags) {
 
 	atlog << R"(
 ----------------------------------------------
-Atlan Mod Loader v)" << MOD_LOADER_VERSION << R"(.0 EXPERIMENTAL BETA for DOOM: The Dark Ages
+Atlan Mod Loader v)" << MOD_LOADER_VERSION << R"(.0 for DOOM: The Dark Ages
 By FlavorfulGecko5
 With Special Thanks to: Proteh, Zwip-Zwap-Zapony, Tjoener, and many other talented modders!
 https://github.com/FlavorfulGecko5/EntityAtlan/
@@ -942,10 +942,10 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 
 	const fspath cachepath       = gamedirectory / "modloader_cache.bin";
 	const fspath manifestpath    = gamedirectory / "base/build-manifest.bin";
+	const fspath exepath		 = gamedirectory / "DOOMTheDarkAges.exe";
 
 	struct LoaderCache_t {
-		uint64_t manifesthash = -1;
-		uint64_t patchersucceeded = 0; // If > 0, then Dark Ages Patcher worked successfully
+		std::filesystem::file_time_type WriteTime;
 	} loadercache, newcache;
 
 
@@ -1000,28 +1000,20 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 			cachereader.read(reinterpret_cast<char*>(&loadercache), sizeof(LoaderCache_t));
 		}
 		else {
-			atlog << "WARNING: Corrupted Mod Loader Cache file detected. Falling back to defaults\n";
+			atlog << "WARNING: Cache file size mismatch. Falling back to defaults\n";
 		}
 		cachereader.close();
 	}
 
 	/*
-	* To determine if the game has been updated, we hash part of the build-manifest
-	* and compare it with what's on file
+	* To determine if the game has been updated, we compare last write time
+	* with what's stored in the above cache file
 	*/
-	{
-		if (!std::filesystem::exists(manifestpath)) {
-			atlog << "FATAL ERROR: Could not find " << manifestpath << "\n";
-			return;
-		}
-		std::ifstream manreader(manifestpath, std::ios_base::binary);
-
-		#define READ_COUNT 256
-		char buffer[READ_COUNT];
-		manreader.read(buffer, READ_COUNT);
-		newcache.manifesthash = HashLib::FarmHash64(buffer, READ_COUNT);
-		manreader.close();
+	if (!std::filesystem::exists(exepath)) {
+		atlog << "FATAL ERROR: Failed to find " << exepath.filename() << "\n";
+		return;
 	}
+	newcache.WriteTime = std::filesystem::last_write_time(exepath);
 
 	/*
 	* Initialize Oodle Compression library
@@ -1033,21 +1025,16 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 	* Run Proteh's Dark Ages Patcher
 	*/
 
-	bool gameUpdated = newcache.manifesthash != loadercache.manifesthash;
-	if (gameUpdated) {
-		//argflags |= argflag_gameupdated;
-		atlog << "Game has been updated, or mod loader cache file could not be found. Performing update operations\n";
-	}
-
-	bool runPatcher = gameUpdated || loadercache.patchersucceeded == 0;
+	bool runPatcher = newcache.WriteTime != loadercache.WriteTime;
 	if(argflags & argflag_neverpatch)
 		runPatcher = false;
 
 	if(runPatcher)
 	{
+		atlog << "Game has been updated, or mod loader cache file could not be found. Performing update operations\n";
+
 		// Do not put slashes in any string literals here
 		const fspath patcherpath = gamedirectory / "DarkAgesPatcher.exe";
-		const fspath exepath = gamedirectory / "DOOMTheDarkAges.exe";
 
 		atlog << "\nRunning DarkAgesPatcher.exe by Proteh\n";
 		if(!std::filesystem::exists(patcherpath))
@@ -1125,23 +1112,17 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 				return;
 			}
 		}
+		else {
 
-		newcache.patchersucceeded = patchsuccess;
-	}
-	else {
-		// If we're bypassing the patcher when there's a game update, ensure we
-		// re-run the patcher on future executions
-		newcache.patchersucceeded = gameUpdated ? 0 : loadercache.patchersucceeded;
-	}
-
-	/*
-	* Write the new loader cache file
-	*/
-	if(memcmp(&loadercache, &newcache, sizeof(LoaderCache_t)) != 0)
-	{
-		std::ofstream cachewriter(cachepath, std::ios_base::binary);
-		cachewriter.write(reinterpret_cast<char*>(&newcache), sizeof(LoaderCache_t));
-		cachewriter.close();
+			// The newly stored time will be the write time post-patching
+			newcache.WriteTime = std::filesystem::last_write_time(exepath);
+			
+			// Write the new loader cache file
+			// This should only be done when patching is successful
+			std::ofstream cachewriter(cachepath, std::ios_base::binary);
+			cachewriter.write(reinterpret_cast<char*>(&newcache), sizeof(LoaderCache_t));
+			cachewriter.close();
+		}
 	}
 
 	/*
