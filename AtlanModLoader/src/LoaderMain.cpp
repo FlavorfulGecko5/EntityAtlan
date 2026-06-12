@@ -642,13 +642,15 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 				zipmodpaths.push_back(dirEntry.path());
 		}
 
-		// If there are no folders, treat the mods folder itself
-		// as an unzipped mod folder
-		// TODO: Currently this causes invalid resource type errors to be thrown because stuff inside
+		// If there are no folders, treat the mods folder itself as an unzipped mod folder
+		// Currently this causes invalid resource type errors to be thrown because stuff inside
 		// dollar folders will be interpreted as mod files. Shouldn't be a big deal
-		if(UnzippedModFolders.size() == 0) {
-			UnzippedModFolders.push_back(modsdir);
-		}
+		// UPDATE: We're not going to support this:
+		// 1. The log spam as mentioned gets annoying when there are lots of disabled folders
+		// 2. This approach should not be encouraged compared to using subfolders
+		//if(UnzippedModFolders.size() == 0) {
+		//	UnzippedModFolders.push_back(modsdir);
+		//}
 
 		atlog << "\nMod Zips: " << zipmodpaths.size() << " Unzipped Mod Folders: " << UnzippedModFolders.size() << "\n";
 	}
