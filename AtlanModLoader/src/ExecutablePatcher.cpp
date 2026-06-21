@@ -11,8 +11,14 @@
 
 typedef std::filesystem::path fspath;
 
-void hash_to_alpha(char *buffer, uint64_t hash) {
-	char* const buffermax = buffer + 16;
+struct alphahash_t {
+	char hash[16];
+};
+
+alphahash_t hash_to_alpha(uint64_t hash) {
+	alphahash_t wrapper;
+	char* buffer = wrapper.hash;
+	char* const buffermax = buffer + sizeof(wrapper.hash);
 
 	while (buffer < buffermax) {
 		*buffer =  (char)(hash & 0xF)  + '0';
@@ -22,6 +28,8 @@ void hash_to_alpha(char *buffer, uint64_t hash) {
 		buffer++;
 		hash >>= 4;
 	}
+
+	return wrapper;
 }
 
 bool parse_hexstring(std::vector<uint8_t>& buffer, const char* data, size_t len) {
@@ -55,23 +63,13 @@ bool parse_hexstring(std::vector<uint8_t>& buffer, const char* data, size_t len)
 	return true;
 }
 
-bool Should_Run_Patcher(const fspath& gamedir) 
+bool Should_Run_Patcher(const fspath exepath, alphahash_t configHash) 
 {
-	const fspath exepath = gamedir /    "DOOMTheDarkAges.exe";
-	const fspath backuppath = gamedir / "DOOMTheDarkAges.exe.backup";
-	
+	fspath backuppath = exepath;
+	backuppath += ".backup";
+
 	if(!std::filesystem::exists(exepath))
 		return false;
-
-	
-	char alphahash[16];
-	{
-		BinaryOpener rawconfig(CONFIGPATH);
-		uint64_t hash = HashLib::FarmHash64(rawconfig.data(), rawconfig.len());
-		hash_to_alpha(alphahash, hash);
-
-		//printf("%llx %.*s\n", hash, 16, alphahash);
-	}
 
 	std::ifstream exereader(exepath, std::ios_base::binary);
 	exereader.seekg(DOSOFFSET, std::ios_base::beg);
@@ -81,7 +79,7 @@ bool Should_Run_Patcher(const fspath& gamedir)
 
 	if (memcmp(dosstring, "This program cannot be run in DOS mode", DOSLENGTH) == 0) {
 		
-		atlog << "Unpatched executable detected. Creating backup\n";
+		atlog << exepath << " is unpatched. Creating backup\n";
 		std::filesystem::copy(exepath, backuppath, std::filesystem::copy_options::overwrite_existing);
 		return true;
 	}
@@ -89,13 +87,13 @@ bool Should_Run_Patcher(const fspath& gamedir)
 
 	if (memcmp(dosstring, "ATLANMOD", 8) == 0) {
 
-		if (memcmp(dosstring + 8, alphahash, 16) == 0) {
-			atlog << "Executable has latest patches\n";
+		if (memcmp(dosstring + 8, configHash.hash, sizeof(configHash.hash)) == 0) {
+			atlog << exepath << " has latest patches\n";
 			return false;
 		}
 		else {
 
-			atlog << "Executable has a different set of patches applied. Re-patching\n";
+			atlog << exepath << " has a different set of patches applied. Re-patching\n";
 			
 			if (exists(backuppath)) {
 				atlog << "Restoring executable from backup\n";
@@ -117,6 +115,11 @@ bool Should_Run_Patcher(const fspath& gamedir)
 struct gamepatch {
 	std::string name;
 	std::vector<uint8_t> hexdata; // Vanilla binary sequence followed by patched binary sequence
+};
+
+struct PatcherConfig {
+	std::vector<gamepatch> patchlist;
+	bool REVERSE = false;
 };
 
 struct patchref {
@@ -186,17 +189,14 @@ bool GetPatchList(std::vector<gamepatch>& patchlist, bool& REVERSE) {
 	}
 }
 
-void Run_Executable_Patcher(const fspath& gamedir)
-{
-	if (!Should_Run_Patcher(gamedir)) {
-		return;
-	}
 
+// TODO: Refactor is not finished. Still need to adjust config parsing
+// to account for multiple games
+void Run_Executable_Patcher(const fspath& exepath)
+{
 	bool REVERSE = false;
 
 	atlog << "\n\nRunning Atlan Executable Patcher\n-----\n";
-
-	const fspath exepath = gamedir / "DOOMTheDarkAges.exe";
 
 	std::vector<gamepatch> patchlist;
 	if (!GetPatchList(patchlist, REVERSE)) {
@@ -296,15 +296,45 @@ void Run_Executable_Patcher(const fspath& gamedir)
 
 	BinaryOpener hashopen(CONFIGPATH);
 	uint64_t farmhash = HashLib::FarmHash64(hashopen.data(), hashopen.len());
-	char alphahash[16];
-	hash_to_alpha(alphahash, farmhash);
+	alphahash_t hashwrapper = hash_to_alpha(farmhash);
 
 	// Edit the DOS stub
 	memcpy(exeopener.GetEditable() + DOSOFFSET, "ATLANMOD", 8);
-	memcpy(exeopener.GetEditable() + DOSOFFSET + 8, alphahash, 16);
+	memcpy(exeopener.GetEditable() + DOSOFFSET + 8, hashwrapper.hash, sizeof(hashwrapper.hash));
 
 	// Write out the file
 	std::ofstream outwriter("../input/darkages/injectortest/test.bin", std::ios_base::binary);
 	outwriter.write(exeopener.data(), exeopener.len()); // exe ptr is incremented...do not use here
 	outwriter.close();
+}
+
+bool Executable_Patcher_Main(const fspath& gamedir)
+{
+	if (!std::filesystem::exists(CONFIGPATH)) {
+		atlog << "ERROR: Missing " CONFIGPATH "\n";
+		return false;
+	}
+
+	alphahash_t configHash;
+	{
+		BinaryOpener rawconfig(CONFIGPATH);
+		uint64_t hash = HashLib::FarmHash64(rawconfig.data(), rawconfig.len());
+		configHash = hash_to_alpha(hash);
+	}
+
+	const fspath exes[] = {
+		gamedir / "DOOMTheDarkAges.exe",
+		gamedir / "DOOMEternalx64vk.exe",
+		gamedir / "doomSandBox/DOOMSandBox64vk.exe"
+	};
+
+
+	for (int i = 0; i < sizeof(exes) / sizeof(exes[0]); i++) {
+		if (Should_Run_Patcher(exes[i], configHash) == false)
+			continue;
+
+		// TODO NOT FINISHED
+	}
+
+
 }

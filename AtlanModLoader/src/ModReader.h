@@ -29,6 +29,12 @@ struct ModDef {
 	std::string modName;
 	std::vector<ModFile> modFiles;
 	mz_zip_archive zipfile;
+
+	~ModDef();
+
+	ModDef() {}
+	ModDef(const ModDef& other) = delete;
+	void operator=(const ModDef& other) = delete;
 };
 
 struct ModFile {
@@ -52,15 +58,12 @@ inline void ModFile_Free(ModFile& mfile) {
 	}
 }
 
-inline void ModDef_Free(ModDef& mod) {
-	for (ModFile& f : mod.modFiles) {
+inline ModDef::~ModDef() {
+	for (ModFile& f : modFiles) {
 		ModFile_Free(f);
 	}
-	mod.modFiles.clear();
-
-	if (mod.ActiveZip) {
-		mz_zip_reader_end(&mod.zipfile);
-		mod.ActiveZip = false;
+	if (ActiveZip) {
+		mz_zip_reader_end(&zipfile);
 	}
 }
 

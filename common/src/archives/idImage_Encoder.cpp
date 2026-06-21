@@ -210,14 +210,15 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const std
 		if (pair == m_headermap.end()) {
 			
 			if (BuildOriginalImageHeader(AssetPath, EncodingInfo, header, OutputLog)) {
-				OutputLog.append("   New Image Recognized ( ");
+				OutputLog.append("   Non-Vanilla Image Recognized ( ");
 				OutputLog.append(textureFormat_tostring(header.textureFormat));
 				OutputLog.append(", ");
 				OutputLog.append(textureMaterialKind_tostring(header.textureMaterialKind));
-				OutputLog.append(")\n");
+				OutputLog.append(")\n   (If this should be a vanilla image, check your alias for a typo)\n");
 			}
 			else {
-				OutputLog.append("   ERROR: Not enough data to build ImageHeader\n");
+				OutputLog.append("   ERROR: This image file does not exist in the vanilla game, and there is not enough "
+					"information to encode it correctly!\n   (If this should be a vanilla image, check your alias for a typo)\n");
 				return false;
 			}
 		}

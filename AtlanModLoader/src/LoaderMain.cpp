@@ -196,7 +196,8 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 		// there's a better way we can skip over the invalid files while loading the rest?
 		idAtlanImage imgdef;
 		if (!ModReader::LoadModData(*modfiles[MODFILE_INDEX], JIT)) {
-			atlog << "FATAL ERROR: Just-in-time loading failed\n";
+			atlog << "FATAL ERROR: Just-in-time loading failed.\n"
+				"(If an unzipped image file failed to encode, this is the likely cause of this error)\n";
 			return false; // This codepath would imply a legitimately bad error
 		}
 		if (f.typeenum == rt_image && !imgdef.Read((uint8_t*)f.dataBuffer, f.dataLength)) {
@@ -601,7 +602,7 @@ bool CleanupLastLoad(const fspath gamedir)
 	return true;
 }
 
-void InjectorLoadMods(const fspath gamedir, const int argflags) {
+bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 	fspath modsdir = gamedir / "mods";
 	fspath basedir = gamedir / "base";
 	fspath outdir = basedir / "modarchives";
@@ -617,7 +618,7 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 
 	if(argflags & argflag_resetvanilla) {
 		atlog << "Uninstalled all mods\n";
-		return;
+		return true;
 	}
 
 	/*
@@ -662,17 +663,24 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 
 	atlog << "\n\nReading Mods:\n----------\n";
 
-	int totalmods = static_cast<int>(zipmodpaths.size() + UnzippedModFolders.size());
-	ModDef* realmods = new ModDef[totalmods];
+	struct modlist_t {
+		ModDef* mods = nullptr;
+		int totalmods = 0;
+
+		~modlist_t() { delete[] mods;}
+	} ModList;
+
+	ModList.totalmods = static_cast<int>(zipmodpaths.size() + UnzippedModFolders.size());
+	ModList.mods = new ModDef[ModList.totalmods];
 
 	int REALMOD_INCREMENTOR = 0;
 	for(const fspath& UnzippedFolder : UnzippedModFolders) {
-		ModReader::ReadLooseModv2(realmods[REALMOD_INCREMENTOR++], UnzippedFolder, gamedir, argflags);
+		ModReader::ReadLooseModv2(ModList.mods[REALMOD_INCREMENTOR++], UnzippedFolder, gamedir, argflags);
 	}
 	for(const fspath& ZipPath : zipmodpaths) {
-		ModReader::ReadZipMod(realmods[REALMOD_INCREMENTOR++], ZipPath, argflags);
+		ModReader::ReadZipMod(ModList.mods[REALMOD_INCREMENTOR++], ZipPath, argflags);
 	}
-	assert(REALMOD_INCREMENTOR == totalmods);
+	assert(REALMOD_INCREMENTOR == ModList.totalmods);
 
 	/*
 	* Build the supermod - the list of mod files we will actually load into the archive
@@ -689,8 +697,8 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 	*/
 
 	atlog << "\n\nChecking for Conflicts:\n----------\n";
-	for(int i = 0; i < totalmods; i++) {
-		ModDef& current = realmods[i];
+	for(int i = 0; i < ModList.totalmods; i++) {
+		ModDef& current = ModList.mods[i];
 
 		for(ModFile& file : current.modFiles) {
 
@@ -852,7 +860,8 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 			RebuildContainerMask(metapath, outarchivepath);
 		}
 		else {
-			atlog << "Resource Mod Loading aborted due to the above error\n";
+			atlog << "FATAL ERROR: Resource Mod Loading aborted due to the above error\n";
+			return false;
 		}
 	}
 
@@ -867,13 +876,7 @@ void InjectorLoadMods(const fspath gamedir, const int argflags) {
 		atlog << "\n\nNo mods will be loaded. All previously loaded mods are removed.\n";
 	}
 
-	/*
-	* DEALLOCATE EVERYTHING
-	*/
-	for(int i = 0; i < totalmods; i++) {
-		ModDef_Free(realmods[i]);
-	}
-	delete[] realmods;
+	return true;
 }
 
 extern bool Executable_Patcher_Main(const fspath& gamedir);
@@ -1130,7 +1133,9 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 	/*
 	* Run the mod loader
 	*/
-	InjectorLoadMods(gamedirectory, argflags);
+	if(!InjectorLoadMods(gamedirectory, argflags)) {
+		return;
+	}
 
 	/*
 	* Finish up
