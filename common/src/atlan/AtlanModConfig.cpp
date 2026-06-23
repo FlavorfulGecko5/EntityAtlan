@@ -34,7 +34,7 @@ void AtlanModConfig::GetNormalizedName(const std::string& in_zipname, std::strin
         c++;
     }
 
-    //atlog << "TYPE: '" << out_assettype << "' NAME: '" << out_assetname << "'\n";
+    //atlog_deprecated << "TYPE: '" << out_assettype << "' NAME: '" << out_assetname << "'\n";
 }
 
 bool AtlanModConfig::TryRead(const std::string& filepath)
@@ -44,7 +44,7 @@ bool AtlanModConfig::TryRead(const std::string& filepath)
         return TryRead_Internal(*parser.getRoot());
     }
     catch (...) {
-        atlog << "ERROR: Failed to parse " CFG_NAME "\n";
+        atlog("ERROR: Failed to parse " CFG_NAME);
         return false;
     }
     
@@ -57,7 +57,7 @@ bool AtlanModConfig::TryRead(const char* data, const size_t length) {
         return TryRead_Internal(*parser.getRoot());
     }
     catch (...) {
-        atlog << "ERROR: Failed to parse " CFG_NAME "\n";
+        atlog("ERROR: Failed to parse " CFG_NAME);
         return false;
     }
 }
@@ -79,11 +79,11 @@ bool AtlanModConfig::TryRead_Internal(EntNode& root) {
 
     if (!foundReqVersion)
     {
-        atlog << "WARNING: " CFG_REQUIREDVERSION  " not found. Using default value\n";
+        atlog("WARNING: " CFG_REQUIREDVERSION  " not found. Using default value");
     }
     if (!foundLoadPriority)
     {
-        atlog << "WARNING: " CFG_LOADPRIORITY  " not found. Using default value\n";
+        atlog("WARNING: " CFG_LOADPRIORITY  " not found. Using default value");
     }
 
     /*
@@ -96,7 +96,7 @@ bool AtlanModConfig::TryRead_Internal(EntNode& root) {
             continue;
 
         if (currentAlias.getValueUQ().length() == 0) {
-            atlog << "WARNING: Alias with empty value. Skipping\n";
+            atlog("WARNING: Alias with empty value. Skipping");
             continue;
         }
 
@@ -120,10 +120,10 @@ bool AtlanModConfig::TryRead_Internal(EntNode& root) {
         alias.emplace(normalizedname, normalizedvalue);
     }
     if (alias.size() > 0)
-        atlog << "Found " << alias.size() << " alias definitions\n";
+        atlog("Found %llu alias definitions", alias.size());
 
     //for (auto& pair : cfg.alias) {
-    //	atlog << "\n" << pair.first << "-" << pair.second;
+    //	atlog_deprecated << "\n" << pair.first << "-" << pair.second;
     //}
 
     return true;

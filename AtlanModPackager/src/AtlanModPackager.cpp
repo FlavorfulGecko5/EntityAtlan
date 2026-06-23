@@ -63,7 +63,7 @@ void ImageEncodingThread(idImageJobList* joblist) {
 		OutputLog.append(" )\n");
 		bool success = joblist->context->EncodeImage(CurrentJob.assetpath, CurrentJob.encodinginfo, CurrentJob.filepath.c_str(), ImageOutput, OutputLog);
 		if (!success) {
-			atlog << OutputLog;
+			atlog_raw(OutputLog.data(), OutputLog.length(), false);
 			continue;
 		}
 
@@ -81,7 +81,7 @@ void ImageEncodingThread(idImageJobList* joblist) {
 			}
 		}
 
-		atlog << OutputLog;
+		atlog_raw(OutputLog.data(), OutputLog.length(), false);
 	}
 
 	idImageEncodingContext::COMThreadRelease();
@@ -93,14 +93,14 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 
 	fspath DIR_INPUT = ".";
 	fspath ZIP_OUTPUT;
-	atlog << "Select Mod Folder to Package\n";
+	atlog("Select Mod Folder to Package");
 	if(FileDialog(DIR_INPUT, "NOT_USED", false) == false) {
-		atlog << "Folder dialog cancelled, or error encountered\n";
+		atlog("Folder dialog cancelled, or error encountered");
 		return;
 	}
-	atlog << "Select location and name of your packaged mod zip\n";
+	atlog("Select location and name of your packaged mod zip");
 	if (FileDialog(ZIP_OUTPUT, DIR_INPUT.stem(), true) == false) {
-		atlog << "Save As dialog cancelled or encountered error\n";
+		atlog("Save As dialog cancelled or encountered error");
 		return;
 	}
 
@@ -129,10 +129,10 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 	const size_t modsfolder_length = modsfolder.string().size();
 
 	if(!is_directory(modsfolder)) {
-		atlog << "FATAL ERROR: Could not find mods folder\n";
+		atlog("FATAL ERROR: Could not find mods folder");
 		return;
 	}
-	atlog << "Packaging " << modsfolder << "\n";
+	atlog("Packaging %ls", modsfolder.c_str());
 
 	// Put this after the mod folder is located, so
 	// we don't download Oodle in an incorrect place.
@@ -160,11 +160,11 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 
 			// Edge Case: Mod config is in a subfolder - ignore it
 			if(entrypath.parent_path() != modsfolder) {
-				atlog << "Ignoring " CFG_NAME << " inside a subfolder\n";
+				atlog("Ignoring " CFG_NAME " inside a subfolder");
 				continue;
 			}
 
-			atlog << "Found " CFG_NAME "\n";
+			atlog("Found " CFG_NAME);
 			if(!ModConfig.TryRead(entrypath.string()))
 				return;
 
@@ -172,14 +172,14 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 			bool result = mz_zip_writer_add_file(zptr, CFG_NAME, entrypath.string().c_str(), 
 				"", 0, MZ_DEFAULT_COMPRESSION);
 			if (!result) {
-				atlog << "ERROR: Failed to add " CFG_NAME " to zip file\n";
+				atlog("ERROR: Failed to add " CFG_NAME " to zip file");
 				return;
 			}
 			continue;
 		}
 
 		filepaths.push_back(entrypath);
-		//atlog << entry.path() << "\n"; 
+		//atlog("%ls", entry.path().c_str());
 	}
 
 	idImageJobList ImageJobs;
@@ -232,14 +232,14 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 			continue;
 		}
 
-		atlog << "Packaging " << zippedName << "\n";
+		atlog("Packaging %s", zippedName.c_str());
 
 		// TODO: Investigate the serialization codepath. CRT detects massive
 		// memory leaks. Most likely the global variables used in the serialization pipeline?
 		// Update: Probably the entity class map
 		if (RESTYPE & rtc_serialized) {
 
-			atlog << "Serializing " << zippedName << "\n";
+			atlog("Serializing");
 			BinaryWriter serialized(static_cast<size_t>(file_size(modfile) * 0.5));
 			Reserializer::Serialize(modfile.string().c_str(), serialized, RESTYPE);
 
@@ -252,9 +252,9 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 				char* compbuffer = nullptr;
 				size_t outputlength = 0, outputBufferLength = 0;
 
-				atlog << "Compressing " << zippedName << "\n";
+				atlog("Compressing");
 				if(!Oodle::AtlanCompress(serialized.GetBuffer(), serialized.GetFilledSize(), compbuffer, outputlength, outputBufferLength))
-					atlog << "ERROR: Failed to create Atlan Compression File\n";
+					atlog("ERROR: Failed to create Atlan Compression File");
 
 				assert(Oodle::IsAtlanCompFile(compbuffer, outputlength));
 				result = mz_zip_writer_add_mem(zptr, bin_name.c_str(), compbuffer, outputlength, MZ_DEFAULT_COMPRESSION);
@@ -266,7 +266,7 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 			}
 
 			if (!result) {
-				atlog << "ERROR: Failed to add " << bin_name << " to zip file\n";
+				atlog("ERROR: Failed to zip serialized file");
 			}
 
 			std::string temp = zippedName;
@@ -276,15 +276,14 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 
 		bool result = mz_zip_writer_add_file(zptr, zippedName.c_str(), modfile.string().c_str(), "", 0, MZ_DEFAULT_COMPRESSION);
 		if(!result)
-			atlog << "ERROR: Failed to add " << zippedName << " to zip file\n";		
+			atlog("ERROR: Failed to zip file");		
 	}
 
 	if(ImageJobs.jobs.size()) {
 		const int NUMTHREADS = 8;
 		std::thread threadpool[NUMTHREADS];
 
-		atlog << "Running " << ImageJobs.jobs.size() 
-			<< " Image Encoding Jobs on " << NUMTHREADS << " threads\n";
+		atlog("Running %llu Image Encoding Jobs on %d threads", ImageJobs.jobs.size(), NUMTHREADS);
 
 		idImageEncodingContext ImageEncoder;
 		{
@@ -296,7 +295,7 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 				gamedir = absolute(".").string();
 			}
 
-			atlog << "Initializing Image Encoder with directory " << gamedir << "\n";
+			atlog("Initializing Image Encoder with directory %s", gamedir.c_str());
 			if (!ImageEncoder.InitializeContext(gamedir, 6))
 				return;
 		}
@@ -312,15 +311,16 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 	}
 
 	if(IgnoredFiles) {
-		atlog << "----------\n" << IgnoredFiles << " Files were not valid mod files and ignored\n";
-		atlog << IgnoreLog << "----------\n";
+		atlog("----------\n%d Files were not valid mod files and ignored (are your aliases correct?)", IgnoredFiles);
+		atlog_raw(IgnoreLog.data(), IgnoreLog.size(), false);
+		atlog("----------");
 	}
 
 	void* buffer = nullptr;
 	size_t buffersize = 0;
 	bool finalize = mz_zip_writer_finalize_heap_archive(zptr, &buffer, &buffersize);
 	if (!finalize) {
-		atlog << "ERROR: Failed to finalize zip archive\n";
+		atlog("ERROR: Failed to finalize zip archive");
 		return;
 	}
 
@@ -338,10 +338,8 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 #if 0
 void AlternateMode(int argc, char* argv[])
 {
-	atlog << "\n";
-
 	if (argc != 4 || strcmp(argv[1], "--serializemap") != 0) {
-		atlog << "Specialized Mode: AtlanModPackager.exe --serializemap <input_path> <output_path>\n";
+		atlog("Specialized Mode: AtlanModPackager.exe --serializemap <input_path> <output_path>");
 		return;
 	}
 
@@ -351,22 +349,22 @@ void AlternateMode(int argc, char* argv[])
 	fspath outputpath = absolute(argv[3]);
 
 	if(!exists(inputpath) || is_directory(inputpath)) {
-		atlog << "FATAL ERROR: Input file does not exist\n";
+		atlog("FATAL ERROR: Input file does not exist");
 		return;
 	}
 
 	if (is_directory(outputpath) || !is_directory(outputpath.parent_path())) {
-		atlog << "FATAL ERROR: Invalid output location\n";
+		atlog("FATAL ERROR: Invalid output location");
 		return;
 	}
 
 	BinaryWriter writer(static_cast<size_t>(file_size(inputpath) * 0.5f));
-	atlog << "Serializing Mapentities " << inputpath << "\n";
+	atlog("Serializing Mapentities %ls", inputpath.c_str());
 
 	int warningcount = Reserializer::Serialize(inputpath.string().c_str(), writer, rt_mapentities);
 
-	atlog << "Total Warnings: " << warningcount << "\n";
-	atlog << "Writing output to " << outputpath << "\n";
+	atlog("Total Warnings: %d", warningcount); 
+	atlog("Writing output to %ls", outputpath.c_str());
 
 	std::ofstream outwriter(outputpath, std::ios_base::binary);
 	outwriter.write(writer.GetBuffer(), writer.GetFilledSize());
@@ -385,23 +383,24 @@ int main(int argc, char* argv[])
 		// The packager also needs COM for the file dialogs
 		if(!idImageEncodingContext::COMThreadInit())
 			return 0;
-		AtlanLogger::init(logpath);
-		atlog << "Atlan Mod Packager 2.0 by FlavorfulGecko5\n";
+		AtlanLogger_Init(logpath);
+		atlog("Atlan Mod Packager 2.0 by FlavorfulGecko5");
 		PackagerMain(argc > 1 ? argv[1] : nullptr);
 		
 
 	#ifndef _DEBUG
 	}
 	catch (std::exception e) {
-		atlog << "\n\nFATAL ERROR: An unexpected crash has occurred\n"
-			<< "This may have left your packaged zip incomplete or corrupted.\n"
-			<< "Error Message: " << e.what();
+		atlog("\n\nFATAL ERROR: An unexpected crash has occurred\n"
+			  "This may have left your packaged zip incomplete or corrupted.\n"
+			  "Error Message: %s", e.what()
+		);
 	}
 	#endif
 
-	atlog << "\n\nThis window will close in 10 seconds\n";
-	atlog << "Output written to " << logpath << "\n";
-	AtlanLogger::exit();
+	atlog("\n\nThis window will close in 10 seconds");
+	atlog("Output written to " logpath);
+	AtlanLogger_Shutdown();
 	idImageEncodingContext::COMThreadRelease();
 
 	#ifndef _DEBUG

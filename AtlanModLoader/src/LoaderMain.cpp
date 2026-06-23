@@ -92,7 +92,7 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 		&& modfiles[0]->parentMod->IsUnzipped 
 		&& modfiles[0]->typeenum == rt_mapentities;
 	if (HotReloadMode) {
-		atlog << "Experimental Hot Reload Mode Engaged\n";
+		atlog("Experimental Hot Reload Mode Engaged");
 	}
 
 	// Buffer for doing just-in-time reading of large mod files
@@ -196,14 +196,14 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 		// there's a better way we can skip over the invalid files while loading the rest?
 		idAtlanImage imgdef;
 		if (!ModReader::LoadModData(*modfiles[MODFILE_INDEX], JIT)) {
-			atlog << "FATAL ERROR: Just-in-time loading failed.\n"
-				"(If an unzipped image file failed to encode, this is the likely cause of this error)\n";
+			atlog("FATAL ERROR: Just-in-time loading failed.\n"
+				  "(If an unzipped image file failed to encode, this is the likely cause of this error)");
 			return false; // This codepath would imply a legitimately bad error
 		}
 		if (f.typeenum == rt_image && !imgdef.Read((uint8_t*)f.dataBuffer, f.dataLength)) {
-			atlog << "FATAL ERROR: Image resource is not a valid Atlan Image File!\n"
-				"Please use Atlan Mod Packager to package your texture mods!\n"
-				"   Mod: " << f.parentMod->modName << " - " << f.realPath << "\n";
+			atlog("FATAL ERROR: Image resource is not a valid Atlan Image File!\n"
+				  "Please use Atlan Mod Packager to package your texture mods!\n"
+				  "   Mod: %s - %s", f.parentMod->modName.c_str(), f.realPath.c_str());
 			return false;
 		}
 
@@ -248,7 +248,7 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 				e.version = 4; e.flags = 2; e.variation = 70; break;
 			}
 
-			atlog << "ERROR: Unsupported resource type made it into build\n";
+			atlog("ERROR: Unsupported resource type made it into build");
 			return false;
 		}
 
@@ -260,7 +260,7 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 				HotReloadPadding = e.dataSize - f.dataLength;
 			}
 			else {
-				atlog << "ERROR: Hot Reload padding threshold exceeded. Please report this error.\n";
+				atlog("ERROR: Hot Reload padding threshold exceeded. Please report this error.");
 				e.dataSize = f.dataLength;
 				HotReloadPadding = 0;
 			}
@@ -373,11 +373,11 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 	if(NUM_IMAGES == 0)
 		return true;
 
-	streamdb.header.headerLength = sizeof(idStreamDB::header) + sizeof(idStreamDB::prefetchheader)
-		+ sizeof(idStreamDB::entry_t) * streamdb_entries.size();
+	streamdb.header.headerLength = static_cast<u32>( sizeof(idStreamDB::header) + sizeof(idStreamDB::prefetchheader)
+		+ sizeof(idStreamDB::entry_t) * streamdb_entries.size());
 	streamdb.header.numEntries = (u32)streamdb_entries.size();
 	if (streamdb.header.headerLength > streamdb_DataOffset) {
-		atlog << "FATAL ERROR: StreamDB Header Length > Data Offset. Please report this problem!";
+		atlog("FATAL ERROR: StreamDB Header Length > Data Offset. Please report this problem!");
 		return false;
 	}
 
@@ -432,7 +432,7 @@ void RebuildContainerMask(const fspath metapath, const fspath newarchivepath) {
 	char* decomp = new char[e->uncompressedSize + extraSize];
 	if (e->compMode == 2) {
 		if (!Oodle::DecompressBuffer(compressed, e->dataSize, decomp, e->uncompressedSize)) {
-			atlog << "ERROR: FAILED TO DECOMPRESS CONTAINER MASK\n";
+			atlog("ERROR: FAILED TO DECOMPRESS CONTAINER MASK");
 			return;
 		}
 	}
@@ -530,7 +530,7 @@ bool CleanupLastLoad(const fspath gamedir)
 	fspath modsndpath =    basedir / "sound/soundbanks/pc/ATLANMOD.snd";
 
 	std::error_code lastCode;
-	//atlog << "Managing backups and cleaning up previous injection files.\n";
+	//atlog("Managing backups and cleaning up previous injection files.");
 
 	#define NUM_BACKUPS 3
 	const fspath backedupfiles[NUM_BACKUPS] = {pmspath, metapath, soundmetapath};
@@ -543,7 +543,7 @@ bool CleanupLastLoad(const fspath gamedir)
 
 		// Ensure the original file exists
 		if (!exists(original)) {
-			atlog << "ERROR: Could not find " << absolute(original);
+			atlog("ERROR: Could not find %ls", absolute(original).c_str());
 			return false;
 		}
 
@@ -617,7 +617,7 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 	zipmodpaths.reserve(5);
 
 	if(argflags & argflag_resetvanilla) {
-		atlog << "Uninstalled all mods\n";
+		atlog("Uninstalled all mods");
 		return true;
 	}
 
@@ -653,7 +653,7 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 		//	UnzippedModFolders.push_back(modsdir);
 		//}
 
-		atlog << "\nMod Zips: " << zipmodpaths.size() << " Unzipped Mod Folders: " << UnzippedModFolders.size() << "\n";
+		atlog("\nMod Zips: %zu Unzipped Mod Folders: %zu", zipmodpaths.size(), UnzippedModFolders.size());
 	}
 	
 
@@ -661,7 +661,7 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 	* READ MOD DATA
 	*/
 
-	atlog << "\n\nReading Mods:\n----------\n";
+	atlog("\n\nReading Mods:\n----------");
 
 	struct modlist_t {
 		ModDef* mods = nullptr;
@@ -696,7 +696,7 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 	* Check for mod conflicts - eliminating any duplicate assets
 	*/
 
-	atlog << "\n\nChecking for Conflicts:\n----------\n";
+	atlog("\n\nChecking for Conflicts:\n----------");
 	for(int i = 0; i < ModList.totalmods; i++) {
 		ModDef& current = ModList.mods[i];
 
@@ -714,10 +714,14 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 			else {
 				bool replaceMapping = current.loadPriority < iter->second->parentMod->loadPriority;
 
-				atlog << "CONFLICT FOUND: " << file.assetPath
-					<< "\n(A):" << current.modName << " - " << file.realPath
-					<< "\n(B):" << iter->second->parentMod->modName << " - " << iter->second->realPath
-					<< "\nWinner: " << (replaceMapping ? "(A)\n---\n" : "(B)\n---\n");
+				atlog("CONFLICT FOUND: %s"
+					  "\n(A): %s - %s"
+					  "\n(B): %s - %s"
+					  "\nWinner: (%c)"
+					  "\n---", 
+					  file.assetPath.c_str(), current.modName.c_str(), file.realPath.c_str(),
+					  iter->second->parentMod->modName.c_str(), iter->second->realPath.c_str(),
+					  replaceMapping ? 'A' : 'B');
 
 				if(replaceMapping) {
 					iter->second = &file;
@@ -730,7 +734,7 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 	* Second pass to further analyze the prioritized files
 	*/
 
-	atlog << "\n\nCompiling Mod Files:\n----------\n";
+	atlog("\n\nCompiling Mod Files:\n----------");
 	supermod.reserve(priorityAssets.size());
 	uint64_t NEXT_STREAMDB_HASH = 1234;
 	for (const auto& pair : priorityAssets) {
@@ -750,7 +754,7 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 
 				// For fast iteration, we permit unzipped mod files to be unserialized and serialize them here
 				if(file.parentMod->IsUnzipped) 	{
-					atlog << "Serializing " << file.realPath << "\n";
+					atlog("Serializing %s", file.realPath.c_str());
 
 					BinaryWriter writer(static_cast<size_t>(file.dataLength * 0.75));
 
@@ -766,8 +770,8 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 
 				// Filter out zipped mod files that aren't serialized
 				else {
-					atlog << "ERROR: Zipped file is not serialized! Please use AtlanModPackager to serialize your mod files before distributing them.\n"
-						<< "   Mod: " << file.parentMod->modName << " - " << file.realPath << "\n";
+					atlog("ERROR: Zipped file is not serialized! Please use AtlanModPackager to serialize your mod files before distributing them.\n"
+						  "   Mod: %s - %s", file.parentMod->modName.c_str(), file.realPath.c_str());
 					continue;
 				}
 			}
@@ -805,7 +809,7 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 	* Find streamdb hashes if necessary
 	*/
 	if(find_defaulthashes.size() > 0) {
-		atlog << "Finding streamdb hashes for " << find_defaulthashes.size() << " mod files\n";
+		atlog("Finding streamdb hashes for %zu mod files", find_defaulthashes.size());
 
 		std::vector<std::string> archivelist = PackageMapSpec::GetPrioritizedArchiveList(gamedir, false);
 
@@ -839,10 +843,10 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 		}
 		LABEL_ALL_HASHES_FOUND:
 		if (find_defaulthashes.empty()) {
-			atlog << "All hashes found\n";
+			atlog("All hashes found");
 		}
 		else {
-			atlog << "POTENTIALLY FATAL ERROR: Could not find one or more hashes for streamdb files\n";
+			atlog("POTENTIALLY FATAL ERROR: Could not find one or more hashes for streamdb files");
 		}
 	}
 
@@ -852,7 +856,7 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 	*/
 
 	if (supermod.size() > 0) {
-		atlog << "\n\nBuilding Archives:\n----------\n";
+		atlog("\n\nBuilding Archives:\n----------");
 
 		bool okay = BuildArchive(supermod, streamdbsupermod.size(), outarchivepath, outstreamdbpath);
 		if(okay) {
@@ -860,20 +864,20 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 			RebuildContainerMask(metapath, outarchivepath);
 		}
 		else {
-			atlog << "FATAL ERROR: Resource Mod Loading aborted due to the above error\n";
+			atlog("FATAL ERROR: Resource Mod Loading aborted due to the above error");
 			return false;
 		}
 	}
 
 	if (audiosupermod.size() > 0) {
-		atlog << "Constructing audio archives\n";
+		atlog("Constructing audio archives");
 
 		fspath soundsdir = basedir / "sound" / "soundbanks" / "pc";
 		ModBuilder::BuildAudioArchives(soundsdir, audiosupermod);
 	}
 
 	if (supermod.size() == 0 && audiosupermod.size() == 0) {
-		atlog << "\n\nNo mods will be loaded. All previously loaded mods are removed.\n";
+		atlog("\n\nNo mods will be loaded. All previously loaded mods are removed.");
 	}
 
 	return true;
@@ -883,14 +887,14 @@ extern bool Executable_Patcher_Main(const fspath& gamedir);
 
 void InjectorMain(int argc, char* argv[], int& argflags) {
 
-	atlog << R"(
+	atlog(R"(
 ----------------------------------------------
-Atlan Mod Loader v)" << MOD_LOADER_VERSION << R"(.0 for DOOM: The Dark Ages
+Atlan Mod Loader v%d.0 for DOOM: The Dark Ages
 By FlavorfulGecko5
 With Special Thanks to: Proteh, Zwip-Zwap-Zapony, Tjoener, and many other talented modders!
 https://github.com/FlavorfulGecko5/EntityAtlan/
 ----------------------------------------------
-)";
+)", MOD_LOADER_VERSION);
 	
 	// Do not end in a / or there may be problems when running system commands 
 	// (it won't translate string literal slashes to the appropriate slash like it does when using the / operator)
@@ -903,30 +907,30 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 		std::string_view arg = argv[i];
 
 		if(arg == "--verbose") {
-			atlog << "ARGS: Verbose Logging Enabled\n";
+			atlog("ARGS: Verbose Logging Enabled");
 			argflags |= argflag_verbose;
 		}
 
 		else if (arg == "--notimer") {
-			atlog << "ARGS: Exit timer disabled\n";
+			atlog("ARGS: Exit timer disabled");
 			argflags |= argflag_noExitTimer;
 		}
 
 		else if (arg == "--nolaunch") {
-			atlog << "ARGS: Game will not launch after loading mods\n";
+			atlog("ARGS: Game will not launch after loading mods");
 			argflags |= argflag_nolaunch;
 		}
 
 		else if (arg == "--neverpatch") {
-			atlog << "ARGS: Executable patcher will never run. This should only be used for debugging!\n";
+			atlog("ARGS: Executable patcher will never run. This should only be used for debugging!");
 			argflags |= argflag_neverpatch;
 		}
 
 		else if (arg == "--forceload") {
-			atlog << "ARGS: Mod loading will proceed if DarkAgesPatcher fails\n"
-				<< "WARNING: Loading mods when DarkAgesPatcher fails may cause the game to permanently crash on startup.\n"
-				<< "If this happens, you will need to unload all mods for the game to work again.\n"
-				<< "Press ENTER to acknowledge this warning.\n";
+			atlog("ARGS: Mod loading will proceed if DarkAgesPatcher fails\n"
+				"WARNING: Loading mods when DarkAgesPatcher fails may cause the game to permanently crash on startup.\n"
+				"If this happens, you will need to unload all mods for the game to work again.\n"
+				"Press ENTER to acknowledge this warning.");
 			char c = getchar();
 			argflags |= argflag_forceload;
 		}
@@ -935,12 +939,12 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 			if(++i == argc)
 				goto LABEL_EXIT_HELP;
 			gamedirectory = argv[i];
-			atlog << "ARGS: Custom game directory accepted\n";
+			atlog("ARGS: Custom game directory accepted");
 		}
 
 		else {
 			LABEL_EXIT_HELP:
-			atlog << "AtlanModLoader.exe [--verbose] [--notimer] [--nolaunch] [--forceload] [--neverpatch] [--gamedir <Dark Ages Installation Folder>]\n";
+			atlog("AtlanModLoader.exe [--verbose] [--notimer] [--nolaunch] [--forceload] [--neverpatch] [--gamedir <Dark Ages Installation Folder>]");
 			return;
 		}
 	}
@@ -956,7 +960,7 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 
 	/* Check the game directory is valid */
 	if (!std::filesystem::exists(gamedirectory) || !std::filesystem::is_directory(gamedirectory)) {
-		atlog << "FATAL ERROR: " << gamedirectory << " is not a valid directory";
+		atlog("FATAL ERROR: %ls is not a valid directory", gamedirectory.c_str());
 		return;
 	}
 
@@ -969,7 +973,7 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 	{
 		const fspath metapath = (gamedirectory / "base") / "meta.resources";
 		if (!exists(metapath)) {
-			atlog << "FATAL ERROR: Failed to find " << metapath << "\n";
+			atlog("FATAL ERROR: Failed to find %ls", metapath.c_str());
 			return;
 		}
 
@@ -978,13 +982,13 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 		g_archiveversion = metaarchive.header.version;
 
 		if (g_archiveversion != 12 && g_archiveversion != 13) {
-			atlog << "FATAL ERROR: Unsupported resource archive version " << g_archiveversion << "\n";
+			atlog("FATAL ERROR: Unsupported resource archive version %d", g_archiveversion);
 			return;
 		}
 
 		// Incase of future, mod-breaking game updates...
 		if (metaarchive.header.numResources != 1) {
-			atlog << "FATAL ERROR: meta.resources has " << metaarchive.header.numResources << " files instead of 1!\n";
+			atlog("FATAL ERROR: meta.resources has %u files instead of 1!", metaarchive.header.numResources);
 			return;
 		}
 	}
@@ -1005,7 +1009,7 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 			cachereader.read(reinterpret_cast<char*>(&loadercache), sizeof(LoaderCache_t));
 		}
 		else {
-			atlog << "WARNING: Cache file size mismatch. Falling back to defaults\n";
+			atlog("WARNING: Cache file size mismatch. Falling back to defaults");
 		}
 		cachereader.close();
 	}
@@ -1015,7 +1019,7 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 	* with what's stored in the above cache file
 	*/
 	if (!std::filesystem::exists(exepath)) {
-		atlog << "FATAL ERROR: Failed to find " << exepath.filename() << "\n";
+		atlog("FATAL ERROR: Failed to find %ls", exepath.c_str());
 		return;
 	}
 	newcache.WriteTime = std::filesystem::last_write_time(exepath);
@@ -1036,19 +1040,19 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 
 	if(runPatcher)
 	{
-		atlog << "Game has been updated, or mod loader cache file could not be found. Performing update operations\n";
+		atlog("Game has been updated, or mod loader cache file could not be found. Performing update operations");
 
 		// Do not put slashes in any string literals here
 		const fspath patcherpath = gamedirectory / "DarkAgesPatcher.exe";
 
-		atlog << "\nRunning DarkAgesPatcher.exe by Proteh\n";
+		atlog("\nRunning DarkAgesPatcher.exe by Proteh");
 		if(!std::filesystem::exists(patcherpath))
 		{
-			atlog << "FATAL ERROR: Could not find " << patcherpath << "\n";
+			atlog("FATAL ERROR: Could not find %ls", patcherpath.c_str()); 
 			return;
 		}
 
-		//atlog << "~" << patcherpath << "~" << exepath << "~\n";
+		//atlog("~%ls~%ls~", patcherpath.c_str(), exepath.c_str());
 		std::string updateCommand = patcherpath.string() + " --update";
 		std::string patchCommand = patcherpath.string() + " --patch ";
 		patchCommand.append(exepath.string());
@@ -1081,8 +1085,8 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 		}
 
 		if (!patchsuccess) {
-			atlog << "Patcher Return Codes: " << returndata.code << " " << returndata.successfulpatches << " " << returndata.failedpatches << "\n";
-			atlog << "Initial patch attempt failed. Attempting to update patch definitions\n";
+			atlog("Patcher Return Codes: %hu %hhu %hhu", returndata.code, returndata.successfulpatches, returndata.failedpatches);
+			atlog("Initial patch attempt failed. Attempting to update patch definitions");
 			system(updateCommand.c_str());
 			*reinterpret_cast<int*>(&returndata) = system(patchCommand.c_str());
 		}
@@ -1101,19 +1105,19 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 			break;
 		}
 
-		atlog << "Patcher Return Codes: " << returndata.code << " " << returndata.successfulpatches << " " << returndata.failedpatches << "\n";
+		atlog("Patcher Return Codes: %hu %hhu %hhu", returndata.code, returndata.successfulpatches, returndata.failedpatches);
 		if (!patchsuccess) {
 			
-			atlog << "ERROR: Dark Ages Patcher partially or fully failed to patch your game executable.\n";
+			atlog("ERROR: Dark Ages Patcher partially or fully failed to patch your game executable.");
 
 			if(argflags & argflag_forceload) {
-				atlog << "Proceeding with mod loading due to --forceload\n";
+				atlog("Proceeding with mod loading due to --forceload");
 			}
 			else {
 				// Should be fine to abort right here without saving the cache file - like this injection attempt never happened
-				atlog << "Loading mods when DarkAgesPatcher fails may cause the game to permanently crash on startup.\n"
-					<< "Mod loading is being aborted out of caution.\n"
-					<< "At your own risk, you may run the mod loader with --forceload to bypass this safety measure.\n";
+				atlog("Loading mods when DarkAgesPatcher fails may cause the game to permanently crash on startup.\n"
+					  "Mod loading is being aborted out of caution.\n"
+					  "At your own risk, you may run the mod loader with --forceload to bypass this safety measure.");
 				return;
 			}
 		}
@@ -1140,21 +1144,21 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 	/*
 	* Finish up
 	*/
-	atlog << "\nMod Loading Complete\n----------\n";
+	atlog("\nMod Loading Complete\n----------");
 
 	if (argflags & argflag_nolaunch) {
-		atlog << "Game will not launch due to nolaunch argument\n";
+		atlog("Game will not launch due to nolaunch argument");
 		return;
 	}
 
 	const fspath absdir = std::filesystem::absolute(gamedirectory);
 	if(std::filesystem::exists(gamedirectory / "steam_api64.dll")) {
-		atlog << "Launching Game with Steam\n";
+		atlog("Launching Game with Steam");
 		std::system("start \"\" \"steam://run/3017860//\"");
 	}
 	else {
-		atlog << "Could not determine how to automatically launch your game\n"
-			<< "Please launch it manually.\n";
+		atlog("Could not determine how to automatically launch your game\n"
+			  "Please launch it manually.");
 	}
 	
 }
@@ -1171,7 +1175,7 @@ int main(int argc, char* argv[]) {
 
 		if(!idImageEncodingContext::COMThreadInit())
 			return 0;
-		AtlanLogger::init(LOGPATH);
+		AtlanLogger_Init(LOGPATH);
 
 		atlanstamp timer("Mod Loading Time");
 		InjectorMain(argc, argv, argflags);
@@ -1180,16 +1184,18 @@ int main(int argc, char* argv[]) {
 	#ifndef _DEBUG
 	}
 	catch (std::exception e) {
-		atlog << "\n\nFATAL ERROR: An unexpected crash has occurred\n"
-			<< "This sudden crash may have left you with broken game files.\n"
-			<< "Please re-run the mod loader with no mods loaded to restore them\n"
-			<< "Or use \"Restore Backups\" in Dark Ages Mod Manager\n"
-			<< "Error Message: " << e.what();
+		atlog(
+			"\n\nFATAL ERROR: An unexpected crash has occurred\n"
+			"This sudden crash may have left you with broken game files.\n"
+			"Please re-run the mod loader with no mods loaded to restore them\n"
+			"Or use \"Restore Backups\" in Dark Ages Mod Manager\n"
+			"Error Message: %s", e.what()
+		);
 	}
 	#endif
 	
 	std::cout << "\n\nOutput written to " << LOGPATH << "\n";
-	AtlanLogger::exit();
+	AtlanLogger_Shutdown();
 	idImageEncodingContext::COMThreadRelease();
 
 	if (!(argflags & argflag_noExitTimer)) {

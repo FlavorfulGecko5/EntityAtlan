@@ -57,7 +57,7 @@ size_t GetSampleMetaSize(const char* data, size_t len)
 		}
 	}
 
-	atlog << "WARNING: Failed to measure metadata size for an audio sample. Is the sample correctly encoded?\n";
+	atlog("WARNING: Failed to measure metadata size for an audio sample. Is the sample correctly encoded?");
 	return 0;
 }
 
@@ -123,10 +123,10 @@ void ModBuilder::BuildAudioArchives(const fspath soundsfolder, const std::vector
 
 		// Find Sample ID
 		{
-			bool result = StringToID(sample->assetPath.data(), sample->assetPath.length(), eptr->id);
+			bool result = StringToID(sample->assetPath.data(), (int)sample->assetPath.length(), eptr->id);
 
 			if (!result) {
-				atlog << "ERROR: Failed to parse audio sample ID from '" << sample->assetPath << "'\n";
+				atlog("ERROR: Failed to parse audio sample ID from '%s'", sample->assetPath.c_str());
 			}
 
 			#ifdef _DEBUG
@@ -138,10 +138,10 @@ void ModBuilder::BuildAudioArchives(const fspath soundsfolder, const std::vector
 		const size_t samplelen = sample->dataLength;
 
 		eptr->farmhash = HashLib::FarmHash64(samplebuffer, samplelen); // TODO: Test if necessary
-		eptr->encodedSize = samplelen;
-		eptr->decodedSize = samplelen;
-		eptr->metaoffset = headerchunk.GetPosition() - 0x0C;
-		eptr->metasize = GetSampleMetaSize(samplebuffer, samplelen);
+		eptr->encodedSize = (uint32_t)samplelen;
+		eptr->decodedSize = (uint32_t)samplelen;
+		eptr->metaoffset  = (uint32_t)(headerchunk.GetPosition() - 0x0C);
+		eptr->metasize    = (uint32_t)GetSampleMetaSize(samplebuffer, samplelen);
 
 		// TODO: Test if necessary
 		headerchunk.WriteBytes(samplebuffer, eptr->metasize);
@@ -155,7 +155,7 @@ void ModBuilder::BuildAudioArchives(const fspath soundsfolder, const std::vector
 
 
 	// Calculate the offset of each sample's entry in the archive
-	uint32_t runningoffset = headerchunk.GetPosition() + samplecount * sizeof(aksnd::entry);
+	uint32_t runningoffset = static_cast<uint32_t>(headerchunk.GetPosition() + samplecount * sizeof(aksnd::entry));
 	eptr = entries;
 	for (uint32_t i = 0; i < samplecount; i++) {
 		eptr->offset = runningoffset;

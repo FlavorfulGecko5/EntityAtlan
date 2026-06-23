@@ -37,7 +37,7 @@ const std::unordered_map<std::string, resourcetypeinfo_t> ValidResourceTypes = {
 */
 bool ModReader_HasRequiredVersion(ModDef& moddef, const AtlanModConfig& cfg) {
 	if (MOD_LOADER_VERSION < cfg.requiredVersion) {
-		atlog << "ERROR: Mod requires Mod Loader Version " << cfg.requiredVersion << " or greater. (Your version is " << MOD_LOADER_VERSION << ")\n";
+		atlog("ERROR: Mod requires Mod Loader Version %d or greater. (Your version is %d)", cfg.requiredVersion, MOD_LOADER_VERSION);
 		return false;
 	}
 	return true;
@@ -48,7 +48,7 @@ bool ModReader_ValidatePath(ModFile& modfile, const AtlanModConfig& cfg, std::st
 	cfg.GetNormalizedName(modfile.realPath, TypeString, NameString);
 
 	if (TypeString.length() == 0) {
-		atlog << "ERROR: Missing resource type string for file " << modfile.realPath << "\n";
+		atlog("ERROR: Missing resource type string for file %s", modfile.realPath.c_str());
 		return false;
 	}
 
@@ -61,12 +61,12 @@ bool ModReader_ValidatePath(ModFile& modfile, const AtlanModConfig& cfg, std::st
 	{
 		const auto& iter = ValidResourceTypes.find(TypeString);
 		if (iter == ValidResourceTypes.end()) {
-			atlog << "ERROR: Unsupported resource type for file \"" << modfile.realPath << "\"\n";
+			atlog("ERROR: Unsupported resource type for file \"%s\"", modfile.realPath.c_str());
 			return false;
 		}
 
 		if (!iter->second.allow) {
-			atlog << "ERROR: Disabled resource type for file \"" << modfile.realPath << "\"\n";
+			atlog("ERROR: Disabled resource type for file \"%s\"", modfile.realPath.c_str());
 			return false;
 		}
 		modfile.typestring = iter->second.typestring;
@@ -123,16 +123,16 @@ bool ModReader_ValidatePath(ModFile& modfile, const AtlanModConfig& cfg, std::st
 		}
 
 		if (nameStart >= nameEnd || *nameStart > '9' || *nameStart < '0') {
-			atlog << "ERROR: File " << modfile.realPath << " requires a number at the end of it's filename\n";
+			atlog("ERROR: File %s requires a number at the end of it's filename", modfile.realPath.c_str());
 			return false;
 		}
 	}
 	else {
 		if (hasBadChars) {
-			atlog << "WARNING: Fixed capital letters or other bad characters in path " << modfile.realPath << "\n";
+			atlog("WARNING: Fixed capital letters or other bad characters in path %s", modfile.realPath.c_str());
 		}
 		if (nameStart >= nameEnd) {
-			atlog << "ERROR: File " << modfile.realPath << " has an invalid name\n";
+			atlog("ERROR: File %s has an invalid name", modfile.realPath.c_str());
 			return false;
 		}
 	}
@@ -150,10 +150,10 @@ bool ModReader_ValidateData(ModFile& modfile, bool AllowUnserialized) {
 
 void ModReader_ConfirmModFile(ModDef& moddef, ModFile& modfile, int argflags) {
 	if (argflags & argflag_verbose) {
-		atlog << "OK: " << modfile.realPath << " --> " << modfile.assetPath << "\n";
+		atlog("OK: %s --> %s", modfile.realPath.c_str(), modfile.assetPath.c_str());
 	}
 	else {
-		atlog.logfileonly("OK: ").logfileonly(modfile.realPath).logfileonly(" --> ").logfileonly(modfile.assetPath).logfileonly("\n");
+		atlog_file("OK: %s --> %s", modfile.realPath.c_str(), modfile.assetPath.c_str());
 	}
 
 	/*
@@ -206,7 +206,7 @@ void UnzippedImageEncodingThread(idUnzippedImageJobList* joblist) {
 		OutputLog.append(" )\n");
 		bool success = joblist->context->EncodeImage(CurrentJob.assetpath, 
 			CurrentJob.encodinginfo, CurrentJob.filepath.c_str(), ImageOutput, OutputLog);
-		atlog << OutputLog;
+		atlog_raw(OutputLog.data(), OutputLog.length(), false);
 		if (!success)
 			continue;
 
@@ -239,7 +239,7 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 	moddef.IsUnzipped = true;
 	moddef.ActiveZip = false;
 
-	atlog << "\n\nReading " << moddef.modName << "\n---\n";
+	atlog("\n\nReading %s\n---", moddef.modName.c_str());
 
 	// TODO: This loop is mostly copied from the mod packager. Could we create a shared function for it?
 	for (const directory_entry& entry : recursive_directory_iterator(modsfolder)) {
@@ -255,11 +255,11 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 
 			// Edge Case: Mod config is in a subfolder - ignore it
 			if (entrypath.parent_path() != modsfolder) {
-				atlog << "Ignoring " CFG_NAME << " inside a subfolder\n";
+				atlog("Ignoring " CFG_NAME " inside a subfolder");
 				continue;
 			}
 
-			atlog << "Found " CFG_NAME "\n";
+			atlog("Found " CFG_NAME);
 			cfg.TryRead(entrypath.string());
 			continue;
 		}
@@ -272,7 +272,7 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 		return;
 	}
 
-	atlog << "Found " << ModFilePaths.size() << " Unzipped Mod Files\n";
+	atlog("Found %llu Unzipped Mod Files", ModFilePaths.size());
 
 	idUnzippedImageJobList ImageJobs;
 
@@ -304,7 +304,7 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 		else {
 			std::ifstream filereader(FilePath, std::ios_base::binary);
 			if (!filereader.good()) {
-				atlog << "ERROR: Failed to open file " << modfile.realPath << "\n";
+				atlog("ERROR: Failed to open file %s", modfile.realPath.c_str());
 				continue;
 			}
 
@@ -322,11 +322,10 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 		const int NUMTHREADS = 8;
 		std::thread threadpool[NUMTHREADS];
 
-		atlog << "Running " << ImageJobs.jobs.size()
-			<< " Image Encoding Jobs on " << NUMTHREADS << " threads\n";
+		atlog("Running %llu Image Encoding Jobs on %d threads", ImageJobs.jobs.size(), NUMTHREADS);
 
 		idImageEncodingContext ImageEncoder;
-		atlog << "Initializing Image Encoder with directory " << gamedir << "\n";
+		atlog("Initializing Image Encoder with directory %ls", gamedir.c_str());
 		if(!ImageEncoder.InitializeContext(gamedir.string(), 3))
 			return;
 
@@ -344,14 +343,14 @@ bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& readto, int argflags);
 
 void ModReader::ReadZipMod(ModDef& mod, const fspath& zipPath, int argflags)
 {
-	atlog << "\n\nReading " << zipPath.filename() << "\n---\n";
+	atlog("\n\nReading %ls\n---", zipPath.filename().c_str());
 
 	// Open the zip file
 	mz_zip_archive* zptr = &mod.zipfile;
 	mz_zip_zero_struct(zptr);
 	if (!mz_zip_reader_init_file(zptr, zipPath.string().c_str(), 0))
 	{
-		atlog << "ERROR: Failed to open zip file\n";
+		atlog("ERROR: Failed to open zip file");
 		return;
 	}
 
@@ -381,10 +380,10 @@ bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, int argflags)
 		*/
 		dataBuffer = (char*)mz_zip_reader_extract_file_to_heap(zptr, CFG_NAME, &dataLength, 0);
 		if (!dataBuffer) {
-			atlog << "WARNING: Could not find " CFG_NAME "\n";
+			atlog("WARNING: Could not find " CFG_NAME);
 		}
 		else {
-			atlog << "Found " CFG_NAME "\n";
+			atlog("Found " CFG_NAME);
 			cfg.TryRead(dataBuffer, dataLength);
 			delete[] dataBuffer;
 		}
@@ -441,7 +440,7 @@ bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, int argflags)
 			size_t dataLength = 0;
 			dataBuffer = mz_zip_reader_extract_to_heap(zptr, i, &dataLength, 0);
 			if (!dataBuffer) {
-				atlog << "ERROR: Failed to extract file " << modfile.realPath << "\n";
+				atlog("ERROR: Failed to extract file %s", modfile.realPath.c_str());
 				continue;
 			}
 			modfile.dataBuffer = dataBuffer;

@@ -20,7 +20,7 @@ bool idImageEncodingContext::COMThreadInit() {
 	HRESULT result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
 	if (FAILED(result)) {
-		atlog << "FATAL ERROR: Failed to initialize COM for image encoder (Code: " << result << ")\n";
+		atlog("FATAL ERROR: Failed to initialize COM for image encoder (Code: %d)", result);
 		return false;
 	}
 	return true;
@@ -66,7 +66,7 @@ bool idImageEncodingContext::InitializeContext(const std::string& gamedir, int i
 	);
 
 	if (FAILED(result)) {
-		atlog << "FATAL ERROR: Failed to create Direct3D context for image encoder (Code: " << result << ")\n";
+		atlog("FATAL ERROR: Failed to create Direct3D context for image encoder (Code: %d)", result);
 		return false;
 	}
 
@@ -75,8 +75,8 @@ bool idImageEncodingContext::InitializeContext(const std::string& gamedir, int i
 	*/
 
 	if (idImageHeaderMap_Build(m_headermap, gamedir) == false) {
-		atlog << "FATAL ERROR: Failed to create ImageHeaderMap for image encoder.\n";
-			"Please ensure AtlanModPackager and AtlanModLoader are placed in your game directory\n";
+		atlog("FATAL ERROR: Failed to create ImageHeaderMap for image encoder.\n"
+			  "Please ensure AtlanModPackager and AtlanModLoader are placed in your game directory");
 		return false;
 	}
 

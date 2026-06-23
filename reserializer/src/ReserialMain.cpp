@@ -40,7 +40,7 @@ int Reserializer::Serialize(const char* data, size_t length, BinaryWriter& write
 		return Serialize(*parser.getRoot(), writer, restype, parser.eofblob, parser.eofbloblength);
 	}
 	catch (std::exception e) {
-		atlog << "ERROR: Failed to read data stream into EntityParser\nMessage: " << e.what();
+		atlog("ERROR: Failed to read data stream into EntityParser\nMessage: %s", e.what());
 		return 1;
 	}
 }
@@ -52,7 +52,7 @@ int Reserializer::Serialize(const char* filepath, BinaryWriter& writer, Resource
 		return Serialize(*parser.getRoot(), writer, restype, parser.eofblob, parser.eofbloblength);
 	}
 	catch (std::exception e) {
-		atlog << "ERROR: Failed to read file into EntityParser\nMessage: " << e.what();
+		atlog("ERROR: Failed to read file into EntityParser\nMessage: %s", e.what());
 		return 1;
 	}
 }

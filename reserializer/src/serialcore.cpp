@@ -55,8 +55,7 @@ void reserial::LogWarning(std::string_view msg) {
 	if (!propString.empty())
 		propString.pop_back();
 
-	//printf("WARNING: %.*s %.*s\n", (int)propString.length(), propString.data(), (int)msg.length(), msg.data());
-	atlog << "WARNING: " << propString << " " << msg << "\n";
+	atlog("WARNING: %.*s %.*s", (int)propString.length(), propString.c_str(), (int)msg.length(), msg.data());
 	reserial::warningcount++;
 }
 
@@ -381,7 +380,7 @@ void reserial::rs_start_mapentity(const EntNode& root, BinaryWriter& entities, c
 	headerchunk += 2; // Align to entity count of first submap
 
 	for (int i = 0; i < submapcount; i++) {
-		*headerchunk = submapnodes[i].size();
+		*headerchunk = static_cast<uint32_t>(submapnodes[i].size());
 		headerchunk += 4;
 		*headerchunk = newlengths[i];
 		headerchunk += 4;

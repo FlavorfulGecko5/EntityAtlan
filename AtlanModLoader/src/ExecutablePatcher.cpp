@@ -79,7 +79,7 @@ bool Should_Run_Patcher(const fspath exepath, alphahash_t configHash)
 
 	if (memcmp(dosstring, "This program cannot be run in DOS mode", DOSLENGTH) == 0) {
 		
-		atlog << exepath << " is unpatched. Creating backup\n";
+		atlog("%ls is unpatched. Creating backup", exepath.c_str());
 		std::filesystem::copy(exepath, backuppath, std::filesystem::copy_options::overwrite_existing);
 		return true;
 	}
@@ -88,19 +88,19 @@ bool Should_Run_Patcher(const fspath exepath, alphahash_t configHash)
 	if (memcmp(dosstring, "ATLANMOD", 8) == 0) {
 
 		if (memcmp(dosstring + 8, configHash.hash, sizeof(configHash.hash)) == 0) {
-			atlog << exepath << " has latest patches\n";
+			atlog("%ls has latest patches", exepath.c_str());
 			return false;
 		}
 		else {
 
-			atlog << exepath << " has a different set of patches applied. Re-patching\n";
+			atlog("%ls has a different set of patches applied. Re-patching", exepath.c_str());
 			
 			if (exists(backuppath)) {
-				atlog << "Restoring executable from backup\n";
+				atlog("Restoring executable from backup");
 				std::filesystem::copy(backuppath, exepath, std::filesystem::copy_options::overwrite_existing);
 			}
 			else {
-				atlog << "WARNING: Executable backup not found. Creating non-vanilla backup\n";
+				atlog("WARNING: Executable backup not found. Creating non-vanilla backup");
 				std::filesystem::copy(exepath, backuppath, std::filesystem::copy_options::overwrite_existing);
 			}
 			return true;
@@ -108,7 +108,7 @@ bool Should_Run_Patcher(const fspath exepath, alphahash_t configHash)
 
 	}
 
-	atlog << "ERROR: Corrupt game executable detected. Will not attempt patching.\n";
+	atlog("ERROR: Corrupt game executable detected. Will not attempt patching.");
 	return false;
 }
 
@@ -141,12 +141,12 @@ bool GetPatchList(std::vector<gamepatch>& patchlist, bool& REVERSE) {
 		const EntNode& root = *parser.getRoot();
 
 		if (!root["reverse"].ValueBool(REVERSE)) {
-			atlog << "ERROR: Failed to parse 'reverse' property\n";
+			atlog("ERROR: Failed to parse 'reverse' property");
 			return false;
 		}
 
 		if (REVERSE) {
-			atlog << "Reverse Mode Activated\n";
+			atlog("Reverse Mode Activated");
 		}
 		
 
@@ -159,24 +159,24 @@ bool GetPatchList(std::vector<gamepatch>& patchlist, bool& REVERSE) {
 			const EntNode& p = patches[i];
 
 			g.name = p["name"].getValueUQ();
-			//atlog << "Reading Patch Definition '" << g.name << "'\n";
+			//atlog("Reading Patch Definition '%s'", g.name.c_str());
 
 			std::string_view hexstring = p["vanilla"].getValueUQ();
 			bool result = parse_hexstring(g.hexdata, hexstring.data(), hexstring.length());
 			if (!result) {
-				atlog << "Failed to parse vanilla hex string for patch " << g.name << "\n";
+				atlog("Failed to parse vanilla hex string for patch %s", g.name.c_str());
 				return false;
 			}
 
 			hexstring = p["patch"].getValueUQ();
 			if (hexstring.size() != g.hexdata.size() * 2) {
-				atlog << "Patch " << g.name << " has different sized vanilla and patched codes\n";
+				atlog("Patch %s has different sized vanilla and patched codes", g.name.c_str());
 				return false;
 			}
 
 			result = parse_hexstring(g.hexdata, hexstring.data(), hexstring.length());
 			if (!result) {
-				atlog << "Failed to parse patch hex string for patch " << g.name << "\n";
+				atlog("Failed to parse patch hex string for patch %s", g.name.c_str());
 				return false;
 			}
 		}
@@ -184,7 +184,7 @@ bool GetPatchList(std::vector<gamepatch>& patchlist, bool& REVERSE) {
 		return true;
 	}
 	catch (...) {
-		atlog << "ERROR: Failed to read AtlanPatcher.txt\n";
+		atlog("ERROR: Failed to read AtlanPatcher.txt");
 		return false;
 	}
 }
@@ -196,7 +196,7 @@ void Run_Executable_Patcher(const fspath& exepath)
 {
 	bool REVERSE = false;
 
-	atlog << "\n\nRunning Atlan Executable Patcher\n-----\n";
+	atlog("\n\nRunning Atlan Executable Patcher\n-----");
 
 	std::vector<gamepatch> patchlist;
 	if (!GetPatchList(patchlist, REVERSE)) {
@@ -222,14 +222,14 @@ void Run_Executable_Patcher(const fspath& exepath)
 		reflist.push_back(ref);
 
 		//for (int i = 0; i < ref.length; i++) {
-		//	atlog << ref.patched[i] << " ";
+		//	atlog_deprecated << ref.patched[i] << " ";
 		//}
-		//atlog << "\n";
+		//atlog_deprecated << "\n";
 	}
 
 	patchref* patches = reflist.data();
 
-	atlog << "Beginning scanning\n";
+	atlog("Beginning scanning");
 
 	BinaryOpener exeopener(exepath.string());
 	
@@ -245,13 +245,13 @@ void Run_Executable_Patcher(const fspath& exepath)
 				if (memcmp(exe, patches[i].vanilla, patches[i].length) == 0) {
 
 					if (patches[i].applied) {
-						atlog << "ERROR: vanilla form of patch '" << patchlist[i].name << "' found multiple times.\n";
+						atlog("ERROR: vanilla form of patch '%s' found multiple times.", patchlist[i].name.c_str());
 						return;
 					}
 
 					memcpy(exe, patches[i].patched, patches[i].length);
 
-					atlog << "Applied patch '" << patchlist[i].name << "'\n";
+					atlog("Applied patch '%s'", patchlist[i].name.c_str());
 
 					patches[i].applied++;
 					
@@ -266,11 +266,11 @@ void Run_Executable_Patcher(const fspath& exepath)
 				if (memcmp(exe, patches[i].patched, patches[i].length) == 0) {
 					
 					if (patches[i].applied) {
-						atlog << "ERROR: patch signature for '" << patchlist[i].name << "' found multiple times.\n";
+						atlog("ERROR: patch signature for '%s' found multiple times", patchlist[i].name.c_str());
 						return;
 					}
 
-					atlog << "Patch '" << patchlist[i].name << "' already applied\n";
+					atlog("Patch '%s' already applied", patchlist[i].name.c_str());
 
 					patches[i].applied++;
 
@@ -285,11 +285,11 @@ void Run_Executable_Patcher(const fspath& exepath)
 	int failedpatches = 0;
 	for (size_t i = 0; i < reflist.size(); i++) {
 		if (!patches[i].applied) {
-			atlog << "Failed to apply patch: " << patchlist[i].name << "\n";
+			atlog("Failed to apply patch: %s", patchlist[i].name.c_str());
 		}
 	}
 	if (failedpatches) {
-		atlog << "Cannot proceed because 1 or more patches have failed to apply\n";
+		atlog("Cannot proceed because 1 or more patches have failed to apply");
 		return;
 	}
 
@@ -311,7 +311,7 @@ void Run_Executable_Patcher(const fspath& exepath)
 bool Executable_Patcher_Main(const fspath& gamedir)
 {
 	if (!std::filesystem::exists(CONFIGPATH)) {
-		atlog << "ERROR: Missing " CONFIGPATH "\n";
+		atlog("ERROR: Missing " CONFIGPATH);
 		return false;
 	}
 

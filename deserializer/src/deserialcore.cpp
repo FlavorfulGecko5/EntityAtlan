@@ -45,8 +45,7 @@ void LogWarning(std::string_view msg) {
 	if(!propString.empty())
 		propString.pop_back();
 
-	atlog << "WARNING: " << propString << " " << msg << "\n";
-	//printf("WARNING: %.*s %.*s\n", (int)propString.length(), propString.data(), (int)msg.length(), msg.data());
+	atlog("WARNING: %.*s %.*s\n", (int)propString.length(), propString.data(), (int)msg.length(), msg.data());
 	deserial::warning_count++;
 }
 

@@ -174,12 +174,12 @@ void AudioExtractor(const configdata_t& config)
 {
 	using namespace std::filesystem;
 	if(!exists(config.inputdir / "DOOMTheDarkAges.exe")) {
-		atlog << "FATAL ERROR: Atlan Audio Extractor only supports DOOM: The Dark Ages\n";
+		atlog("FATAL ERROR: Atlan Audio Extractor only supports DOOM: The Dark Ages");
 		return;
 	}
 
 	if (!exists("vgmstream/vgmstream-cli.exe")) {
-		atlog << "FATAL ERROR: Missing vgmstream\n";
+		atlog("FATAL ERROR: Missing vgmstream");
 		return;
 	}
 
@@ -239,7 +239,7 @@ void AudioExtractor(const configdata_t& config)
 		//const fspath archiveoutdir = audiodir / archivepath.stem(); // If we want to extract to separate folders
 
 		create_directory(archiveoutdir);
-		atlog << "Extracting from " << archivepath.filename() << "\n";
+		atlog("Extracting from %ls", archivepath.filename().c_str());
 
 
 		aksnd snd;
@@ -247,7 +247,7 @@ void AudioExtractor(const configdata_t& config)
 
 		// In case the container masks wind up being out-of-order
 		if(snd.numentries > archiveMask.size) {
-			atlog << "FATAL: Entry count larger than container mask\n";
+			atlog("FATAL: Entry count larger than container mask");
 			return;
 		}
 
@@ -264,7 +264,7 @@ void AudioExtractor(const configdata_t& config)
 
 		assert(threadsToUse > 0 && threadsToUse <= THREADMAX);
 
-		atlog << "Launching " << threadsToUse << " thread(s).\n";
+		atlog("Launching %d thread(s).", threadsToUse);
 
 		uint32_t nextIndex = 0;
 		uint32_t lastIndex = 0;
@@ -304,12 +304,12 @@ void AudioExtractor(const configdata_t& config)
 			threadpool[t].join();
 		}
 		
-		atlog << "\rExtracted " << totalSamples.load() << " files from archive\n";
+		atlog("\rExtracted %d files from archive", totalSamples.load());
 		if(snd.numentries - totalSamples.load() > 0)
-			atlog << (snd.numentries - totalSamples.load()) << " duplicates skipped\n";
+			atlog("%u duplicates skipped", snd.numentries - totalSamples.load());
 	}
 	
-	atlog << "Audio Extractor complete\n";
+	atlog("Audio Extractor complete");
 
 	std::ofstream dupelogwriter(audiodir / "duplicate_log.txt", std::ios_base::binary);
 	dupelogwriter << sampleMap.GetDuplicateLog();
@@ -325,17 +325,17 @@ void FixLegacyDeclPath(const fspath& outputdir) {
 	if(!exists(legacydir))
 		return;
 
-	atlog << "NOTICE: Detected legacy decl output dir at <output>/rs_streamfile/generated/decls\n"
-	"Attempting to rename folder to <output>/decls\n";
+	atlog("NOTICE: Detected legacy decl output dir at <output>/rs_streamfile/generated/decls\n"
+	      "Attempting to rename folder to <output>/decls");
 
 	if (exists(newdir)) {
-		atlog << "ERROR: Failed to rename legacy decl dir. A directory already exists at the new path\n";
+		atlog("ERROR: Failed to rename legacy decl dir. A directory already exists at the new path");
 		return;
 	}
 
 	std::filesystem::rename(legacydir, newdir);
 
-	atlog << "Successfully renamed legacy decl dir\n";
+	atlog("Successfully renamed legacy decl dir");
 }
 
 void SoundBankExtractor(const fspath& inputdir, fspath outputdir) {
@@ -354,7 +354,7 @@ void SoundBankExtractor(const fspath& inputdir, fspath outputdir) {
 	const fspath path_titanpck = inputdir / "base/sound/soundbanks/pc/Titan.pck";
 	
 	if(!exists(path_metadata)) {
-		atlog << "FATAL ERROR: Could not locate soundmetadata.bin\n";
+		atlog("FATAL ERROR: Could not locate soundmetadata.bin");
 		return;
 	}
 	else {
@@ -363,7 +363,7 @@ void SoundBankExtractor(const fspath& inputdir, fspath outputdir) {
 	}
 
 	if(!exists(path_titanpck)) {
-		atlog << "FATAL ERROR: Could not locate Titan.pck\n";
+		atlog("FATAL ERROR: Could not locate Titan.pck");
 		return;
 	}
 
@@ -377,7 +377,7 @@ void SoundBankExtractor(const fspath& inputdir, fspath outputdir) {
 		create_directories(outfolder);
 	}
 
-	atlog << "Extracting " << pckentrylist.size() << " Sound Banks\n";
+	atlog("Extracting %llu Sound Banks", pckentrylist.size());
 
 	int total_extracted = 0;
 	BinaryReader reader = pckopener.ToReader();
@@ -387,21 +387,21 @@ void SoundBankExtractor(const fspath& inputdir, fspath outputdir) {
 		printf("\rProgress: %d / %d", total_extracted, (int)pckentrylist.size());
 
 		if(pcklangmap.find(bnk.langid) == pcklangmap.end()) {
-			atlog << "ERROR: Could not resolve language id to string\n";
+			atlog("ERROR: Could not resolve language id to string");
 			continue;
 		}
 
 		if (pckfnvmap.find(bnk.id) == pckfnvmap.end()) {
-			atlog << "ERROR: Could not resolve bnk hash to string\n";
+			atlog("ERROR: Could not resolve bnk hash to string");
 			continue;
 		}
 
 		if(!reader.Goto(bnk.offset * bnk.chunksize)) {
-			atlog << "ERROR: Sound bank out of bounds?\n";
+			atlog("ERROR: Sound bank out of bounds?");
 			continue;
 		}
 		if(reader.GetRemaining() < bnk.size * bnk.chunksize) {
-			atlog << "ERROR: Sound bank too big?\n";
+			atlog("ERROR: Sound bank too big?");
 			continue;
 		}
 
@@ -414,7 +414,7 @@ void SoundBankExtractor(const fspath& inputdir, fspath outputdir) {
 		outputpath.append(".bnk");
 
 		if(outputpath.length() > 250) {
-			atlog << "WARNING: Output path exceeding safe thresholds\n";
+			atlog("WARNING: Output path exceeding safe thresholds");
 		}
 
 		std::ofstream outwriter(outputpath, std::ios_base::binary);
@@ -433,7 +433,7 @@ void ExtractorMain() {
 	/*
 	* REMEMBER TO UPDATE VERSION NUMBER
 	*/
-	atlog << "Atlan Resource Extractor v3.2 by FlavorfulGecko5\n";
+	atlog("Atlan Resource Extractor v3.2 by FlavorfulGecko5");
 
 	/*
 	* Parse and validate config file
@@ -456,13 +456,13 @@ void ExtractorMain() {
 		config.outputdir = core["output_folder"].getValueUQ();
 
 		if (!std::filesystem::is_directory(config.inputdir)) {
-			atlog << "FATAL ERROR: " << config.inputdir << " is not a valid directory\n"
-				<< "Did you remember to set your input/output folders in " << configpath << "?";
+			atlog("FATAL ERROR: %ls is not a valid directory\n"
+				  "Did you remember to set your input/output folders in " configpath "?", config.inputdir.c_str());
 			return;
 		}
 		if (!std::filesystem::is_directory(config.outputdir)) {
-			atlog << "FATAL ERROR: " << config.outputdir << " is not a valid directory"
-				<< "Did you remember to set your input/output folders in " << configpath << "?";
+			atlog("FATAL ERROR: %ls is not a valid directory\n"
+				"Did you remember to set your input/output folders in " configpath "?", config.outputdir.c_str());
 			return;
 		}
 
@@ -470,23 +470,23 @@ void ExtractorMain() {
 		config.outputdir = std::filesystem::absolute(config.outputdir);
 
 		if (config.outputdir.string().size() >= 40) {
-			atlog << "FATAL ERROR: Output directory must be less than 40 characters.\n"
-				<< "This is to prevent export errors due to long filepaths.\n"
-				<< "Your output directory " << config.outputdir << " is " << config.outputdir.string().size() << " characters";
+			atlog("FATAL ERROR: Output directory must be less than 40 characters.\n"
+				  "This is to prevent export errors due to long filepaths.\n"
+				  "Your output directory %ls is %llu characters", config.outputdir.c_str(), config.outputdir.string().size());
 			return;
 		}
 
 		if (!core["run_extractor"].ValueBool(config.run_extractor)) {
-			atlog << "WARNING: Failed to read config bool core/run_extractor: assuming default\n";
+			atlog("WARNING: Failed to read config bool core/run_extractor: assuming default");
 		}
 		if (!core["run_deserializer"].ValueBool(config.run_deserializer)) {
-			atlog << "WARNING: Failed to read config bool core/run_deserializer: assuming default\n";
+			atlog("WARNING: Failed to read config bool core/run_deserializer: assuming default");
 		}
 		if (!core["run_audio_extractor"].ValueBool(config.run_audio_extractor)) {
-			atlog << "WARNING: Failed to read config bool core/run_audio_extractor: assuming default\n";
+			atlog("WARNING: Failed to read config bool core/run_audio_extractor: assuming default");
 		}
 		if (!core["run_soundbank_extractor"].ValueBool(config.run_soundbank_extractor)) {
-			atlog << "WARNING: Failed to read config bool core/run_soundbank_extractor: assuming default\n";
+			atlog("WARNING: Failed to read config bool core/run_soundbank_extractor: assuming default");
 		}
 
 
@@ -499,7 +499,7 @@ void ExtractorMain() {
 
 			config.restypes.insert(std::string(rt.getNameUQ()));
 		}
-		atlog << "Found " << config.restypes.size() << " resource types\n";
+		atlog("Found %llu resource types", config.restypes.size());
 
 		EntNode& audiotypes = root["audio_extractor"]["audio_types"];
 		for (int i = 0; i < audiotypes.getChildCount(); i++) {
@@ -509,40 +509,40 @@ void ExtractorMain() {
 
 			config.audiotypes.insert(std::string(at.getNameUQ()));
 		}
-		atlog << "Found " << config.audiotypes.size() << " audio types\n";
+		atlog("Found %llu audio types", config.audiotypes.size());
 
 		if (!root["audio_extractor"]["max_threads"].ValueInt(config.max_audio_threads, 1, THREADMAX)) {
-			atlog << "WARNING: Failed to read config bool audio_extractor/max_threads: assuming default\n";
+			atlog("WARNING: Failed to read config bool audio_extractor/max_threads: assuming default");
 		}
 		if (!root["audio_extractor"]["decode_samples"].ValueBool(config.decode_samples)) {
-			atlog << "WARNING: Failed to read config bool audio_extractor/decode_samples: assuming default\n";
+			atlog("WARNING: Failed to read config bool audio_extractor/decode_samples: assuming default");
 		}
 
 		/* Deserialization Settings */
 		EntNode& deserial = root["deserializer"];
 		if(!deserial["deserialize_entity_defs"].ValueBool(config.dsconfig.deserial_entitydefs)) {
-			atlog << "WARNING: Failed to read config bool deserializer/deserialize_entity_defs: assuming default\n";
+			atlog("WARNING: Failed to read config bool deserializer/deserialize_entity_defs: assuming default");
 		}
 		if(!deserial["deserialize_logic_decls"].ValueBool(config.dsconfig.deserial_logicdecls)) {
-			atlog << "WARNING: Failed to read config bool deserializer/deserialize_logic_decls: assuming default\n";
+			atlog("WARNING: Failed to read config bool deserializer/deserialize_logic_decls: assuming default");
 		}
 		if(!deserial["deserialize_level_files"].ValueBool(config.dsconfig.deserial_mapentities)) {
-			atlog << "WARNING: Failed to read config bool deserializer/deserialize_level_files: assuming default\n";
+			atlog("WARNING: Failed to read config bool deserializer/deserialize_level_files: assuming default");
 		}
 		if (!deserial["remove_binary_files"].ValueBool(config.dsconfig.remove_binaries)) {
-			atlog << "WARNING: Failed to read config bool deserializer/remove_binary_files: assuming default\n";
+			atlog("WARNING: Failed to read config bool deserializer/remove_binary_files: assuming default");
 		}
 		if (!deserial["add_indentation"].ValueBool(config.dsconfig.indent)) {
-			atlog << "WARNING: Failed to read config bool deserializer/add_indentation: assuming default\n";
+			atlog("WARNING: Failed to read config bool deserializer/add_indentation: assuming default");
 		}
 		if (!deserial["include_originals"].ValueBool(config.dsconfig.include_original)) {
-			atlog << "WARNING: Failed to read config bool deserializer/include_originals: assuming default\n";
+			atlog("WARNING: Failed to read config bool deserializer/include_originals: assuming default");
 		}
 
 
 	}
 	catch(...) {
-		atlog << "FATAL ERROR: failed to parse " << configpath << "\n";
+		atlog("FATAL ERROR: failed to parse " configpath);
 		return;
 	}
 
@@ -553,13 +553,13 @@ void ExtractorMain() {
 	std::vector<std::string> packages = PackageMapSpec::GetPrioritizedArchiveList(config.inputdir, false);
 
 	if (packages.empty()) {
-		atlog << "FATAL ERROR: Could not find PackageMapSpec.json\n"
-			<< "Did you enter the correct path to your Dark Ages folder?";
+		atlog("FATAL ERROR: Could not find PackageMapSpec.json\n"
+			  "Did you enter the correct path to your Dark Ages folder?");
 		return;
 	}
 	else {
-		atlog << "Found DOOM The Dark Ages Folder\n"
-			<< "Dumping data to " << config.outputdir << "\n";
+		atlog("Found DOOM The Dark Ages Folder\n"
+			  "Dumping data to %ls", config.outputdir.c_str());
 	}
 	std::filesystem::create_directories(config.outputdir);
 
@@ -571,7 +571,7 @@ void ExtractorMain() {
 		return;
 
 	if (config.run_extractor) {
-		atlog << "Performing resource extraction\n";
+		atlog("Performing resource extraction");
 
 		FixLegacyDeclPath(config.outputdir);
 
@@ -579,7 +579,7 @@ void ExtractorMain() {
 		containerMask.Read(config.inputdir);
 
 		if (containerMask.maskcount == 0) {
-			atlog << "FATAL ERROR: Could not read container.mask\n";
+			atlog("FATAL ERROR: Could not read container.mask");
 			return;
 		}
 
@@ -605,7 +605,7 @@ void ExtractorMain() {
 			fspath respath = basepath / packages[i];
 			int filecount = 0;
 
-			atlog << "Extracting from " << respath.filename() << "\n";
+			atlog("Extracting from %ls", respath.filename().c_str());
 			
 			ResourceArchive archive;
 			Read_ResourceArchive(archive, respath.string(), RF_SkipData);
@@ -645,7 +645,7 @@ void ExtractorMain() {
 						if (isloaded && !tryresult.first->second) {
 							tryresult.first->second = true;
 							#ifdef _DEBUG
-							atlog << "Container Mask: Re-Extracting " << setstring << "\n";
+							atlog("Container Mask: Re-Extracting %s", setstring.c_str());
 							#endif
 						}
 						else {
@@ -696,7 +696,7 @@ void ExtractorMain() {
 					std::filesystem::create_directories(output_path.parent_path());
 
 					if (output_path.string().length() > 250)
-						atlog << "WARNING: Filepath " << output_path << " exceeding safe limit. Unexpected behavior may occur\n";
+						atlog("WARNING: Filepath %ls exceeding safe limit. Unexpected behavior may occur", output_path.c_str());
 				}
 
 
@@ -704,10 +704,10 @@ void ExtractorMain() {
 				ResourceEntryData_t entrydata = Get_EntryData(e, archivestream, compbuffer, compsize, decompbuffer, decompsize);
 				if (entrydata.returncode != EntryDataCode::OK) {
 					if(entrydata.returncode == EntryDataCode::UNKNOWN_COMPRESSION) {
-						atlog << "ERROR: Unknown compression format " << e.compMode << " on file " << output_path << "\n";
+						atlog("ERROR: Unknown compression format %hhu on file %ls", e.compMode, output_path.c_str());
 					}
 					else {
-						atlog << "ERROR: Failure code " << static_cast<int>(entrydata.returncode) << " on file " << output_path << "\n";
+						atlog("ERROR: Failure code %d on file %ls", (int)entrydata.returncode, output_path.c_str());
 						continue;
 					}
 				}
@@ -718,7 +718,7 @@ void ExtractorMain() {
 				outputstream.close();
 			}
 
-			atlog << "Extracted " << filecount << " files from archive\n";
+			atlog("Extracted %d files from archive", filecount);
 		}
 
 		delete[] compbuffer;
@@ -730,32 +730,31 @@ void ExtractorMain() {
 			descriptorwriter << descriptorData.aliases;
 			descriptorwriter.close();
 		}
-
-		atlog << "Extraction Complete: " << extractedFileMap.size() << " files extracted in total\n";
+		atlog("Extraction Complete: %llu files extracted in total", extractedFileMap.size());
 	}
 	else {
-		atlog << "Skipping resource extraction\n";
+		atlog("Skipping resource extraction");
 	}
 
 	if(config.run_deserializer) {
 		Deserializer::DeserialMain(config.inputdir, config.outputdir, config.dsconfig);
 	}
 	else {
-		atlog << "Skipping deserialization\n";
+		atlog("Skipping deserialization");
 	}
 
 	if (config.run_audio_extractor) {
 		AudioExtractor(config);
 	}
 	else {
-		atlog << "Skipping Audio Extractor\n";
+		atlog("Skipping Audio Extractor");
 	}
 
 	if (config.run_soundbank_extractor) {
 		SoundBankExtractor(config.inputdir, config.outputdir);
 	}
 	else {
-		atlog << "Skipping Soundbank Extractor\n";
+		atlog("Skipping Soundbank Extractor");
 	}
 }
 
@@ -763,24 +762,24 @@ int main(int argc, char* argv[]) {
 	#define logpath "extractor_log.txt"
 
 	#ifdef _DEBUG
-	AtlanLogger::init(logpath);
+	AtlanLogger_Init(logpath);
 	ExtractorMain();
-	AtlanLogger::exit();
+	AtlanLogger_Shutdown();
 	#else
 
 	try {
-		AtlanLogger::init(logpath);
+		AtlanLogger_Init(logpath);
 		ExtractorMain();
 	}
 	catch (std::exception e) {
-		atlog << "\n\nFATAL ERROR: An unexpected crash has occurred\n"
-			<< "This may have left your extracted files incomplete or corrupted.\n"
-			<< "Error Message: " << e.what();
+		atlog("\n\nFATAL ERROR: An unexpected crash has occurred\n"
+			  "This may have left your extracted files incomplete or corrupted.\n"
+			  "Error Message: %s", e.what());
 	}
 
-	atlog << "\n\nThis window will close in 10 seconds\n";
-	atlog << "Output written to " << logpath << "\n";
-	AtlanLogger::exit();
+	atlog("\n\nThis window will close in 10 seconds");
+	atlog("Output written to " logpath);
+	AtlanLogger_Shutdown();
 	
 	std::this_thread::sleep_for(std::chrono::seconds(10));
 	#endif

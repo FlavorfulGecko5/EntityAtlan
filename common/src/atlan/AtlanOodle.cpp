@@ -31,11 +31,11 @@ bool Oodle::AtlanOodleInit(const std::filesystem::path& gamedirectory)
 			// Because nobody ever needed a simple STL function to convert a string to a wide string....
 			#define OODLE_URL    "https://github.com/WorkingRobot/OodleUE/raw/206301de7e80dd41ee873fe25126774be0fa4608/Engine/Source/Programs/Shared/EpicGames.Oodle/Sdk/2.9.10/win/redist/oo2core_9_win64.dll"
 			#define OODLE_URL_W L"https://github.com/WorkingRobot/OodleUE/raw/206301de7e80dd41ee873fe25126774be0fa4608/Engine/Source/Programs/Shared/EpicGames.Oodle/Sdk/2.9.10/win/redist/oo2core_9_win64.dll"
-			atlog << "Downloading " << oo2corepath << " from " << OODLE_URL << "\n";
+			atlog("Downloading %ls from " OODLE_URL, oo2corepath.c_str());
 
 			bool success = Oodle::Download(OODLE_URL_W, oo2corepath.wstring().c_str());
 			if (!success) {
-				atlog << "FATAL ERROR: Failed to download " << oo2corepath << "\n";
+				atlog("FATAL ERROR: Failed to download Oodle");
 				return false;
 			}
 
@@ -57,17 +57,17 @@ bool Oodle::AtlanOodleInit(const std::filesystem::path& gamedirectory)
 			sha256_final(&ctx, hash);
 
 			if (memcmp(hash, EXPECTED, SHA256_BLOCK_SIZE) != 0) {
-				atlog << "FATAL ERROR: " << oo2corepath << " checksum failed. Removing dll\n";
+				atlog("FATAL ERROR: Oodle checksum failed. Removing dll");
 				std::filesystem::remove(oo2corepath);
 				return false;
 			}
-			atlog << "Download Complete (Oodle is a file decompression library)\n";
+			atlog("Download Complete (Oodle is a file decompression library)");
 		}
 		oo2core_chosenpath = oo2corepath;
 	}
 
 	if (!Oodle::init(oo2core_chosenpath.string().c_str())) {
-		atlog << "FATAL ERROR: Failed to initialize " << oo2core_chosenpath << "\n";
+		atlog("FATAL ERROR: Failed to initialize %ls", oo2core_chosenpath.c_str());
 		return false;
 	}
 
