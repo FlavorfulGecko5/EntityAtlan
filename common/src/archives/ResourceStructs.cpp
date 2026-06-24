@@ -68,33 +68,26 @@ ResourceEntryData_t Get_EntryData(const ResourceArchive& r, const ResourceEntry&
 	return Get_EntryData_Internal(e, raw, decompbuffer, decompsize);
 }
 
-ResourceEntryData_t Get_EntryData(const ResourceEntry& e, std::ifstream& archivestream, char*& raw, size_t& rawsize, char*& decomp, size_t& decompsize) {
+ResourceEntryData_t Get_EntryData(const ResourceEntry& e, FileReader& reader, ResourceEntryBuffers_t& buffers) {
 
-	if (rawsize < e.dataSize) {
-		delete[] raw;
-		raw = new char[e.dataSize];
-		rawsize = e.dataSize;
+	if (buffers.raw_length < e.dataSize) {
+		delete[] buffers.raw_buffer;
+		buffers.raw_buffer = new char[e.dataSize];
+		buffers.raw_length = e.dataSize;
 	}
 
-	archivestream.seekg(e.dataOffset, std::ios_base::beg);
-	archivestream.read(raw, e.dataSize);
+	reader.seek(e.dataOffset);
+	reader.read(buffers.raw_buffer, e.dataSize);
 
-	return Get_EntryData_Internal(e, raw, decomp, decompsize);
+	return Get_EntryData_Internal(e, buffers.raw_buffer, buffers.decomp_buffer, buffers.decomp_length);
 
 }
 
-ResourceEntryData_t Get_EntryData(const ResourceEntry& e, std::ifstream& archivestream, ResourceEntryBuffers_t& buffers)
-{
-	return Get_EntryData(e, archivestream, buffers.raw_buffer, buffers.raw_length, buffers.decomp_buffer, buffers.decomp_length);
-}
+bool Read_ResourceArchive_Internal(ResourceArchive& r, int flags) {
 
-
-void Read_ResourceArchive(ResourceArchive& r, const fspath pathString, int flags) {
-
+	FileReader& opener = r.filehandle;
 	// Read the Header
-	std::ifstream opener(pathString, std::ios_base::binary);
-	assert(opener.good());
-	opener.read(reinterpret_cast<char*>(&r.header), sizeof(ResourceHeader));
+	opener.read((char*)&r.header, sizeof(ResourceHeader));
 
 	switch(r.header.version)
 	{
@@ -102,33 +95,34 @@ void Read_ResourceArchive(ResourceArchive& r, const fspath pathString, int flags
 		break;
 
 		case 12:
-		opener.read(reinterpret_cast<char*>(&r.metaheader), sizeof(ResourceMetaHeader));
+		opener.read((char*)&r.metaheader, sizeof(ResourceMetaHeader));
 		break;
 
 		default:
-		assert(0);
+		check(0, "Unknown resource version");
 	}
 
 	if (flags & RF_HeaderOnly)
-		return;
+		return true;
 
 
 	// Read the Resource Entries
 	r.entries = new ResourceEntry[r.header.numResources];
-	opener.seekg(r.header.resourceEntriesOffset);
-	opener.read(reinterpret_cast<char*>(r.entries), r.header.numResources * sizeof(ResourceEntry));
+	opener.seek(r.header.resourceEntriesOffset);
+	opener.read((char*)r.entries, r.header.numResources * sizeof(ResourceEntry));
 	if(flags & RF_StopAfterEntries)
-		return;
+		return true;
 
 
 	// Read the String Chunk
-	opener.seekg(r.header.stringTableOffset);
-	opener.read(reinterpret_cast<char*>(&r.stringChunk.numStrings), sizeof(uint64_t));
-	r.stringChunk.offsets = new uint64_t[r.stringChunk.numStrings];
-	r.stringChunk.dataBlock = new char[r.header.stringTableSize - r.stringChunk.numStrings * sizeof(uint64_t) - sizeof(uint64_t)];
-	opener.read(reinterpret_cast<char*>(r.stringChunk.offsets), r.stringChunk.numStrings * sizeof(uint64_t));
+	opener.seek(r.header.stringTableOffset);
+	opener.read((char*)&r.stringChunk.numStrings, sizeof(uint64_t));
 
 	size_t stringBlockSize = r.header.stringTableSize - r.stringChunk.numStrings * sizeof(uint64_t) - sizeof(uint64_t);
+	r.stringChunk.offsets = new uint64_t[r.stringChunk.numStrings];
+	r.stringChunk.dataBlock = new char[stringBlockSize];
+
+	opener.read((char*)r.stringChunk.offsets, r.stringChunk.numStrings * sizeof(uint64_t));
 	opener.read(r.stringChunk.dataBlock, stringBlockSize);
 
 	// Count the number of padding bytes
@@ -146,25 +140,46 @@ void Read_ResourceArchive(ResourceArchive& r, const fspath pathString, int flags
 	// Read Dependency Data
 	// There can be a varying number of null bytes after the final string (or none at all)
 	// Hence we have to jump to the dependency offset and can't just read from where we stopped.
-	opener.seekg(r.header.resourceDepsOffset);
-	opener.read(reinterpret_cast<char*>(r.dependencies), r.header.numDependencies * sizeof(ResourceDependency));
-	opener.read(reinterpret_cast<char*>(r.dependencyIndex), r.header.numDepIndices * sizeof(uint32_t));
-	opener.read(reinterpret_cast<char*>(r.stringIndex), r.header.numStringIndices * sizeof(uint64_t));
+	opener.seek(r.header.resourceDepsOffset);
+	opener.read((char*)r.dependencies,    r.header.numDependencies * sizeof(ResourceDependency));
+	opener.read((char*)r.dependencyIndex, r.header.numDepIndices * sizeof(uint32_t));
+	opener.read((char*)r.stringIndex,     r.header.numStringIndices * sizeof(uint64_t));
 
 	// TODO: must take note of IDCL size - develop assert for it
 	// TODO: Account for location of data now being = file_offset - data_offset
 	if (flags & RF_SkipData)
-		return;
+		return true;
 
 	// Determine size of data block
-	opener.seekg(0, std::ios_base::beg);
-	opener.seekg(0, std::ios_base::end);
-	uint64_t fileLength = static_cast<uint64_t>(opener.tellg());
-	opener.seekg(r.header.dataOffset);
+	uint64_t fileLength = static_cast<uint64_t>(opener.getlength());
+	opener.seek(r.header.dataOffset);
 
 	// Read the data block
 	r.bufferData = new char[fileLength - r.header.dataOffset];
 	opener.read(r.bufferData, fileLength - r.header.dataOffset);
+	return true;
+}
+
+bool idcl::ReadResource(ResourceArchive& r, const wchar_t* pathString, int flags, bool KeepAlive)
+{
+	check(r.filehandle.open(pathString));
+
+	bool result = Read_ResourceArchive_Internal(r, flags);
+	if (!KeepAlive) {
+		r.filehandle.close();
+	}
+	return result && r.filehandle.noerrors();
+}
+
+bool idcl::ReadResource(ResourceArchive& r, const char* pathString, int flags, bool KeepAlive)
+{
+	check(r.filehandle.open(pathString));
+
+	bool result = Read_ResourceArchive_Internal(r, flags);
+	if (!KeepAlive) {
+		r.filehandle.close();
+	}
+	return result && r.filehandle.noerrors();
 }
 
 void Audit_ResourceHeader(const ResourceHeader& h, const ResourceMetaHeader& metaheader)
@@ -333,7 +348,8 @@ void idclMaskFile::Read(const fspath gamedir)
 	// Read the container mask blob into memory
 	{
 		ResourceArchive meta;
-		Read_ResourceArchive(meta, gamedir / "base" / "meta.resources", RF_ReadEverything);
+		const fspath metapath = gamedir / "base" / "meta.resources";
+		idcl::ReadResource(meta, metapath.c_str(), RF_ReadEverything, false);
 		assert(meta.header.numResources == 1);
 
 		char* decompbuffer = nullptr;

@@ -1,6 +1,6 @@
 #pragma once
 #include <filesystem>
-#include <iosfwd>
+#include "atlan/AtlanLib.h"
 
 typedef std::filesystem::path fspath;
 
@@ -94,6 +94,7 @@ struct ResourceDependency {
 
 struct ResourceArchive {
 	char* bufferData = nullptr;
+	FileReader filehandle;
 
 	ResourceHeader     header;
 	ResourceMetaHeader metaheader;    // Not present in archive version 13
@@ -165,7 +166,10 @@ enum ResourceFlags {
 	RF_StopAfterEntries = 1 << 2
 };
 
-void Read_ResourceArchive(ResourceArchive& r, const fspath pathString, int flags);
+namespace idcl {
+	bool ReadResource(ResourceArchive& r, const wchar_t* pathString, int flags, bool KeepAlive);
+	bool ReadResource(ResourceArchive& r, const char* pathString, int flags, bool KeepAlive);
+}
 
 
 /*
@@ -214,6 +218,17 @@ struct ResourceEntryBuffers_t {
 		delete[] raw_buffer;
 		delete[] decomp_buffer;
 	}
+
+	void init(size_t initialSizes) {
+		if (nullptr == raw_buffer) {
+			raw_length = initialSizes;
+			raw_buffer = new char[raw_length];
+		}
+		if (nullptr == decomp_buffer) {
+			decomp_length = initialSizes;
+			decomp_buffer = new char[decomp_length];
+		}
+	}
 };
 
 struct ResourceEntryData_t {
@@ -248,6 +263,5 @@ ResourceEntryData_t Get_EntryData(const ResourceArchive& r, const ResourceEntry&
 * If either buffer is too small, it will be deallocated and replaced with a new buffer to hold the data
 *
 */
-ResourceEntryData_t Get_EntryData(const ResourceEntry& e, std::ifstream& archivestream, char*& raw, size_t& rawsize, char*& decomp, size_t& decompsize);
 
-ResourceEntryData_t Get_EntryData(const ResourceEntry& e, std::ifstream& archivestream, ResourceEntryBuffers_t& buffers);
+ResourceEntryData_t Get_EntryData(const ResourceEntry& e, FileReader& reader, ResourceEntryBuffers_t& buffers);

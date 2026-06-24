@@ -498,7 +498,7 @@ bool IsModded_MapSpec(const fspath& path) {
 
 bool IsModded_Meta(const fspath& path) {
 	ResourceArchive meta;
-	Read_ResourceArchive(meta, path, RF_StopAfterEntries);
+	idcl::ReadResource(meta, path.c_str(), RF_StopAfterEntries, false);
 	return meta.entries[0].generationTimeStamp == MODDED_TIMESTAMP;
 }
 
@@ -817,7 +817,7 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 		for (const std::string& archivepath : archivelist) 
 		{
 			ResourceArchive r;
-			Read_ResourceArchive(r, basedir / archivepath, RF_SkipData);
+			idcl::ReadResource(r, (basedir / archivepath).c_str(), RF_SkipData, false);
 
 			for (uint32_t i = 0; i < r.header.numResources; i++) {
 
@@ -978,7 +978,7 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 		}
 
 		ResourceArchive metaarchive;
-		Read_ResourceArchive(metaarchive, metapath, RF_HeaderOnly);
+		idcl::ReadResource(metaarchive, metapath.c_str(), RF_HeaderOnly, false);
 		g_archiveversion = metaarchive.header.version;
 
 		if (g_archiveversion != 12 && g_archiveversion != 13) {

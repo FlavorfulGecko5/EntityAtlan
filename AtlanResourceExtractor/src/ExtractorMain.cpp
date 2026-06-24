@@ -586,10 +586,8 @@ void ExtractorMain() {
 		const fspath basepath = config.inputdir / "base";
 		std::unordered_map<std::string, bool> extractedFileMap;
 
-		size_t compsize = 24000;
-		size_t decompsize = 24000;
-		char* compbuffer = new char[compsize];
-		char* decompbuffer = new char[decompsize];
+		ResourceEntryBuffers_t entryBuffers;
+		entryBuffers.init(24000);
 
 		// Aliasing system for logic object descriptors
 		// Many of their filenames are too long to export verbatim.
@@ -608,8 +606,7 @@ void ExtractorMain() {
 			atlog("Extracting from %ls", respath.filename().c_str());
 			
 			ResourceArchive archive;
-			Read_ResourceArchive(archive, respath.string(), RF_SkipData);
-			std::ifstream archivestream(respath, std::ios_base::binary);
+			idcl::ReadResource(archive, respath.c_str(), RF_SkipData, true);
 
 			// A select few resource archives don't have a container mask blob. This is normal
 			const idclMaskFile::entry bitmask = containerMask.FindArchiveMask(respath);
@@ -701,7 +698,7 @@ void ExtractorMain() {
 
 
 				// Get the entry data
-				ResourceEntryData_t entrydata = Get_EntryData(e, archivestream, compbuffer, compsize, decompbuffer, decompsize);
+				ResourceEntryData_t entrydata = Get_EntryData(e, archive.filehandle, entryBuffers);
 				if (entrydata.returncode != EntryDataCode::OK) {
 					if(entrydata.returncode == EntryDataCode::UNKNOWN_COMPRESSION) {
 						atlog("ERROR: Unknown compression format %hhu on file %ls", e.compMode, output_path.c_str());
@@ -720,9 +717,6 @@ void ExtractorMain() {
 
 			atlog("Extracted %d files from archive", filecount);
 		}
-
-		delete[] compbuffer;
-		delete[] decompbuffer;
 
 		// Write the LogicObjectDescriptor alias file, if it's populated
 		if(descriptorData.total > 0) {

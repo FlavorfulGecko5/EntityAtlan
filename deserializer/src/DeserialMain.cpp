@@ -47,16 +47,12 @@ void Deserializer::DeserialInit(const fspath& gamedir, const fspath& filedir, bo
 	deserial::entityclassmap.reserve(5000);
 
 	// For entitydef data
-	size_t rawsize = 24000;
-	size_t decompsize = 24000;
-	char* raw = new char[rawsize];
-	char* decomp = new char [decompsize];
-
+	ResourceEntryBuffers_t entryBuffers;
+	entryBuffers.init(24000);
 
 	for (const std::string& archivename : archiveList) {
 		ResourceArchive r;
-		Read_ResourceArchive(r, basepath / archivename, RF_SkipData);
-		std::ifstream archivestream(basepath / archivename, std::ios_base::binary);
+		idcl::ReadResource(r, (basepath / archivename).c_str(), RF_SkipData, true);
 
 		for (uint32_t i = 0; i < r.header.numResources; i++) {
 			const ResourceEntry& e = r.entries[i];
@@ -101,7 +97,7 @@ void Deserializer::DeserialInit(const fspath& gamedir, const fspath& filedir, bo
 				classdef.filepath = (entitydir / namestring).replace_extension(".bin").string();
 				assert(std::filesystem::exists(classdef.filepath));
 
-				const ResourceEntryData_t entrydata = Get_EntryData(e, archivestream, raw, rawsize, decomp, decompsize);
+				const ResourceEntryData_t entrydata = Get_EntryData(e, r.filehandle, entryBuffers);
 				assert(entrydata.returncode == EntryDataCode::OK);
 
 				/*
@@ -140,9 +136,6 @@ void Deserializer::DeserialInit(const fspath& gamedir, const fspath& filedir, bo
 			}
 		}
 	}
-
-	delete[] raw;
-	delete[] decomp;
 
 	/*
 	* STEP 2: Populate inherited typehash information

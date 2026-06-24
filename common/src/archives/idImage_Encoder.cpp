@@ -1,4 +1,5 @@
 #include "io/BinaryReader.h"
+#include "ResourceStructs.h"
 
 #include <Windows.h>
 #include <d3d11.h>
@@ -8,13 +9,6 @@
 #include "atlan/AtlanLogger.h"
 #include "entityslayer/Oodle.h"
 #include "io/BinaryWriter.h"
-
-#ifdef _DEBUG
-#include <cassert>
-#define check(OP) assert(OP)
-#else
-#define check(OP) if(!(OP)) {return false;}
-#endif
 
 bool idImageEncodingContext::COMThreadInit() {
 	HRESULT result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -485,9 +479,8 @@ bool idAtlanImage::Read(const uint8_t* data, size_t length) {
 	return true;
 }
 
-#include "ResourceStructs.h"
+
 #include "PackageMapSpec.h"
-#include <fstream>
 
 bool idImageHeaderMap_Build(idImageHeaderMap_t& HEADER_MAP, const std::string& gamedir)
 {
@@ -505,9 +498,7 @@ bool idImageHeaderMap_Build(idImageHeaderMap_t& HEADER_MAP, const std::string& g
 	for (const std::string& ARCHIVE_NAME : ARCHIVE_LIST) {
 		const fspath ARCHIVE_PATH = BASE_DIR / ARCHIVE_NAME;
 		ResourceArchive r;
-		Read_ResourceArchive(r, ARCHIVE_PATH, RF_SkipData);
-
-		std::ifstream DATA_READER(ARCHIVE_PATH, std::ios_base::binary);
+		idcl::ReadResource(r, ARCHIVE_PATH.c_str(), RF_SkipData, true);
 
 		for (uint32_t i = 0; i < r.header.numResources; i++) {
 			
@@ -528,7 +519,7 @@ bool idImageHeaderMap_Build(idImageHeaderMap_t& HEADER_MAP, const std::string& g
 				continue;
 			}
 
-			ResourceEntryData_t entrydata = Get_EntryData(e, DATA_READER, entrybuffers);
+			ResourceEntryData_t entrydata = Get_EntryData(e, r.filehandle, entrybuffers);
 			if (entrydata.returncode != EntryDataCode::OK) {
 				return false;
 			}
