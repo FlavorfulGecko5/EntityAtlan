@@ -1,13 +1,6 @@
 #include "idImage.h"
 #include "io/BinaryReader.h"
 
-#ifdef _DEBUG
-#include <cassert>
-#define check(OP) assert(OP)
-#else
-#define check(OP) if(!(OP)) {return false;}
-#endif
-
 #define checkread(VAR) if(!reader.ReadLE(VAR)) {return false;}
 
 bool ImageHeader::Read(const char* data, const size_t length)

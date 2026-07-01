@@ -132,3 +132,26 @@ i64 FileReader::getlength() {
 	return filelength;
 }
 
+bool __FileReader_ReadFile_Internal(FileReader& reader, charbuffer_t& out_buffer) {
+	const i64 FileLength = reader.getlength();
+	out_buffer.EnsureCapacity(FileLength);
+	out_buffer.length = FileLength;
+	reader.read(out_buffer.data, FileLength);
+	reader.close();
+	return true;
+}
+
+bool FileReader::ReadFile(const wchar_t* in_filepath, charbuffer_t& out_buffer)
+{
+	FileReader reader;
+	check(reader.open(in_filepath));
+	return __FileReader_ReadFile_Internal(reader, out_buffer);
+}
+
+bool FileReader::ReadFile(const char* in_filepath, charbuffer_t& out_buffer)
+{
+	FileReader reader;
+	check(reader.open(in_filepath));
+	return __FileReader_ReadFile_Internal(reader, out_buffer);
+}
+

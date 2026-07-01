@@ -1,203 +1,112 @@
 #include <string>
+#include "atlan/AtlanLib.h"
 
+// Binary stream parser. Does not own the data it's parsing
 class BinaryReader
 {
 	private:
 	const char* buffer = nullptr;
 	const char* next = nullptr;
-	const char* max = nullptr;
+	const char* endptr = nullptr;
+	int num_failures = 0;
+	
+	public:
+	bool AbortOnError = false;
 
 	public:
+	BinaryReader();
+	BinaryReader(const char* p_buffer, size_t length);
+	BinaryReader(const charbuffer_t& p_buffer);
 
-	BinaryReader() {}
-	BinaryReader(const char* p_buffer, size_t length) : buffer(p_buffer), next(p_buffer), max(p_buffer + length) {}
+	void SetBuffer(const char* p_buffer, size_t length);
+	void SetBuffer(const charbuffer_t& p_buffer);
 
-	void SetBuffer(const char* p_buffer, size_t length) {
-		buffer = p_buffer;
-		next = p_buffer;
-		max = p_buffer + length;
-	}
+
+	BinaryReader SubReader(size_t length);
 
 	/*
 	* Accessors
 	*/
 
-	bool InitSuccessful() const {
-		return buffer != nullptr;
-	}
+	bool        InitSuccessful() const {return buffer != nullptr;}
+	const char* GetBuffer()      const {return buffer;}
+	const char* GetNext()        const {return next;}
+	size_t      GetLength()      const {return endptr - buffer;};
+	size_t      GetPosition()    const {return next - buffer;}
+	size_t      GetRemaining()   const {return endptr - next;}
+	bool        ReachedEOF()     const {return next == endptr && NoErrors();}
+	int         FailureCount()   const {return num_failures;}
+	bool        NoErrors()       const {return num_failures == 0;}
 
-	const char* GetBuffer() const {
-		return buffer;
-	}
-
-	const char* GetNext() const {
-		return next;
-	}
-
-	size_t GetLength() const {
-		return max - buffer;
-	};
-
-	size_t GetPosition() const {
-		return next - buffer;
-	}
-
-	size_t GetRemaining() const {
-		return max - next;
-	}
-
-	bool ReachedEOF() const {
-		return next == max;
-	}
-
-	void DebugLogState() const;
+	//void DebugLogState() const;
 
 
 	/*
 	* Navigation
 	*/
-	
-	bool Goto(const size_t newPos)
-	{
-		if (buffer + newPos > max)
-			return false;
-		next = buffer + newPos;
-		return true;
-	}
 
-	bool GoRight(const size_t shiftAmount)
-	{
-		if (next + shiftAmount > max) {
-			//printf("%zu %zu %zu %zu\n", pos, shiftAmount, pos + shiftAmount, length);
-			return false;
-		}
-
-		next += shiftAmount;
-		return true;
-	}
-
+	bool Goto(const size_t newPos);
+	bool GoRight(const size_t shiftAmount);
 
 	/*
 	* Reading Functions
 	*/
 
-	bool ReadBytes(const char*& writeTo, const size_t numBytes)
-	{
-		if (next + numBytes > max)
-			return false;
+	bool ReadBytes(const char*& writeTo, const size_t numBytes);
+	bool ReadCString(const char*& writeTo);
 
-		writeTo = next;
-		next += numBytes;
-		return true;
-	}
+	/*
+	* Read Little-Endian
+	*/
 
-	bool ReadCString(const char*& writeTo)
-	{
-		const char* iter = next;
-		while (iter < max) {
-			if (*iter++ == '\0') {
-				writeTo = next;
-				next+= (iter - next);
-				return true;
-			}
-		}
-		return false;
-	}
+	bool ReadLE(int8_t& readTo);
+	bool ReadLE(uint8_t& readTo);
+	bool ReadLE(uint16_t& readTo);
+	bool ReadLE(int16_t& readTo);
+	bool ReadLE(uint32_t& readTo);
+	bool ReadLE(int32_t& readTo);
+	bool ReadLE(uint64_t& readTo);
+	bool ReadLE(int64_t& readTo);
+	bool ReadLE(float& readTo);
+	bool ReadLE(double& readTo);
 
-	bool ReadLE(int8_t& readTo)
-	{
-		if(next + 1 > max)
-			return false;
-		readTo = *next;
-		next++;
-		return true;
-	}
+	/*
+	* Right Shift: Equivalent to ReadLE with no return value
+	* indicating a successful read. Must check the number of
+	* failures to determine if a read was successful
+	*/
 
-	bool ReadLE(uint8_t& readTo)
-	{
-		if(next + 1 > max)
-			return false;
-		readTo = *reinterpret_cast<const unsigned char*>(next);
-		next++;
-		return true;
-	}
+	BinaryReader& operator>>(i8& readto);
+	BinaryReader& operator>>(i16& readto);
+	BinaryReader& operator>>(i32& readto);
+	BinaryReader& operator>>(i64& readto);
+	BinaryReader& operator>>(u8& readto);
+	BinaryReader& operator>>(u16& readto);
+	BinaryReader& operator>>(u32& readto);
+	BinaryReader& operator>>(u64& readto);
+	BinaryReader& operator>>(float& readto);
+	BinaryReader& operator>>(double& readto);
 
-	bool ReadLE(uint16_t& readTo) {
-		if(next + 2 > max)
-			return false;
-		
-		readTo = *reinterpret_cast<const uint16_t*>(next);
-		//readTo = _byteswap_ushort( *reinterpret_cast<uint16_t*>(buffer + pos));
-		next += 2;
-		return true;
-	}
+	/*
+	* Read a little-endian number and verify it's value
+	*/
 
-	bool ReadLE(int16_t& readTo) {
-		uint16_t u;
-		if (ReadLE(u)) {
-			readTo = *reinterpret_cast<int16_t*>(&u);
-			return true;
-		}
-		return false;
-	}
+	bool check8(u8  expectedvalue);
+	bool check16(u16 expectedvalue);
+	bool check32(u32 expectedvalue);
+	bool check64(u64 expectedvalue);
 
-	bool ReadLE(uint32_t& readTo)
-	{
-		if (next + 4 > max)
-			return false;
+	private:
+	template<typename TYPE>
+	bool __BinaryReader_ReadLE_Internal(TYPE& readTo);
 
-		readTo = *reinterpret_cast<const uint32_t*>(next);
-		//readTo = _byteswap_ulong(*reinterpret_cast<uint32_t*>(buffer + pos));
-		next += 4;
-		return true;
-	}
+	template<typename TYPE>
+	BinaryReader& __BinaryReader_RShift_Internal(TYPE& readto);
 
-	bool ReadLE(int32_t& readTo) {
-		uint32_t u;
-		if (ReadLE(u)) {
-			readTo = *reinterpret_cast<int32_t*>(&u);
-			return true;
-		}
-		return false;
-		
-	}
+	template<typename TYPE>
+	bool __BinaryReader_Check_Internal(TYPE expectedvalue);
 
-	bool ReadLE(uint64_t& readTo) {
-		if (next + 8 > max)
-			return false;
-
-		readTo = *reinterpret_cast<const uint64_t*>(next);
-		//readTo = _byteswap_uint64(*reinterpret_cast<uint64_t*>(buffer + pos));
-		next += 8;
-		return true;
-	}
-
-	bool ReadLE(int64_t& readTo) {
-		uint64_t u;
-		if (ReadLE(u)) {
-			readTo = *reinterpret_cast<int64_t*>(&u);
-			return true;
-		}
-		return false;
-	}
-
-	bool ReadLE(float& readTo) {
-		uint32_t u;
-		if (ReadLE(u)) {
-			readTo = *reinterpret_cast<float*>(&u);
-			return true;
-		}
-		return false;
-	}
-
-	bool ReadLE(double& readTo) {
-		uint64_t u;
-		if (ReadLE(u)) {
-			readTo = *reinterpret_cast<double*>(&u);
-			return true;
-		}
-		return false;
-	}
+	void ErrorDetected();
 };
 
 class BinaryOpener {

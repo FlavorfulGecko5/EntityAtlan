@@ -240,12 +240,18 @@ void deserial::ds_start_entitydef(BinaryReader& reader, std::string& writeTo, ui
 	assert(reader.ReachedEOF());
 }
 
-void ds_submapentity(BinaryReader& reader, std::string& writeTo)
-{
+struct mapheader_t {
+	int offset;
+	int numEntities;
+	int numRenderModels;
+	int staticInstancesOffset;
+	int prefabNameTableOffset;
+	int entitiesLength;
+	int compressedLength;
+	int uncompressedLength;
+};
 
-}
-
-void ds_submap(BinaryReader& reader, BinaryReader& shortmask, std::string& writeTo, std::string& StringTable, bool BuildStringTable, int submapindex)
+void ds_submap(BinaryReader& reader, BinaryReader& shortmask, std::string& writeTo, std::string& StringTable, int submapindex)
 {
 	//writeTo.append("submap {\n");
 	uint8_t bytecode;
@@ -261,63 +267,49 @@ void ds_submap(BinaryReader& reader, BinaryReader& shortmask, std::string& write
 
 	/* Compilation Metadata Strings */
 	uint32_t numMetaProperties;
+	std::string temptable;
+	temptable.reserve(StringTable.size());
 	assert(reader.ReadLE(numMetaProperties));
-	if (numMetaProperties > 0) {
-		std::string temptable = "metadata = {\n";
-		
-		// Each meta property consists of a key string, and a value string
-		for (uint32_t i = 0; i < numMetaProperties; i++) {
 
-			const char* bytes = nullptr;
-			assert(reader.ReadLE(len));
-			assert(reader.ReadBytes(bytes, len));
+	// Each meta property consists of a key string, and a value string
+	for (uint32_t i = 0; i < numMetaProperties; i++) {
 
-			temptable.append(bytes, len);
-			temptable.append(" = \"");
+		const char* bytes = nullptr;
+		assert(reader.ReadLE(len));
+		assert(reader.ReadBytes(bytes, len));
 
-			assert(reader.ReadLE(len));
-			assert(reader.ReadBytes(bytes, len));
-			temptable.append(bytes, len);
-			temptable.append("\";\n");
-		}
+		temptable.append(bytes, len);
+		temptable.append(" = \"");
 
-		/*
-		* It's the same string table duplicated across every
-		* submap chunk for some reason
-		*/
-
-		temptable.append("}\n");
-		if (BuildStringTable) {
-			StringTable = temptable;
-			writeTo.append(StringTable);
-		}
-		else {
-			assert(StringTable == temptable);
-		}
+		assert(reader.ReadLE(len));
+		assert(reader.ReadBytes(bytes, len));
+		temptable.append(bytes, len);
+		temptable.append("\";\n");
+	}
+	/*
+	* It's the same string table duplicated across every
+	* submap chunk for some reason
+	*/
+	if (submapindex == 0) {
+		StringTable = temptable;
+		writeTo.append("metadata = {\n");
+		writeTo.append(temptable);
+		writeTo.append("}\n");
+	}
+	else {
+		assert(StringTable == temptable);
 	}
 
 	/* End of String Chunk */
 	assert(reader.ReadLE(len));
 	assert(len == 0);
 
-	/* 
-	* This is written into the first 4 bytes of the world entity
-	* So we must technically skip reading those first 4 bytes just for this entity
-	*/
 	uint32_t totalentities;
 	uint32_t currententity = 0;
 	assert(reader.ReadLE(totalentities));
 	const char* debug_lastent = nullptr;
-	goto LABEL_SKIP_FIRST_4_BYTES;
-
 	
 	while (currententity < totalentities) {
-
-		assert(reader.ReadLE(len));
-		assert(len == 0);
-
-		LABEL_SKIP_FIRST_4_BYTES:
-		//writeTo.append("entity {\n");
 		writeTo.append("entity ");
 		writeTo.append(std::to_string(submapindex));
 		writeTo.append("{\n");
@@ -394,14 +386,122 @@ void ds_submap(BinaryReader& reader, BinaryReader& shortmask, std::string& write
 		writeTo.append("}\n}\n");
 
 		currententity++;
-	}
 
-	assert(reader.ReadLE(len));
-	assert(len == 0);
+		assert(reader.ReadLE(len));
+		assert(len == 0);
+	}
 	assert(reader.ReachedEOF());
 	assert(shortmask.ReachedEOF());
 
 	//writeTo.append("}\n");
+}
+
+void ReadStringList(BinaryReader& r, int num, std::string& writeto, const char* listname) {
+	const char* string = nullptr;
+	int length = 0;
+
+	writeto.append(listname);
+	writeto.append(" {\n");
+
+	for (int i = 0; i < num; i++) {
+		assert(r.ReadLE(length));
+		assert(r.ReadBytes(string, length));
+		writeto.append("item[");
+		writeto.append(std::to_string(i));
+		writeto.append("] = \"");
+		writeto.append(string, length);
+		writeto.append("\"\n");
+	}
+	writeto.append("}\n");
+}
+
+void ReadStringList(BinaryReader& r, int num) {
+	const char* string = nullptr;
+	int length = 0;
+	for (int i = 0; i < num; i++) {
+		assert(r.ReadLE(length));
+		assert(r.ReadBytes(string, length));
+	}
+}
+
+
+void mapents_skip_headerchunk(BinaryReader& r, std::string& writeto, const int num_sectors) {
+	
+	// For each sector there's a set of 9(8?) optional string lists
+	// The lists are from staticInstanceResourceTables_t
+	for (int SECTOR_INDEX = 0; SECTOR_INDEX < num_sectors; SECTOR_INDEX++) {
+		//const char* listnames[9] = { "N/A", "materials", "renderparms", "staticModels", "vegetationModels", "staticModelStreams", "opacitymicromaps", "remeshModels", "layers"};
+		int numstrings = 0;
+		r >> numstrings; assert(numstrings == 1);
+
+		// These first two lists are a bit quirky...
+		for (int i = 1; i < 3; i++) {
+			r >> numstrings;
+			if (numstrings > 1)
+				ReadStringList(r, numstrings - 1);
+		}
+		for (int i = 3; i < 9; i++) {
+			r >> numstrings;
+			if (numstrings > 0) // So we don't output empty string lists to the file
+				ReadStringList(r, numstrings);
+		}
+	}
+
+	struct {
+		int sectors;
+		int volumes;
+		int polytopes;
+		int planes;
+		int vertices;
+		int edges;
+		int targets;
+
+		// Stored in different places from everything else
+		int predicates;
+		int stats;
+	} lens;
+
+	r >> lens.sectors >> lens.volumes >> lens.polytopes
+		>> lens.planes >> lens.vertices >> lens.edges >> lens.targets;
+
+	ReadStringList(r, lens.sectors, writeto, "sector_names"); // Sector Names
+	ReadStringList(r, lens.volumes); // Volume Names
+	r.GoRight(sizeof(int) * lens.sectors); // Sector Parents
+
+	r >> lens.predicates; // Sector Predicates
+	for (int i = 0; i < lens.predicates; i++) {
+		u8 byte;
+		ReadStringList(r, 1);
+		r >> byte;
+	}
+
+	// Sizes are taken from the idlib
+	r.GoRight(244 * lens.volumes); // Volume definitions 
+	r.GoRight(28 * lens.polytopes); // Polytopes
+	r.GoRight(16 * lens.planes); // Planes
+	r.GoRight(12 * lens.vertices); // Vertices
+	r.GoRight(4 * lens.edges); // Edges
+	r.GoRight(sizeof(int) * lens.targets); // Targets
+
+	// Stat names and stats
+	// Each sector has it's own set of stats
+	// Values seem to be grouped by sector, not by stat name
+	r >> lens.stats;
+	ReadStringList(r, lens.stats);
+	r.GoRight(lens.stats * sizeof(int) * lens.sectors);
+
+	// Asset Nodes: List of type strings that each have their own
+	// sublist of name strings
+	int num_assetTypes = 0;
+	r >> num_assetTypes;
+	for (int i = 0; i < num_assetTypes; i++) {
+		int num_assetPaths = 0;
+		ReadStringList(r, 1);
+		r >> num_assetPaths;
+		ReadStringList(r, num_assetPaths);
+	}
+
+	assert(r.NoErrors());
 }
 
 void deserial::ds_start_mapentities(BinaryReader& reader, std::string& writeTo)
@@ -409,57 +509,27 @@ void deserial::ds_start_mapentities(BinaryReader& reader, std::string& writeTo)
 	deserialmode = DeserialMode::mapentities;
 	int totalmaps;
 	assert(reader.ReadLE(totalmaps));
-	assert(reader.Goto(0x8)); // Position of the entity count of the first submap
+	const mapheader_t* mapheaders = (mapheader_t*)reader.GetNext();
+	assert(reader.GoRight(sizeof(mapheader_t) * totalmaps));
 
-	struct submapheader_t {
-		uint32_t entities = 0;
-		uint32_t length = 0;
-
-		BinaryReader mapreader;
-		BinaryReader shortmask;
-	};
-
-	submapheader_t* submapheaders = new submapheader_t[totalmaps];
-
-	// Extract the submap entity totals and block lengths from the header
-	for (int i = 0; i < totalmaps; i++) {
-		assert(reader.ReadLE(submapheaders[i].entities));
-		assert(reader.GoRight(0xC));
-		assert(reader.ReadLE(submapheaders[i].length));
-		assert(reader.GoRight(0xC));
-	}
-
-	// Since we don't know how to calculate the length of the header chunk,
-	// we must iterate backwards through the file to extract the submap chunks
-	const char* tempptr = reader.GetBuffer() + reader.GetLength();
-	for (int i = totalmaps - 1; i > -1; i--) {
-		submapheader_t& sm = submapheaders[i];
-
-		tempptr -= sm.length;
-		sm.mapreader = BinaryReader(tempptr, sm.length);
-		tempptr -= sm.entities * 2;
-		sm.shortmask = BinaryReader(tempptr, sm.entities * 2);
-
-	}
+	mapents_skip_headerchunk(reader, writeTo, totalmaps);
+	const char* const headerEnd = reader.GetNext();
 
 	std::string stringtable;
 
-
 	for (int i = 0; i < totalmaps; i++) {
-		ds_submap(submapheaders[i].mapreader, submapheaders[i].shortmask, writeTo, stringtable, i == 0, i);
+		BinaryReader layermask = reader.SubReader(mapheaders[i].numEntities * sizeof(short));
+		BinaryReader entsreader = reader.SubReader(mapheaders[i].entitiesLength);
+
+		ds_submap(entsreader, layermask, writeTo, stringtable, i);
 	}
 
-	//writeTo.append(stringtable);
-
 	// New approach to header
-	#if 1
 	{
 		writeTo.append("// DO NOT MODIFY THE HEADER CHUNK\n");
 		writeTo.append("headerchunk {\n");
 
 		const char* headerStart = reader.GetBuffer();
-		const char* headerEnd = submapheaders[0].shortmask.GetBuffer();
-		size_t headerLength = headerEnd - reader.GetBuffer();
 
 		int i = 0;
 		int linecount = 0;
@@ -483,17 +553,7 @@ void deserial::ds_start_mapentities(BinaryReader& reader, std::string& writeTo)
 
 		writeTo.append("\n}\n");
 	}
-	#else
-
-	// Append the raw header binary to the end of the file
-	writeTo.push_back('\0');
-	const char* headerEnd = submapheaders[0].shortmask.GetBuffer();
-	size_t headerLength = headerEnd - reader.GetBuffer();
-	writeTo.append(reader.GetBuffer(), headerLength);
-	#endif
-
-	delete[] submapheaders;
-	//printf("%s", stringtable.c_str());
+	assert(reader.ReachedEOF());
 }
 
 void deserial::ds_start_logicdecl(BinaryReader& reader, std::string& writeTo, ResourceType declclass) {
