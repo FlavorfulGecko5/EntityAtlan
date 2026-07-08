@@ -1,7 +1,8 @@
 #include "PackageMapSpec.h"
 #include "entityslayer\EntityParser.h"
+#include "atlan/AtlanLogger.h"
+#include "atlan/AtlanLib.h"
 #include <cassert>
-#include <iostream>
 
 #ifndef _DEBUG
 #undef assert
@@ -13,42 +14,36 @@ void PackageMapSpec::ToString(const fspath gamedir) {
 	EntNode& jsonroot = *entparser.getRoot()->ChildAt(0);
 	
 	std::vector<std::string_view> filenames;
-	EntNode& filelist = jsonroot["\"files\""];
-	for(int i = 0; i < filelist.getChildCount(); i++) {
-		filenames.push_back(filelist.ChildAt(i)->ChildAt(0)->getValueUQ());
-		//std::cout << filenames.back() << "\n";
+	for (const EntNode& file : jsonroot["\"files\""]) {
+		filenames.push_back(file[0].getValueUQ());
 	}
 
 	std::vector<std::string_view> mapnames;
-	EntNode& maplist = jsonroot["\"maps\""];
-	for(int i = 0; i < maplist.getChildCount(); i++) {
-		mapnames.push_back(maplist.ChildAt(i)->ChildAt(0)->getValueUQ());
+	for (const EntNode& map : jsonroot["\"maps\""]) {
+		mapnames.push_back(map[0].getValueUQ());
 	}
 
 	std::vector<std::vector<int>> filemapping;
 	filemapping.resize(mapnames.size());
 
-	EntNode& mapfilerefs = jsonroot["\"mapFileRefs\""];
-	for(int i = 0; i < mapfilerefs.getChildCount(); i++) {
+	for (const EntNode& ref : jsonroot["\"mapFileRefs\""]) {
 		int fileindex = -1, mapindex = -1;
-		mapfilerefs.ChildAt(i)->ChildAt(0)->ValueInt(fileindex, -9999, 9999);
-		mapfilerefs.ChildAt(i)->ChildAt(1)->ValueInt(mapindex, -9999, 9999);
+		ref[0].ValueInt(fileindex, -9999, 9999);
+		ref[1].ValueInt(mapindex, -9999, 9999);
 
-		assert(fileindex != -1);
-		assert(mapindex != -1);
-
+		check_always(fileindex != -1 && mapindex != -1);
 		filemapping[mapindex].push_back(fileindex);
 	}
 
 
 	for(size_t i = 0; i < filemapping.size(); i++) {
-		std::cout << "\n" << mapnames[i] << "\n";
-
+		atlog("\n%.*s", (int)mapnames[i].length(), mapnames[i].data());
 		for(int fileindex : filemapping[i]) {
-			std::cout << "-" << filenames[fileindex] << "\n";
+			atlog("-%.*s", (int)filenames[fileindex].length(), filenames[fileindex].data());
 		}
-
 	}
+
+	atlog("Files: %zu Maps: %zu", filenames.size(), mapnames.size());
 }
 
 // TODO: Will need to revisit this upon adding more advanced features
@@ -112,7 +107,7 @@ void PackageMapSpec::InjectCommonArchive(const fspath gamedir, const fspath newa
 	entparser.WriteToFile(pmspath.string(), 0);
 }
 
-std::vector<std::string> PackageMapSpec::GetPrioritizedArchiveList(const fspath gamedir, bool IncludeModArchives)
+std::vector<std::string> PackageMapSpec_MakeFileList(const fspath gamedir, bool IncludeModArchives, std::string extString)
 {
 	fspath pathMapSpec = gamedir / "base/packagemapspec.json";
 	if(!std::filesystem::exists(pathMapSpec))
@@ -138,7 +133,6 @@ std::vector<std::string> PackageMapSpec::GetPrioritizedArchiveList(const fspath 
 			}
 
 			// All of this...because the C++ 17 STL doesn't have EndsWith
-			std::string_view extString = ".resources";
 			size_t extIndex = nameString.rfind(extString);
 			if (extIndex != std::string_view::npos && extIndex + extString.length() == nameString.length())
 			{
@@ -152,4 +146,66 @@ std::vector<std::string> PackageMapSpec::GetPrioritizedArchiveList(const fspath 
 	}
 
 	return packages;
+}
+
+// TODO: This is a refactor-in-progress. Eventual goal is to fully
+// replace the above function with this one and other functions that call it
+std::vector<fspath> PackageMapSpec_MakeFileList2(const fspath& mapspecpath, bool IncludeModFiles, std::string extString) {
+	if (!std::filesystem::exists(mapspecpath)) {
+		atlog("ERROR: PackageMapSpec_MakeFileList: PackageMapSpec not found");
+		return {};
+	}
+
+	const fspath mapspec_dir = mapspecpath.parent_path();
+	std::vector<fspath> packages;
+	try {
+		EntityParser parser(mapspecpath.string(), ParsingMode::JSON);
+
+		EntNode* root = parser.getRoot()->ChildAt(0);
+		EntNode& files = (*root)["\"files\""];
+		packages.reserve(files.getChildCount() / 5);
+
+		for (const EntNode& entry : files) {
+			std::string_view nameString = entry[0].getValueUQ();
+
+			if (nameString.find("modarchives") != -1) {
+				if(!IncludeModFiles)
+					continue;
+			}
+
+			// All of this...because the C++ 17 STL doesn't have EndsWith
+			size_t extIndex = nameString.rfind(extString);
+			if (extIndex == -1 || extIndex + extString.length() != nameString.length()) {
+				continue;
+			}
+
+			packages.emplace_back(mapspec_dir / nameString);
+
+			// If the DLC archives only get downloaded if you own the DLC
+			// then we'll need to ensure only archives that exist are returned
+			if(!std::filesystem::exists(packages.back()))
+				packages.pop_back();
+		}
+	}
+	catch (std::exception e) {
+		atlog("ERROR: PackageMapSpec_MakeFileList: Failed to parse packagemapspec");
+		return {};
+	}
+
+	return packages;
+}
+
+std::vector<std::string> PackageMapSpec::GetPrioritizedArchiveList(const fspath gamedir, bool IncludeModArchives)
+{
+	return PackageMapSpec_MakeFileList(gamedir, IncludeModArchives, ".resources");
+}
+
+std::vector<std::string> PackageMapSpec::GetStreamDBList(const fspath gamedir, bool IncludeModArchives)
+{
+	return PackageMapSpec_MakeFileList(gamedir, IncludeModArchives, ".streamdb");
+}
+
+std::vector<fspath> PackageMapSpec::GetArchiveList(const fspath& mapspecpath, bool IncludeModFiles)
+{
+	return PackageMapSpec_MakeFileList2(mapspecpath, IncludeModFiles, ".resources");
 }

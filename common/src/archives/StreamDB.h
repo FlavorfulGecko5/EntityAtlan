@@ -1,7 +1,6 @@
 #pragma once
 
-typedef unsigned int u32;
-typedef unsigned long long u64;
+#include "atlan/AtlanLib.h"
 
 #define STREAMDB_MAGIC 0x61C7F32E29C2A550UL
 
@@ -57,12 +56,29 @@ struct idStreamDB {
 
     size_t TOTAL_FILE_SIZE = 0;
 
+    FileReader reader;
+
     ~idStreamDB() {
         delete[] entries;
         delete[] prefetchblocks;
         delete[] prefetchIds;
     }
 
+    bool Read(const wchar_t* filepath, bool KeepAlive = false);
 
-    bool Read(const wchar_t* filepath);
+    private:
+    bool Read_Internal();
+};
+
+struct idStreamDB_Database {
+    idStreamDB* dbptr = nullptr;
+    int numdbs = 0;
+
+    ~idStreamDB_Database() {
+        delete[] dbptr;
+    }
+
+    bool Build(const wchar_t* gamedir);
+
+    bool GetData(const uint64_t hash, const int DecompressedSize, charbuffer_t& output, charbuffer_t& decompbuffer) const;
 };

@@ -1,14 +1,21 @@
 #include "StreamDB.h"
-#include <fstream>
-#include <cassert>
+#include "PackageMapSpec.h"
+#include "entityslayer/Oodle.h"
 
-bool idStreamDB::Read(const wchar_t* filepath)
+
+bool idStreamDB::Read(const wchar_t* filepath, bool KeepAlive) {
+    check(reader.open(filepath));
+
+    bool result = Read_Internal();
+    if (!KeepAlive) {
+        reader.close();
+    }
+    return result && reader.noerrors();
+}
+
+bool idStreamDB::Read_Internal()
 {
-
-    std::ifstream reader(filepath, std::ios_base::binary);
-    reader.seekg(0, std::ios_base::end);
-    TOTAL_FILE_SIZE = reader.tellg();
-    reader.seekg(0, std::ios_base::beg);
+    TOTAL_FILE_SIZE = reader.getlength();
     
     // Header
     reader.read((char*)&header, sizeof(header_t));
@@ -43,7 +50,7 @@ bool idStreamDB::Read(const wchar_t* filepath)
 
         // Eternal: Maximum of 2 prefetch blocks. Identifiers are "AI" or "FirstPerson"
         // DarkAges: Maximum of 1 prefetch block. Identifier is always "AI"
-        assert(prefetchheader.numblocks < 3);
+        check(prefetchheader.numblocks < 3);
     }
 
     // Some final validations
@@ -55,8 +62,7 @@ bool idStreamDB::Read(const wchar_t* filepath)
         return false;
     }
 
-    size_t s = reader.tellg();
-    if(reader.tellg() != header.headerLength)
+    if(reader.getposition() != header.headerLength)
         return false;
 
     // Entries are stored in order of ascending hash
@@ -67,4 +73,77 @@ bool idStreamDB::Read(const wchar_t* filepath)
     }
 
     return true;
+}
+
+
+
+bool idStreamDB_Database::Build(const wchar_t* gamedir)
+{
+    const fspath basedir = fspath(gamedir) / "base";
+
+    std::vector<std::string> StreamDBNames = PackageMapSpec::GetStreamDBList(gamedir, false);
+
+    check(StreamDBNames.size() > 0);
+
+    this->dbptr = new idStreamDB[StreamDBNames.size()];
+
+    for (const std::string& StreamName : StreamDBNames) {
+        printf("%s\n", StreamName.data());
+        idStreamDB& ptr = dbptr[numdbs++];
+        check(ptr.Read((basedir / StreamName).c_str(), true));
+    }
+}
+
+bool idStreamDB_Database::GetData(const uint64_t targethash, const int DecompressedSize, charbuffer_t& outbuffer, charbuffer_t& decompbuffer) const
+{
+    for (int FILE_INDEX = 0; FILE_INDEX < numdbs; FILE_INDEX++) {
+        idStreamDB& file = dbptr[FILE_INDEX];
+
+        //const idStreamDB::entry_t *low = file.entries,
+        //    *high = file.entries + file.header.numEntries - 1;
+
+        int low = 0, high = file.header.numEntries - 1;
+
+        bool found = false;
+        idStreamDB::entry_t foundEntry;
+        while (low <= high) {
+            int index = (high + low) / 2;
+
+            if (file.entries[index].id < targethash) {
+                low = index + 1;
+            }
+            else if (file.entries[index].id > targethash) {
+                high = index - 1;
+            }
+            else {
+                found = true;
+                foundEntry = file.entries[index];
+                break;
+            }
+        }
+
+        if(!found)
+            continue;
+
+
+        if (decompbuffer.capacity < foundEntry.length) {
+            delete[] decompbuffer.data;
+            decompbuffer.data = new char[foundEntry.length];
+            decompbuffer.capacity = foundEntry.length;
+        }
+        if (outbuffer.capacity < DecompressedSize) {
+            delete[] outbuffer.data;
+            outbuffer.data = new char[DecompressedSize];
+            outbuffer.capacity = DecompressedSize;
+        }
+
+        file.reader.seek(foundEntry.offset16 * 16LL);
+        file.reader.read(decompbuffer.data, foundEntry.length);
+
+        check(Oodle::DecompressBuffer(decompbuffer.data, foundEntry.length, outbuffer.data, DecompressedSize));
+
+        return true;
+    }
+
+    return false;
 }

@@ -339,4 +339,32 @@ class EntNode
 	* @return The uncompressed file size
 	*/
 	size_t writeToFile(const std::string filepath, const size_t sizeHint, const bool oodleCompress, const char* eofblob, size_t eofbloblength, const bool debug_logTime = false);
+
+
+	/*
+	* Iterator for performing an enhanced for-loop over the node's children
+	*/
+	struct iter_t {
+		EntNode** ptr;
+
+		EntNode& operator*() {
+			return **ptr;
+		}
+
+		bool operator!=(iter_t other) {
+			return ptr != other.ptr;
+		}
+
+		void operator++() {
+			++ptr;
+		}
+	};
+
+	iter_t begin() {
+		return {children};
+	}
+
+	iter_t end() {
+		return {children + childCount};
+	}
 };
