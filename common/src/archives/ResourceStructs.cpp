@@ -324,7 +324,7 @@ void Audit_ResourceArchive(const ResourceArchive& r) {
 		else if (strcmp(typeString, "mapentities") == 0) {
 			//if(e.compMode == 0)
 			assert(e.dataCheckSum != e.defaultHash);
-			assert(e.version == 81 || e.version == 80 || e.version == 77);
+			assert(e.version == 86 || e.version == 81 || e.version == 80 || e.version == 77);
 			assert(e.flags == 2);
 			assert(e.variation == 70);
 		}

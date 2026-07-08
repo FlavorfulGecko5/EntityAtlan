@@ -1001,7 +1001,13 @@ void reserial::rs_idHandle_T_short___invalidEvent_t___INVALID_EVENT_HANDLE_T(con
 		 1671308008U,
 		 527782902U,
 		 3402897492U,
-		 1379333622U
+		 1379333622U,
+		 4100435505U,
+		 2361586330U,
+		 3402897979U,
+		 1544150481U,
+		 3426108905U,
+		 1965779763U,
 	};
 
 	std::string_view eventcall = property.getValueUQ();

@@ -97,10 +97,8 @@ void deserial::ds_start_entitydef(BinaryReader& reader, std::string& writeTo, ui
 	inherithash_t inherit;
 	uint64_t editHash;
 	
-	assert(reader.ReadLE(bytecode));
-	assert(bytecode == 0);
-	assert(reader.ReadLE(length));
-	assert(length == reader.GetRemaining());
+	reader.check8(0);
+	reader.check32((u32)reader.GetRemaining() - 4);
 	
 	// Read the inheritance hash
 	assert(reader.ReadLE(inherit.hash));
@@ -130,18 +128,14 @@ void deserial::ds_start_entitydef(BinaryReader& reader, std::string& writeTo, ui
 	// Block #1 - Padded Wrapper --> Serialization Hash --> Editor Vars
 	{
 		// Wrapper Block
-		assert(reader.ReadLE(bytecode));
-		assert(bytecode == 1);
-		assert(reader.ReadLE(length));
-		assert(length == 0);
+		reader.check8(1);
+		reader.check32(0);
 		assert(reader.ReadLE(length));
 
 		if (length != 0) {
 			// Edit Block
-			assert(reader.ReadLE(bytecode));
-			assert(bytecode == 0);
-			assert(reader.ReadLE(editHash));
-			assert(editHash == HASH_EDIT);
+			reader.check8(0);
+			reader.check64(HASH_EDIT);
 
 			const deserializer editorVars = {&ds_idEntityDefEditorVars, "editorVars", 0};
 			editorVars.Exec(reader, writeTo);
@@ -151,18 +145,14 @@ void deserial::ds_start_entitydef(BinaryReader& reader, std::string& writeTo, ui
 
 	// Block #2 - Padded Wrapper --> gamesystemVariables_t (Entity class and some booleans)
 	{
-		assert(reader.ReadLE(bytecode));
-		assert(bytecode == 1);
-		assert(reader.ReadLE(length));
-		assert(length == 0);
+		reader.check8(1);
+		reader.check32(0);
 		assert(reader.ReadLE(length));
 
 		if (length != 0) {
 			// Edit Block
-			assert(reader.ReadLE(bytecode));
-			assert(bytecode == 0);
-			assert(reader.ReadLE(editHash));
-			assert(editHash == HASH_EDIT);
+			reader.check8(0);
+			reader.check64(HASH_EDIT);
 
 			const deserializer systemVars = {&ds_idDeclEntityDef__gameSystemVariables_t, "systemVars", 0};
 			systemVars.Exec(reader, writeTo);
@@ -198,21 +188,16 @@ void deserial::ds_start_entitydef(BinaryReader& reader, std::string& writeTo, ui
 	fileCount++;
 	// Block #3 - Unpadded Wrapper --> Serialization Hash --> Edit Block
 	{
-		assert(reader.ReadLE(bytecode));
-		assert(bytecode == 0);
+		reader.check8(0);
 		assert(reader.ReadLE(length));
-		assert(reader.ReadLE(bytecode));
-		assert(bytecode == 1);
-		assert(reader.ReadLE(length));
-		assert(length == 0);
+		reader.check8(1);
+		reader.check32(0);
 		assert(reader.ReadLE(length));
 
 		if (length != 0) {
 			// Edit Block
-			assert(reader.ReadLE(bytecode));
-			assert(bytecode == 0);
-			assert(reader.ReadLE(editHash));
-			assert(editHash == HASH_EDIT);
+			reader.check8(0);
+			reader.check64(HASH_EDIT);
 
 			const deserializer editBlock = {lastAccessedTypeInfo.callback, "edit", 0};
 			editBlock.Exec(reader, writeTo);
@@ -222,8 +207,7 @@ void deserial::ds_start_entitydef(BinaryReader& reader, std::string& writeTo, ui
 
 	// Block #4 - Unserialized Edit Block
 	{
-		assert(reader.ReadLE(bytecode));
-		assert(bytecode == 0);
+		reader.check8(0);
 		assert(reader.ReadLE(length));
 
 		const char* unserialized = nullptr;
@@ -258,12 +242,9 @@ void ds_submap(BinaryReader& reader, BinaryReader& shortmask, std::string& write
 	uint32_t len;
 
 	/* Start of submap chunk */
-	assert(reader.ReadLE(len));
-	assert(len == 0x0A);
-	assert(reader.ReadLE(bytecode));
-	assert(bytecode == 1);
-	assert(reader.ReadLE(len));
-	assert(len == 0);
+	reader.check32(0x0A);
+	reader.check8(1);
+	reader.check32(0);
 
 	/* Compilation Metadata Strings */
 	uint32_t numMetaProperties;
@@ -301,8 +282,7 @@ void ds_submap(BinaryReader& reader, BinaryReader& shortmask, std::string& write
 	}
 
 	/* End of String Chunk */
-	assert(reader.ReadLE(len));
-	assert(len == 0);
+	reader.check32(0);
 
 	uint32_t totalentities;
 	uint32_t currententity = 0;
@@ -387,13 +367,9 @@ void ds_submap(BinaryReader& reader, BinaryReader& shortmask, std::string& write
 
 		currententity++;
 
-		assert(reader.ReadLE(len));
-		assert(len == 0);
+		reader.check32(0);
 	}
-	assert(reader.ReachedEOF());
-	assert(shortmask.ReachedEOF());
-
-	//writeTo.append("}\n");
+	assert(reader.ReachedEOF() && shortmask.ReachedEOF());
 }
 
 void ReadStringList(BinaryReader& r, int num, std::string& writeto, const char* listname) {
@@ -455,6 +431,7 @@ void mapents_skip_headerchunk(BinaryReader& r, std::string& writeto, const int n
 		int vertices;
 		int edges;
 		int targets;
+		int fastTravelPoints; // New to the dlc update
 
 		// Stored in different places from everything else
 		int predicates;
@@ -462,7 +439,8 @@ void mapents_skip_headerchunk(BinaryReader& r, std::string& writeto, const int n
 	} lens;
 
 	r >> lens.sectors >> lens.volumes >> lens.polytopes
-		>> lens.planes >> lens.vertices >> lens.edges >> lens.targets;
+		>> lens.planes >> lens.vertices >> lens.edges 
+		>> lens.targets >> lens.fastTravelPoints; 
 
 	ReadStringList(r, lens.sectors, writeto, "sector_names"); // Sector Names
 	ReadStringList(r, lens.volumes); // Volume Names
@@ -482,6 +460,11 @@ void mapents_skip_headerchunk(BinaryReader& r, std::string& writeto, const int n
 	r.GoRight(12 * lens.vertices); // Vertices
 	r.GoRight(4 * lens.edges); // Edges
 	r.GoRight(sizeof(int) * lens.targets); // Targets
+	r.GoRight(12 * lens.fastTravelPoints);
+
+	// New to the dlc update.
+	r.check64(0);
+	r.check32(0);
 
 	// Stat names and stats
 	// Each sector has it's own set of stats
@@ -558,37 +541,15 @@ void deserial::ds_start_mapentities(BinaryReader& reader, std::string& writeTo)
 
 void deserial::ds_start_logicdecl(BinaryReader& reader, std::string& writeTo, ResourceType declclass) {
 	#define HASH_EDIT 0xC2D0B77C0D10391CUL
-	uint8_t bytecode;
-	uint32_t length;
-	uint64_t inherits;
 
-	// File starts with a 0 byte
-	assert(reader.ReadLE(bytecode));
-	assert(bytecode == 0);
-
-	// Length of file past this point
-	assert(reader.ReadLE(length));
-	assert(length == reader.GetRemaining());
-
-	// Parent decl hash - should always be 0
-	assert(reader.ReadLE(inherits));
-	assert(inherits == 0);
-
-	// Bytecode of 1, followed by word of padding
-	assert(reader.ReadLE(bytecode));
-	assert(bytecode == 1);
-	assert(reader.ReadLE(length));
-	assert(length == 0);
-
-	// Length of deserialization block
-	assert(reader.ReadLE(length));
-	assert(length == reader.GetRemaining());
-
-	// Edit Property Hash
-	assert(reader.ReadLE(bytecode));
-	assert(bytecode == 0);
-	assert(reader.ReadLE(inherits));
-	assert(inherits == HASH_EDIT);
+	reader.check8(0);
+	reader.check32((u32)reader.GetRemaining() - 4); // Length of file past this point
+	reader.check64(0);                              // Parent decl hash - should always be 0
+	reader.check8(1);
+	reader.check32(0);
+	reader.check32((u32)reader.GetRemaining() - 4); // Length of deserialization block
+	reader.check8(0);
+	reader.check64(HASH_EDIT);
 
 	deserializer editblock = { nullptr, "edit", 0 };
 	
@@ -899,14 +860,10 @@ void deserial::ds_idList(BinaryReader& reader, std::string& writeTo, dsfunc_t* c
 	// Read the list length
 	// Length isn't guaranteed to be serialized i.e. when partially modifying an inherited list
 	if (*reader.GetNext() == '\0') {
-		assert(reader.ReadLE(bytecode));
-		assert(bytecode == 0);
-		assert(reader.ReadLE(numHash));
-		assert(numHash == HASH_NUM);
-		assert(reader.ReadLE(bytecode));
-		assert(bytecode == 1);
-		assert(reader.ReadLE(length));
-		assert(length == 2);
+		reader.check8(0);
+		reader.check64(HASH_NUM);
+		reader.check8(1);
+		reader.check32(2);
 		assert(reader.ReadLE(shortlength));
 
 		writeTo.append("num = ");
@@ -1323,7 +1280,13 @@ dsfunc_m(deserial::ds_idHandle_T_short___invalidEvent_t___INVALID_EVENT_HANDLE_T
 		{1671308008U, "disable"},
 		{527782902U, "showRenderModel"},
 		{3402897492U, "stopFX"},
-		{1379333622U, "runRipatoriumWave"}
+		{1379333622U, "runRipatoriumWave"},
+		{4100435505U, "runRipatoriumRound"},
+		{2361586330U, "startSubtitle"},
+		{3402897979U, "stopVO"},
+		{1544150481U, "goreEnableFullBodyByName"},
+		{3426108905U, "spawnSummoner"},
+		{1965779763U, "migrateAIFromExternalScript"},
 	};
 
 	uint32_t hash;
@@ -1332,7 +1295,9 @@ dsfunc_m(deserial::ds_idHandle_T_short___invalidEvent_t___INVALID_EVENT_HANDLE_T
 	const auto& iter = eventcallmap.find(hash);
 	if (iter == eventcallmap.end())
 	{
-		LogWarning("Unknown eventcall hash");
+		std::string warning = "Unknown eventcall hash ";
+		warning.append(std::to_string(hash));
+		LogWarning(warning);
 		writeTo.append(std::to_string(hash));
 		writeTo.append(";\n");
 	}
@@ -1364,7 +1329,7 @@ __forceinline void ds_num(BinaryReader& reader, std::string& writeTo)
 	assert(reader.GetLength() == sizeof(T));
 
 	T val;
-	assert(reader.ReadLE(val));
+	reader.ReadLE(val);
 
 	writeTo.append(std::to_string(val)); // Should be promoted to integer when it's a character
 	writeTo.append(";\n");
