@@ -16,6 +16,5 @@ AtlanResourceExtractor {
 	"../AtlanResourceExtractor/vgmstream"
 }
 idlib_update {
-	"../reflector/idlib.json"
 	"../reflector/idlib.h"
 }

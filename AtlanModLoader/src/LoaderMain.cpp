@@ -889,7 +889,7 @@ void InjectorMain(int argc, char* argv[], int& argflags) {
 
 	atlog(R"(
 ----------------------------------------------
-Atlan Mod Loader v%d.0 for DOOM: The Dark Ages
+Atlan Mod Loader v%d.1 for DOOM: The Dark Ages
 By FlavorfulGecko5
 With Special Thanks to: Proteh, Zwip-Zwap-Zapony, Tjoener, and many other talented modders!
 https://github.com/FlavorfulGecko5/EntityAtlan/

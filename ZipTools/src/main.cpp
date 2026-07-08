@@ -80,6 +80,8 @@ void buildzip(const enode& zip)
 
 int main()
 {
+	assert(0 && "Please Run ZipTools in Release Mode");
+
 	try {
 		EntityParser parser("zipscript.txt", ParsingMode::PERMISSIVE);
 

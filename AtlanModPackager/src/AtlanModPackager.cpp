@@ -384,7 +384,7 @@ int main(int argc, char* argv[])
 		if(!idImageEncodingContext::COMThreadInit())
 			return 0;
 		AtlanLogger_Init(logpath);
-		atlog("Atlan Mod Packager 2.0 by FlavorfulGecko5");
+		atlog("Atlan Mod Packager 2.1 by FlavorfulGecko5");
 		PackagerMain(argc > 1 ? argv[1] : nullptr);
 		
 

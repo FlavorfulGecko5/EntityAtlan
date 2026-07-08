@@ -433,7 +433,7 @@ void ExtractorMain() {
 	/*
 	* REMEMBER TO UPDATE VERSION NUMBER
 	*/
-	atlog("Atlan Resource Extractor v3.2 by FlavorfulGecko5");
+	atlog("Atlan Resource Extractor v3.3 by FlavorfulGecko5");
 
 	/*
 	* Parse and validate config file
