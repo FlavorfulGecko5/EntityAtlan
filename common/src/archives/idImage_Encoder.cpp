@@ -1,5 +1,6 @@
 #include "io/BinaryReader.h"
 #include "ResourceStructs.h"
+#include <mutex>
 
 #include <Windows.h>
 #include <d3d11.h>
@@ -269,6 +270,10 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const std
 
 	//printf("\rCompressing Texture...");
 	if (DXGI_UseGpuEncoding(dxgiFormat)) {
+		// Need this mutex to prevent nullptr dereferences or DXGI_ERROR_DEVICE_REMOVED when encoding multiple
+		// images on the GPU simultaneously. The cause of this problem is unknown
+		static std::mutex g_gpu_encoding_mutex;
+		std::lock_guard<std::mutex> lock(g_gpu_encoding_mutex);
 		result = Compress(m_device, TEMP_IMAGE.GetImages(), TEMP_IMAGE.GetImageCount(), TEMP_IMAGE.GetMetadata(),
 			dxgiFormat, 
 			DirectX::TEX_COMPRESS_PARALLEL | (IsSRGB ? DirectX::TEX_COMPRESS_SRGB : DirectX::TEX_COMPRESS_DEFAULT), 
@@ -284,6 +289,13 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const std
 		OutputLog.append("   ERROR: Failed to encode texture (Error Code: ");
 		OutputLog.append(std::to_string(result));
 		OutputLog.append(")\n");
+
+		if (result == DXGI_ERROR_DEVICE_REMOVED) {
+			HRESULT RemoveReason = m_device->GetDeviceRemovedReason();
+			OutputLog.append("   DXGI_ERROR_DEVICE_REMOVED: Reason Code ");
+			OutputLog.append(std::to_string(RemoveReason));
+			OutputLog.push_back('\n');
+		}
 		return false;
 	}
 

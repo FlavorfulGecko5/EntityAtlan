@@ -42,8 +42,10 @@ void ImageEncodingThread(idImageJobList* joblist) {
 	idImageEncodingResults ImageOutput;
 	std::string OutputLog;
 
-	if(!idImageEncodingContext::COMThreadInit())
+	if(!idImageEncodingContext::COMThreadInit()) {
+		atlog("ERROR: Failed to initialize COM on encoding thread");
 		return;
+	}
 
 	while (1) {
 
@@ -379,14 +381,15 @@ int main(int argc, char* argv[])
 	#ifndef _DEBUG
 	try {
 	#endif
-
-		// The packager also needs COM for the file dialogs
-		if(!idImageEncodingContext::COMThreadInit())
-			return 0;
 		AtlanLogger_Init(logpath);
-		atlog("Atlan Mod Packager 2.1 by FlavorfulGecko5");
-		PackagerMain(argc > 1 ? argv[1] : nullptr);
-		
+		// The packager also needs COM for the file dialogs
+		if (!idImageEncodingContext::COMThreadInit()) {
+			atlog("FATAL ERROR: Failed to initialize COM");
+		}
+		else {
+			atlog("Atlan Mod Packager 2.1.1 by FlavorfulGecko5");
+			PackagerMain(argc > 1 ? argv[1] : nullptr);
+		}	
 
 	#ifndef _DEBUG
 	}
