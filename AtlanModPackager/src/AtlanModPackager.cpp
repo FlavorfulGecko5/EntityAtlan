@@ -37,12 +37,12 @@ std::mutex g_getjob_mutex;
 std::mutex g_addzip_mutex;
 
 void ImageEncodingThread(idImageJobList* joblist) {
-	
+
 	idImageJob CurrentJob;
 	idImageEncodingResults ImageOutput;
 	std::string OutputLog;
 
-	if(!idImageEncodingContext::COMThreadInit()) {
+	if (!idImageEncodingContext::COMThreadInit()) {
 		atlog("ERROR: Failed to initialize COM on encoding thread");
 		return;
 	}
@@ -52,7 +52,7 @@ void ImageEncodingThread(idImageJobList* joblist) {
 		// Fetch next image job
 		{
 			std::lock_guard<std::mutex> lock(g_getjob_mutex);
-			if(joblist->jobs.size() == 0)
+			if (joblist->jobs.size() == 0)
 				break;
 
 			CurrentJob = joblist->jobs.back();
@@ -89,21 +89,33 @@ void ImageEncodingThread(idImageJobList* joblist) {
 	idImageEncodingContext::COMThreadRelease();
 }
 
-void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
+void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH, const fspath& DIR_INPUT_PATH, const fspath& ZIP_OUTPUT_PATH)
 {
 	using namespace std::filesystem;
 
 	fspath DIR_INPUT = ".";
 	fspath ZIP_OUTPUT;
-	atlog("Select Mod Folder to Package");
-	if(FileDialog(DIR_INPUT, "NOT_USED", false) == false) {
-		atlog("Folder dialog cancelled, or error encountered");
-		return;
+	if (DIR_INPUT_PATH.empty())
+	{
+		atlog("Select Mod Folder to Package");
+		if (FileDialog(DIR_INPUT, "NOT_USED", false) == false) {
+			atlog("Folder dialog cancelled, or error encountered");
+			return;
+		}
 	}
-	atlog("Select location and name of your packaged mod zip");
-	if (FileDialog(ZIP_OUTPUT, DIR_INPUT.stem(), true) == false) {
-		atlog("Save As dialog cancelled or encountered error");
-		return;
+	else {
+		DIR_INPUT = DIR_INPUT_PATH;
+	}
+	if (ZIP_OUTPUT_PATH.empty())
+	{
+		atlog("Select location and name of your packaged mod zip");
+		if (FileDialog(ZIP_OUTPUT, DIR_INPUT.stem(), true) == false) {
+			atlog("Save As dialog cancelled or encountered error");
+			return;
+		}
+	}
+	else {
+		ZIP_OUTPUT = ZIP_OUTPUT_PATH;
 	}
 
 	atlanstamp START_TIME("Packaging Time");
@@ -130,7 +142,7 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 	const fspath modsfolder = absolute(DIR_INPUT);
 	const size_t modsfolder_length = modsfolder.string().size();
 
-	if(!is_directory(modsfolder)) {
+	if (!is_directory(modsfolder)) {
 		atlog("FATAL ERROR: Could not find mods folder");
 		return;
 	}
@@ -150,28 +162,28 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 	/* Gather all mod filepaths */
 	for (const directory_entry& entry : recursive_directory_iterator(modsfolder))
 	{
-		if(entry.is_directory())
+		if (entry.is_directory())
 			continue;
 
 		const fspath entrypath = entry.path();
 		const fspath extension = entrypath.extension();
-		if(extension == L".zip" || extension == L".ZIP")
+		if (extension == L".zip" || extension == L".ZIP")
 			continue;
 
-		if(entrypath.filename() == CFG_NAME) {
+		if (entrypath.filename() == CFG_NAME) {
 
 			// Edge Case: Mod config is in a subfolder - ignore it
-			if(entrypath.parent_path() != modsfolder) {
+			if (entrypath.parent_path() != modsfolder) {
 				atlog("Ignoring " CFG_NAME " inside a subfolder");
 				continue;
 			}
 
 			atlog("Found " CFG_NAME);
-			if(!ModConfig.TryRead(entrypath.string()))
+			if (!ModConfig.TryRead(entrypath.string()))
 				return;
 
 			// Need to add this to the zip now or else the config will be filtered out later
-			bool result = mz_zip_writer_add_file(zptr, CFG_NAME, entrypath.string().c_str(), 
+			bool result = mz_zip_writer_add_file(zptr, CFG_NAME, entrypath.string().c_str(),
 				"", 0, MZ_DEFAULT_COMPRESSION);
 			if (!result) {
 				atlog("ERROR: Failed to add " CFG_NAME " to zip file");
@@ -191,7 +203,7 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 	std::string IgnoreLog;
 
 	/* iterate through all the files */
-	for(const fspath& modfile : filepaths) 
+	for (const fspath& modfile : filepaths)
 	{
 		std::string zippedName = modfile.string().substr(modsfolder_length + 1);
 		std::string typestring, AssetName;
@@ -199,7 +211,7 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 
 		// Exclude any files from the zip that aren't valid mod files
 		const auto& TYPEITER = ValidResourceTypes.find(typestring);
-		if(TYPEITER == ValidResourceTypes.end()) {
+		if (TYPEITER == ValidResourceTypes.end()) {
 			IgnoredFiles++;
 			IgnoreLog.append("- IGNORING: ");
 			IgnoreLog.append(zippedName);
@@ -208,7 +220,7 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 		}
 		const ResourceType RESTYPE = TYPEITER->second;
 
-		if(RESTYPE == rt_image) {
+		if (RESTYPE == rt_image) {
 
 			// Extract encoding info from end of filename if it exists
 			std::string EncodingInfo;
@@ -255,7 +267,7 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 				size_t outputlength = 0, outputBufferLength = 0;
 
 				atlog("Compressing");
-				if(!Oodle::AtlanCompress(serialized.GetBuffer(), serialized.GetFilledSize(), compbuffer, outputlength, outputBufferLength))
+				if (!Oodle::AtlanCompress(serialized.GetBuffer(), serialized.GetFilledSize(), compbuffer, outputlength, outputBufferLength))
 					atlog("ERROR: Failed to create Atlan Compression File");
 
 				assert(Oodle::IsAtlanCompFile(compbuffer, outputlength));
@@ -277,11 +289,11 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 		}
 
 		bool result = mz_zip_writer_add_file(zptr, zippedName.c_str(), modfile.string().c_str(), "", 0, MZ_DEFAULT_COMPRESSION);
-		if(!result)
-			atlog("ERROR: Failed to zip file");		
+		if (!result)
+			atlog("ERROR: Failed to zip file");
 	}
 
-	if(ImageJobs.jobs.size()) {
+	if (ImageJobs.jobs.size()) {
 		const int NUMTHREADS = 8;
 		std::thread threadpool[NUMTHREADS];
 
@@ -305,14 +317,14 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 		ImageJobs.context = &ImageEncoder;
 		ImageJobs.zptr = zptr;
 
-		for(int i = 0; i < NUMTHREADS; i++)
+		for (int i = 0; i < NUMTHREADS; i++)
 			threadpool[i] = std::thread(ImageEncodingThread, &ImageJobs);
 
-		for(int i = 0; i < NUMTHREADS; i++)
+		for (int i = 0; i < NUMTHREADS; i++)
 			threadpool[i].join();
 	}
 
-	if(IgnoredFiles) {
+	if (IgnoredFiles) {
 		atlog("----------\n%d Files were not valid mod files and ignored (are your aliases correct?)", IgnoredFiles);
 		atlog_raw(IgnoreLog.data(), IgnoreLog.size(), false);
 		atlog("----------");
@@ -350,7 +362,7 @@ void AlternateMode(int argc, char* argv[])
 	fspath inputpath = absolute(argv[2]);
 	fspath outputpath = absolute(argv[3]);
 
-	if(!exists(inputpath) || is_directory(inputpath)) {
+	if (!exists(inputpath) || is_directory(inputpath)) {
 		atlog("FATAL ERROR: Input file does not exist");
 		return;
 	}
@@ -365,7 +377,7 @@ void AlternateMode(int argc, char* argv[])
 
 	int warningcount = Reserializer::Serialize(inputpath.string().c_str(), writer, rt_mapentities);
 
-	atlog("Total Warnings: %d", warningcount); 
+	atlog("Total Warnings: %d", warningcount);
 	atlog("Writing output to %ls", outputpath.c_str());
 
 	std::ofstream outwriter(outputpath, std::ios_base::binary);
@@ -376,11 +388,11 @@ void AlternateMode(int argc, char* argv[])
 
 int main(int argc, char* argv[])
 {
-	#define logpath "packager_log.txt"
+#define logpath "packager_log.txt"
 
-	#ifndef _DEBUG
+#ifndef _DEBUG
 	try {
-	#endif
+#endif
 		AtlanLogger_Init(logpath);
 		// The packager also needs COM for the file dialogs
 		if (!idImageEncodingContext::COMThreadInit()) {
@@ -388,27 +400,52 @@ int main(int argc, char* argv[])
 		}
 		else {
 			atlog("Atlan Mod Packager 2.1.1 by FlavorfulGecko5");
-			PackagerMain(argc > 1 ? argv[1] : nullptr);
-		}	
 
-	#ifndef _DEBUG
+
+			fspath input;
+			fspath output;
+			const char* encoder = nullptr;
+
+
+			for (int i = 1; i < argc; i++)
+			{
+				std::string arg = argv[i];
+
+				if (arg == "--input" && i + 1 < argc)
+				{
+					input = argv[++i];
+				}
+				else if (arg == "--output" && i + 1 < argc)
+				{
+					output = argv[++i];
+				}
+				else if (arg == "--encoder" && i + 1 < argc)
+				{
+					encoder = argv[++i];
+				}
+			}
+
+			PackagerMain(encoder, input, output);
+		}
+
+#ifndef _DEBUG
 	}
 	catch (std::exception e) {
 		atlog("\n\nFATAL ERROR: An unexpected crash has occurred\n"
-			  "This may have left your packaged zip incomplete or corrupted.\n"
-			  "Error Message: %s", e.what()
+			"This may have left your packaged zip incomplete or corrupted.\n"
+			"Error Message: %s", e.what()
 		);
 	}
-	#endif
+#endif
 
 	atlog("\n\nThis window will close in 10 seconds");
 	atlog("Output written to " logpath);
 	AtlanLogger_Shutdown();
 	idImageEncodingContext::COMThreadRelease();
 
-	#ifndef _DEBUG
+#ifndef _DEBUG
 	std::this_thread::sleep_for(std::chrono::seconds(10));
-	#endif
+#endif
 }
 
 #define WIN32_LEAN_AND_MEAN
@@ -450,7 +487,7 @@ bool FileDialog(fspath& output_filepath, const fspath& in_zipname, bool SaveAs) 
 			folderdialog->SetOptions(options);
 			folderdialog->SetTitle(L"Select Mod Folder to Package");
 
-			IShellItem *defaultFolder = NULL;
+			IShellItem* defaultFolder = NULL;
 			hr = SHCreateItemFromParsingName(std::filesystem::absolute(".").c_str(), NULL, IID_PPV_ARGS(&defaultFolder));
 			if (SUCCEEDED(hr)) {
 				folderdialog->SetDefaultFolder(defaultFolder);
