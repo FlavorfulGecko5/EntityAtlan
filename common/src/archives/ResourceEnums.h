@@ -13,14 +13,15 @@ enum ResourceType : uint32_t
 	rt_logicUIWidget   = 1 << 6,
 	rt_mapentities     = 1 << 7,
 	rt_image           = 1 << 8,
-	rt_audio           = 1 << 9
+	rt_audio           = 1 << 9,
+	rt_slug_font       = 1 << 10,
 };
 
 enum ResourceTypeComboFlags : uint32_t 
 {
 	rtc_logic_decl    = rt_logicClass | rt_logicEntity | rt_logicFX | rt_logicLibrary | rt_logicUIWidget,
 	rtc_serialized    = rt_entityDef  | rt_mapentities | rtc_logic_decl,
-	rtc_no_extension  = rt_entityDef  | rt_mapentities | rtc_logic_decl | rt_audio,
+	rtc_no_extension  = rt_entityDef  | rt_mapentities | rtc_logic_decl | rt_audio | rt_slug_font,
 	rtc_last_number   = rt_audio,
 	rtc_streamdb_hash = rt_mapentities | rt_image
 };

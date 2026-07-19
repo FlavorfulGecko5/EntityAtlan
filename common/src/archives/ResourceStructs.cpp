@@ -328,6 +328,9 @@ void Audit_ResourceArchive(const ResourceArchive& r) {
 			assert(e.flags == 2);
 			assert(e.variation == 70);
 		}
+		else if (strcmp(typeString, "slug_font") == 0) {
+			assert((e.version == 14 || e.version == 13 ) && e.flags == 0 && e.variation == 0);
+		}
 		else if (logictypes.count(typeString) > 0) {
 			//printf("%s\n", typeString);
 			assert(e.dataCheckSum == e.defaultHash);

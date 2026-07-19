@@ -10,6 +10,7 @@
 #include "io/BinaryReader.h"
 #include "io/BinaryWriter.h"
 #include "archives/ResourceStructs.h"
+#include "archives/SlugFont.h"
 #include "atlan/AtlanLogger.h"
 #include "ReserialMain.h"
 #include <set>
@@ -242,6 +243,7 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 			case rt_entityDef:     e.version = 21;                    e.flags = 2; e.variation = 70; break;
 			case rt_mapentities:   e.version = f.resourceVersion;     e.flags = 2; e.variation = 70; break;
 			case rt_image:         e.version = imgdef.bimversion;     e.flags = 0; e.variation = 0;  break;
+			case rt_slug_font:     e.version = 14;                    e.flags = 0; e.variation = 0; break;
 
 			default:
 			if(f.typeenum & rtc_logic_decl) {
@@ -776,6 +778,30 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 				}
 			}
 		}
+
+		#if 1
+		// We assume that all slug_font files are raw slug fonts and add id's header data here
+		// We do this because there are still some unknowns regarding the glyph mask and streaming system
+		else if(file.typeenum == rt_slug_font) {
+			charbuffer_t slugoutput;
+			if (!idcl::make_slugfont((char*)file.dataBuffer, file.dataLength, slugoutput)) {
+				atlog("ERROR: Failed to convert slug_font");
+				continue;
+			}
+
+			// Transfer ownership of finalized slug_font file to the ModFile
+			delete[] file.dataBuffer;
+			file.dataBuffer = slugoutput.data;
+			file.dataLength = slugoutput.length;
+			slugoutput.data = nullptr;
+			slugoutput.length = 0;
+			slugoutput.capacity = 0;
+
+			// TODO: This is ugly. Really need to move this entire loop elsewhere
+			// into a data validation function
+			file.isAtlanCompressed = true;
+		}
+		#endif
 
 		#if 0
 		if (file.typeenum & rtc_streamdb_hash) {

@@ -7,6 +7,7 @@
 #include <thread>
 #include <unordered_map>
 #include "archives/ResourceEnums.h"
+#include "archives/SlugFont.h"
 #include "atlan/AtlanLogger.h"
 #include "atlan/AtlanProfiling.h"
 #include "ReserialMain.h"
@@ -121,7 +122,8 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 		{"logicFX",       rt_logicFX},
 		{"logicLibrary",  rt_logicLibrary},
 		{"logicUIWidget", rt_logicUIWidget},
-		{"mapentities",   rt_mapentities}
+		{"mapentities",   rt_mapentities},
+		{"slug_font",     rt_slug_font}
 	};
 
 	AtlanModConfig ModConfig;
@@ -275,6 +277,19 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 			zippedName = "noload/";
 			zippedName += temp;
 		}
+
+		#if 0
+		else if (RESTYPE == rt_slug_font) {
+			charbuffer_t packagedslug;
+			if(idcl::make_slugfont(modfile.c_str(), packagedslug)) {
+				mz_zip_writer_add_mem(zptr, zippedName.c_str(), packagedslug.data, packagedslug.length, MZ_DEFAULT_COMPRESSION);
+			}
+			else {
+				atlog("ERROR: Failed to package slug font");
+			}
+			continue;
+		}
+		#endif
 
 		bool result = mz_zip_writer_add_file(zptr, zippedName.c_str(), modfile.string().c_str(), "", 0, MZ_DEFAULT_COMPRESSION);
 		if(!result)

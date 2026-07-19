@@ -81,6 +81,9 @@
     <ClCompile Include="src\atlan\AtlanLib.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\archives\SlugFont.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\entityslayer\EntityLogger.h">
@@ -147,6 +150,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\atlan\AtlanLib.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\archives\SlugFont.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

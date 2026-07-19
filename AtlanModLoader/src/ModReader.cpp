@@ -27,6 +27,7 @@ const std::unordered_map<std::string, resourcetypeinfo_t> ValidResourceTypes = {
 	{"logicUIWidget", {"logicUIWidget", rt_logicUIWidget, allow_mod_yes}},
 	{"mapentities",   {"mapentities",   rt_mapentities,   allow_mod_yes}},
 	{"image",         {"image",         rt_image,         allow_mod_yes}},
+	{"slug_font",     {"slug_font",     rt_slug_font,     allow_mod_yes}},
 
 	// Audio will be handled differently by the loader
 	{"audio", {"audio", rt_audio, allow_mod_yes}}
