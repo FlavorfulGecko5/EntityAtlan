@@ -90,21 +90,23 @@ void ImageEncodingThread(idImageJobList* joblist) {
 	idImageEncodingContext::COMThreadRelease();
 }
 
-void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
+void PackagerMain(const char* DIR_GAME, fspath DIR_INPUT, fspath ZIP_OUTPUT)
 {
 	using namespace std::filesystem;
 
-	fspath DIR_INPUT = ".";
-	fspath ZIP_OUTPUT;
-	atlog("Select Mod Folder to Package");
-	if(FileDialog(DIR_INPUT, "NOT_USED", false) == false) {
-		atlog("Folder dialog cancelled, or error encountered");
-		return;
+	if(!is_directory(DIR_INPUT)) {
+		atlog("Select Mod Folder to Package");
+		if (FileDialog(DIR_INPUT, "NOT_USED", false) == false) {
+			atlog("Folder dialog cancelled, or error encountered");
+			return;
+		}
 	}
-	atlog("Select location and name of your packaged mod zip");
-	if (FileDialog(ZIP_OUTPUT, DIR_INPUT.stem(), true) == false) {
-		atlog("Save As dialog cancelled or encountered error");
-		return;
+	if (ZIP_OUTPUT.extension() != ".zip") {
+		atlog("Select location and name of your packaged mod zip");
+		if (FileDialog(ZIP_OUTPUT, DIR_INPUT.stem(), true) == false) {
+			atlog("Save As dialog cancelled or encountered error");
+			return;
+		}
 	}
 
 	atlanstamp START_TIME("Packaging Time");
@@ -304,16 +306,11 @@ void PackagerMain(const char* OVERRIDE_IMAGE_ENCODER_PATH)
 
 		idImageEncodingContext ImageEncoder;
 		{
-			std::string gamedir;
-			if (OVERRIDE_IMAGE_ENCODER_PATH) {
-				gamedir = OVERRIDE_IMAGE_ENCODER_PATH;
-			}
-			else {
-				gamedir = absolute(".").string();
-			}
+			if(!is_directory(DIR_GAME))
+				DIR_GAME = ".";
 
-			atlog("Initializing Image Encoder with directory %s", gamedir.c_str());
-			if (!ImageEncoder.InitializeContext(gamedir, 6))
+			atlog("Initializing Image Encoder with directory %s", DIR_GAME);
+			if (!ImageEncoder.InitializeContext(DIR_GAME, 6))
 				return;
 		}
 
@@ -403,7 +400,34 @@ int main(int argc, char* argv[])
 		}
 		else {
 			atlog("Atlan Mod Packager 2.1.1 by FlavorfulGecko5");
-			PackagerMain(argc > 1 ? argv[1] : nullptr);
+
+			const char* inputdir   = "";
+			const char* outputpath = "";
+			const char* gamedir    = ".";
+
+			for (int i = 1; i < argc; i++)
+			{
+				std::string arg = argv[i];
+
+				if (arg == "--input" && i + 1 < argc)
+				{
+					inputdir = argv[++i];
+				}
+				else if (arg == "--output" && i + 1 < argc)
+				{
+					outputpath = argv[++i];
+				}
+				else if (arg == "--gamedir" && i + 1 < argc)
+				{
+					gamedir = argv[++i];
+				}
+				else 
+				{
+					atlog("AtlanModPackager.exe [--input <mod_folder>] [--output <output_zip>] [--gamedir <game_folder>]");
+				}
+			}
+
+			PackagerMain(gamedir, inputdir, outputpath);
 		}	
 
 	#ifndef _DEBUG
