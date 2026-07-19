@@ -399,7 +399,7 @@ int main(int argc, char* argv[])
 			atlog("FATAL ERROR: Failed to initialize COM");
 		}
 		else {
-			atlog("Atlan Mod Packager 2.1.1 by FlavorfulGecko5");
+			atlog("Atlan Mod Packager 2.2 by FlavorfulGecko5");
 
 			const char* inputdir   = "";
 			const char* outputpath = "";
