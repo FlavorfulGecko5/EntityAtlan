@@ -38,6 +38,7 @@
     <ClCompile Include="src\entityslayer\Oodle.cpp" />
     <ClCompile Include="src\hash\FarmHash.cpp" />
     <ClCompile Include="src\hash\HashLib.cpp" />
+    <ClCompile Include="src\hash\md5.cpp" />
     <ClCompile Include="src\hash\sha256.cpp" />
     <ClCompile Include="src\io\BinaryReader.cpp" />
     <ClCompile Include="src\io\BinaryWriter.cpp" />

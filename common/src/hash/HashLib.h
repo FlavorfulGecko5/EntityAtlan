@@ -1,6 +1,7 @@
 #pragma once
 #include <string_view>
 
+typedef unsigned char uint8_t;
 typedef unsigned int uint32_t;
 typedef unsigned long long uint64_t;
 
@@ -20,4 +21,10 @@ namespace HashLib {
 	uint32_t akfnv_insensitive(const char* string, size_t length);
 
 	uint64_t streamdb_miphash(uint64_t defaultHash, uint64_t mipId, uint64_t parm2);
+
+	struct md5_t {
+		uint8_t bytes[16];
+	};
+
+	md5_t md5(const char* data, size_t length);
 }

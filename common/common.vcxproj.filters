@@ -84,6 +84,9 @@
     <ClCompile Include="src\archives\SlugFont.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\hash\md5.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\entityslayer\EntityLogger.h">

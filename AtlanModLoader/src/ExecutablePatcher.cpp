@@ -32,7 +32,14 @@ alphahash_t hash_to_alpha(uint64_t hash) {
 	return wrapper;
 }
 
-bool parse_hexstring(std::vector<uint8_t>& buffer, const char* data, size_t len) {
+alphahash_t GetConfigHash() {
+	charbuffer_t buffer;
+	FileReader::ReadFile(CONFIGPATH, buffer);
+	uint64_t farmhash = HashLib::FarmHash64(buffer.data, buffer.length);
+	return hash_to_alpha(farmhash);
+}
+
+bool parse_hexstring(char* buffer, const char* data, size_t len) {
 	if(!len || len % 2) 
 		return false;
 
@@ -58,18 +65,27 @@ bool parse_hexstring(std::vector<uint8_t>& buffer, const char* data, size_t len)
 			}
 		}
 
-		buffer.push_back( (halves[0] << 4) | halves[1]);
+		*buffer++ = (halves[0] << 4) | halves[1];
 	}
 	return true;
 }
 
-bool Should_Run_Patcher(const fspath exepath, alphahash_t configHash) 
+
+enum shouldpatchflag {
+	SPF_FATAL_ERROR   = 1 << 0,  // Should abort mod loading
+	SPF_PATCH         = 1 << 2,  // We should patch this file
+	SPF_DONT_PATCH    = 1 << 3,  // Don't need to patch this file 
+};
+
+shouldpatchflag Should_Run_Patcher(const fspath exepath) 
 {
+	if(!std::filesystem::exists(exepath))
+		return SPF_DONT_PATCH;
+
 	fspath backuppath = exepath;
 	backuppath += ".backup";
 
-	if(!std::filesystem::exists(exepath))
-		return false;
+	alphahash_t configHash = GetConfigHash();
 
 	std::ifstream exereader(exepath, std::ios_base::binary);
 	exereader.seekg(DOSOFFSET, std::ios_base::beg);
@@ -81,7 +97,7 @@ bool Should_Run_Patcher(const fspath exepath, alphahash_t configHash)
 		
 		atlog("%ls is unpatched. Creating backup", exepath.c_str());
 		std::filesystem::copy(exepath, backuppath, std::filesystem::copy_options::overwrite_existing);
-		return true;
+		return SPF_PATCH;
 	}
 	
 
@@ -89,7 +105,7 @@ bool Should_Run_Patcher(const fspath exepath, alphahash_t configHash)
 
 		if (memcmp(dosstring + 8, configHash.hash, sizeof(configHash.hash)) == 0) {
 			atlog("%ls has latest patches", exepath.c_str());
-			return false;
+			return SPF_DONT_PATCH;
 		}
 		else {
 
@@ -100,26 +116,49 @@ bool Should_Run_Patcher(const fspath exepath, alphahash_t configHash)
 				std::filesystem::copy(backuppath, exepath, std::filesystem::copy_options::overwrite_existing);
 			}
 			else {
-				atlog("WARNING: Executable backup not found. Creating non-vanilla backup");
-				std::filesystem::copy(exepath, backuppath, std::filesystem::copy_options::overwrite_existing);
+				atlog("ERROR: Modded executable exists while backup is missing. Will not attempt patching. Please very your game files.");
+				return SPF_FATAL_ERROR;
 			}
-			return true;
+			return SPF_PATCH;
 		}
 
 	}
 
-	atlog("ERROR: Corrupt game executable detected. Will not attempt patching.");
-	return false;
+	atlog("ERROR: Corrupt game executable detected. Will not attempt patching. Please verify your game files.");
+	return SPF_FATAL_ERROR;
 }
 
-struct gamepatch {
+struct gamepatch_t {
 	std::string name;
-	std::vector<uint8_t> hexdata; // Vanilla binary sequence followed by patched binary sequence
+	char* bytes = nullptr; // Vanilla binary sequence followed by patched binary sequence
+	size_t numbytes = 0;   // Twice the length of the vanilla and patched binary sequences
+
+	~gamepatch_t() {
+		delete[] bytes;
+	}
 };
 
-struct PatcherConfig {
-	std::vector<gamepatch> patchlist;
-	bool REVERSE = false;
+struct gamemd5_t {
+	std::string name;
+	HashLib::md5_t md5;
+};
+
+struct PatcherConfig_t {
+	gamepatch_t* patchlist = nullptr;
+	int numpatches = 0;
+
+	gamemd5_t* checksums = nullptr;
+	int numchecksums = 0;
+
+
+	bool reverse = false;
+	bool write = false;
+	bool SkipExeHashCheck = false;
+
+	~PatcherConfig_t() {
+		delete[] patchlist;
+		delete[] checksums;
+	}
 };
 
 struct patchref {
@@ -131,52 +170,87 @@ struct patchref {
 	uint8_t patchedfirst = 0;
 };
 
-bool GetPatchList(std::vector<gamepatch>& patchlist, bool& REVERSE) {
-
-	patchlist.reserve(10);
+bool ReadPatcherConfig(PatcherConfig_t& cfg, const fspath& exepath) {
 
 	try {
 		EntityParser parser(CONFIGPATH, ParsingMode::PERMISSIVE);
-
 		const EntNode& root = *parser.getRoot();
 
-		if (!root["reverse"].ValueBool(REVERSE)) {
+		// Read Toggles
+		if (!root["reverse"].ValueBool(cfg.reverse)) {
 			atlog("ERROR: Failed to parse 'reverse' property");
 			return false;
 		}
-
-		if (REVERSE) {
+		if (cfg.reverse) {
 			atlog("Reverse Mode Activated");
 		}
-		
+		if (!root["write"].ValueBool(cfg.write)) {
+			atlog("ERROR: Failed to parse 'write' property");
+			return false;
+		}
+		if (!cfg.write) {
+			atlog("Executable Writing Disabled");
+		}
+		cfg.SkipExeHashCheck = &root["UNSAFE_MODE"] != EntNode::SEARCH_404;
+		if(cfg.SkipExeHashCheck)
+			atlog("Unsafe Mode Enabled");
 
-		const EntNode& patches = root["patches"];
 
-		for (int i = 0; i < patches.getChildCount(); i++) {
+		// Read Patches
+		EntNode& patches = root["patches"];
+		cfg.patchlist = new gamepatch_t[patches.getChildCount()];
 
-			patchlist.emplace_back();
-			gamepatch& g = patchlist.back();
-			const EntNode& p = patches[i];
+		const std::string EXENAME = exepath.filename().string();
+
+		for(const EntNode& p : patches) {
+
+			if(p["games"].getValue().find(EXENAME) == -1)
+				continue;
+
+			gamepatch_t& g = cfg.patchlist[cfg.numpatches++];
 
 			g.name = p["name"].getValueUQ();
-			//atlog("Reading Patch Definition '%s'", g.name.c_str());
 
 			std::string_view hexstring = p["vanilla"].getValueUQ();
-			bool result = parse_hexstring(g.hexdata, hexstring.data(), hexstring.length());
+			g.numbytes = hexstring.length(); // 2 characters per byte, so string length == total number of bytes
+			g.bytes = new char[g.numbytes];  // for vanilla + patched byte sequences
+
+			bool result = parse_hexstring(g.bytes, hexstring.data(), hexstring.length());
 			if (!result) {
-				atlog("Failed to parse vanilla hex string for patch %s", g.name.c_str());
+				atlog("ERROR: Failed to parse vanilla hex string for patch %s", g.name.c_str());
 				return false;
 			}
 
 			hexstring = p["patch"].getValueUQ();
-			if (hexstring.size() != g.hexdata.size() * 2) {
-				atlog("Patch %s has different sized vanilla and patched codes", g.name.c_str());
+			if (hexstring.size() != g.numbytes) {
+				atlog("ERROR: Patch %s has different sized vanilla and patched codes", g.name.c_str());
 				return false;
 			}
 
-			result = parse_hexstring(g.hexdata, hexstring.data(), hexstring.length());
+			result = parse_hexstring(g.bytes + g.numbytes / 2, hexstring.data(), hexstring.length());
 			if (!result) {
-				atlog("Failed to parse patch hex string for patch %s", g.name.c_str());
+				atlog("ERROR: Failed to parse patch hex string for patch %s", g.name.c_str());
+				return false;
+			}
+		}
+
+		atlog("Trying %d patches", cfg.numpatches);
+
+		EntNode& checksums = root["checksums"];
+		cfg.checksums = new gamemd5_t[checksums.getChildCount()];
+		for (const EntNode& c : checksums) {
+			gamemd5_t& md5 = cfg.checksums[cfg.numchecksums++];
+			md5.name = c.getNameUQ();
+
+			std::string_view hashstring = c.getValueUQ();
+			if (sizeof(HashLib::md5_t) != hashstring.length() / 2) {
+				atlog("ERROR: Config checksum size mismatch in %s", md5.name.c_str());
+				return false;
+			}
+
+			bool result = parse_hexstring((char*)md5.md5.bytes, hashstring.data(), hashstring.length());
+			if (!result) {
+				atlog("ERROR: Failed to parse checksum %s", md5.name.c_str());
 				return false;
 			}
 		}
@@ -189,51 +263,67 @@ bool GetPatchList(std::vector<gamepatch>& patchlist, bool& REVERSE) {
 	}
 }
 
-
-// TODO: Refactor is not finished. Still need to adjust config parsing
-// to account for multiple games
-void Run_Executable_Patcher(const fspath& exepath)
+bool Run_Executable_Patcher(const fspath& exepath)
 {
-	bool REVERSE = false;
-
 	atlog("\n\nRunning Atlan Executable Patcher\n-----");
 
-	std::vector<gamepatch> patchlist;
-	if (!GetPatchList(patchlist, REVERSE)) {
-		return;
+	PatcherConfig_t cfg;
+	if (!ReadPatcherConfig(cfg, exepath)) {
+		return false;
 	}
 
 	std::vector<patchref> reflist;
-	for (const gamepatch& p : patchlist) {
+	for (int i = 0; i < cfg.numpatches; i++) {
+		const gamepatch_t& p = cfg.patchlist[i];
 		patchref ref;
 
-		ref.length = p.hexdata.size() / 2;
-		if (REVERSE) {
-			ref.patched = p.hexdata.data();
+		ref.length = (int)p.numbytes / 2;
+		if (cfg.reverse) {
+			ref.patched = (uint8_t*)p.bytes;
 			ref.vanilla = ref.patched + ref.length;
 		}
 		else {
-			ref.vanilla = p.hexdata.data(); 
+			ref.vanilla = (uint8_t*)p.bytes; 
 			ref.patched = ref.vanilla + ref.length;
 		}
 		ref.vanillafirst = *ref.vanilla;
 		ref.patchedfirst = *ref.patched;
 
 		reflist.push_back(ref);
-
-		//for (int i = 0; i < ref.length; i++) {
-		//	atlog_deprecated << ref.patched[i] << " ";
-		//}
-		//atlog_deprecated << "\n";
 	}
 
 	patchref* patches = reflist.data();
 
 	atlog("Beginning scanning");
 
-	BinaryOpener exeopener(exepath.string());
+	charbuffer_t exebytes;
+	if (!FileReader::ReadFile(exepath.c_str(), exebytes)) {
+		atlog("Error reading executable into memory");
+		return false;
+	}
+
+	if (memcmp(exebytes.data + DOSOFFSET, "ATLANMOD", 8) == 0) {
+		atlog("Executable is previously patched. Skipping checksum validation");
+		cfg.SkipExeHashCheck = true;
+	}
+
+	if (!cfg.SkipExeHashCheck) {
+		bool FoundMD5 = false;
+		const HashLib::md5_t PrePatchMD5 = HashLib::md5(exebytes.data, exebytes.length);
+		for (int i = 0; i < cfg.numchecksums; i++) {
+			if (memcmp(PrePatchMD5.bytes, cfg.checksums[i].md5.bytes, sizeof(HashLib::md5_t)) == 0) {
+				atlog("Matching Checksum '%s'", cfg.checksums[i].name.c_str());
+				FoundMD5 = true;
+				break;
+			}
+		}
+		if (!FoundMD5) {
+			atlog("ERROR: Executable has an unknown MD5 Checksum");
+			return false;
+		}
+	}
 	
-	for(uint8_t* exe = (uint8_t*)exeopener.GetEditable(), *const exemax = exe + exeopener.len(); exe < exemax; exe++) {
+	for(uint8_t* exe = (uint8_t*)exebytes.data, *const exemax = exe + exebytes.length; exe < exemax; exe++) {
 		for (size_t i = 0; i < reflist.size(); i++) {
 
 			if ( (size_t)(exemax - exe) < patches[i].length) {
@@ -245,13 +335,13 @@ void Run_Executable_Patcher(const fspath& exepath)
 				if (memcmp(exe, patches[i].vanilla, patches[i].length) == 0) {
 
 					if (patches[i].applied) {
-						atlog("ERROR: vanilla form of patch '%s' found multiple times.", patchlist[i].name.c_str());
-						return;
+						atlog("ERROR: vanilla form of patch '%s' found multiple times.", cfg.patchlist[i].name.c_str());
+						return false;
 					}
 
 					memcpy(exe, patches[i].patched, patches[i].length);
 
-					atlog("Applied patch '%s'", patchlist[i].name.c_str());
+					atlog("Applied patch '%s'", cfg.patchlist[i].name.c_str());
 
 					patches[i].applied++;
 					
@@ -266,11 +356,11 @@ void Run_Executable_Patcher(const fspath& exepath)
 				if (memcmp(exe, patches[i].patched, patches[i].length) == 0) {
 					
 					if (patches[i].applied) {
-						atlog("ERROR: patch signature for '%s' found multiple times", patchlist[i].name.c_str());
-						return;
+						atlog("ERROR: patch signature for '%s' found multiple times", cfg.patchlist[i].name.c_str());
+						return false;
 					}
 
-					atlog("Patch '%s' already applied", patchlist[i].name.c_str());
+					atlog("Patch '%s' already applied", cfg.patchlist[i].name.c_str());
 
 					patches[i].applied++;
 
@@ -285,29 +375,36 @@ void Run_Executable_Patcher(const fspath& exepath)
 	int failedpatches = 0;
 	for (size_t i = 0; i < reflist.size(); i++) {
 		if (!patches[i].applied) {
-			atlog("Failed to apply patch: %s", patchlist[i].name.c_str());
+			atlog("Failed to apply patch: %s", cfg.patchlist[i].name.c_str());
 		}
 	}
 	if (failedpatches) {
 		atlog("Cannot proceed because 1 or more patches have failed to apply");
-		return;
+		return false;
 	}
 
+	//md5hash_t postpatchhash = HashLib::md5(exebytes.data, exebytes.length);
+	//atlog("Post Patch Hash: %llx %llx", *(u64*)postpatchhash.bytes, *(u64*)(postpatchhash.bytes + 8) );
 
-	BinaryOpener hashopen(CONFIGPATH);
-	uint64_t farmhash = HashLib::FarmHash64(hashopen.data(), hashopen.len());
-	alphahash_t hashwrapper = hash_to_alpha(farmhash);
+	alphahash_t hashwrapper = GetConfigHash();
 
 	// Edit the DOS stub
-	memcpy(exeopener.GetEditable() + DOSOFFSET, "ATLANMOD", 8);
-	memcpy(exeopener.GetEditable() + DOSOFFSET + 8, hashwrapper.hash, sizeof(hashwrapper.hash));
+	memcpy(exebytes.data + DOSOFFSET, "ATLANMOD", 8);
+	memcpy(exebytes.data + DOSOFFSET + 8, hashwrapper.hash, sizeof(hashwrapper.hash));
 
 	// Write out the file
-	std::ofstream outwriter("../input/darkages/injectortest/test.bin", std::ios_base::binary);
-	outwriter.write(exeopener.data(), exeopener.len()); // exe ptr is incremented...do not use here
-	outwriter.close();
+	if (cfg.write) {
+		std::ofstream outwriter(exepath, std::ios_base::binary);
+		outwriter.write(exebytes.data, exebytes.length);
+		outwriter.close();
+	}
+
+	return true;
 }
 
+bool Patcher_DownloadConfig();
+
+// If false is returned, we should terminate mod loading
 bool Executable_Patcher_Main(const fspath& gamedir)
 {
 	if (!std::filesystem::exists(CONFIGPATH)) {
@@ -315,26 +412,51 @@ bool Executable_Patcher_Main(const fspath& gamedir)
 		return false;
 	}
 
-	alphahash_t configHash;
-	{
-		BinaryOpener rawconfig(CONFIGPATH);
-		uint64_t hash = HashLib::FarmHash64(rawconfig.data(), rawconfig.len());
-		configHash = hash_to_alpha(hash);
-	}
-
-	const fspath exes[] = {
+	fspath exes[] = {
 		gamedir / "DOOMTheDarkAges.exe",
-		gamedir / "DOOMEternalx64vk.exe",
-		gamedir / "doomSandBox/DOOMSandBox64vk.exe"
+		//gamedir / "DOOMEternalx64vk.exe",
+        //gamedir / "doomSandBox/DOOMSandBox64vk.exe"
 	};
-
-
+ 
 	for (int i = 0; i < sizeof(exes) / sizeof(exes[0]); i++) {
-		if (Should_Run_Patcher(exes[i], configHash) == false)
+
+		switch (Should_Run_Patcher(exes[i])) {
+			case SPF_FATAL_ERROR: return false;
+			case SPF_DONT_PATCH:  continue;
+			case SPF_PATCH:       break;
+		}
+
+		// Initial Run with the existing config
+		if(Run_Executable_Patcher(exes[i]))
 			continue;
 
-		// TODO NOT FINISHED
+		// If the first run failed, try downloading a new config and patching again before giving up
+		atlog("Initial Patch attempt failed. Downloading new config and trying again");
+		if(Patcher_DownloadConfig && Run_Executable_Patcher(exes[i]))
+			continue;
+
+		return false;
 	}
 
+	return true; 
+}
 
+#define CONFIG_URL "https://dcealopez.es/AtlanPatcher.txt"
+#define WIN32_LEAN_AND_MEAN
+#include <urlmon.h>
+
+bool Patcher_DownloadConfig() {
+	static bool TriedDownloadingOnce = false;
+	if (TriedDownloadingOnce) {
+		return false;
+	}
+	TriedDownloadingOnce = true;
+
+	atlog("Downloading New Patcher Config from " CONFIG_URL);
+	HRESULT result = URLDownloadToFile(NULL, TEXT(CONFIG_URL), TEXT(CONFIGPATH), 0, NULL);
+
+	if (result != S_OK) {
+		atlog("FATAL ERROR: Failed to download patcher config");
+	}
+	return result == S_OK;
 }
