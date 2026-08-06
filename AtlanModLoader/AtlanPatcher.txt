@@ -17,8 +17,7 @@
         patched hex code and vice versa.
 
     checksums: List of valid MD5 checksums for game executables.
-        The executable patcher will not attempt patching if the file's MD5
-        isn't listed here unless your executable has been previously patched
+        The executable patcher will not attempt patching if the file's MD5 isn't listed here
 */
 write = 1
 reverse = 0
@@ -26,33 +25,60 @@ patches {
     {
         name = "Cvars & Launch Parameters"
         description = "unrestrict cvars & launch parameters (by emoose)"
-        games = "DOOMTheDarkAges.exe"
+        games = "DOOMTheDarkAges.exe||DOOMEternalx64vk.exe||DOOMSandBox64vk.exe"
         vanilla = "CCCCCCCCCCCCCCCC40534883EC50488B842488000000488B"
-        patch =   "4183C91053EB0390EBF64883EC50488B842488000000488B"
+        patch   = "4183C91053EB0390EBF64883EC50488B842488000000488B"
     }
     {
         name = "Cvars & Console Commands"
         description = "unrestrict cvars & console commands (by SunBeam, ported by emoose)"
-        games = "DOOMTheDarkAges.exe"
+        games = "DOOMTheDarkAges.exe||DOOMEternalx64vk.exe||DOOMSandBox64vk.exe"
         vanilla = "084C8B0EBA01"
         patch   = "084C8B0EBA00"
     }
     {
+        name = "Resource Hash Checks"
+        description = "skip data checksum checks"
+        games = "DOOMTheDarkAges.exe||DOOMEternalx64vk.exe||DOOMSandBox64vk.exe"
+        vanilla = "741F418B564841B8EFBEADDE"
+        patch   = "EB1F418B564841B8EFBEADDE"
+    }
+    {
+        name = "Unsigned Build Manifest"
+        description = "Load unsigned build-manifest"
+        games = "DOOMEternalx64vk.exe||DOOMSandBox64vk.exe"
+        vanilla = "4883EC28498BC04C8BC24963D14C8BC9"
+        patch   = "B801000000C3C04C8BC24963D14C8BC9"
+    }
+    {
+        name = "Unrestrict Binds"
+        description = "unrestrict binds (by SunBeam, ported to emoose)"
+        games = "DOOMEternalx64vk.exe"
+        vanilla = "084C8B07BA01"
+        patch   = "084C8B07BA00"
+    }
+    {
         name = "Build Manifest Hash Checks"
         description = "skip checking against hashes inside build-manifest (by emoose)"
-        games = "DOOMTheDarkAges.exe"
+        games = "DOOMEternalx64vk.exe"
         vanilla = "7420488B07488BCFFF502041"
         patch   = "EB20488B07488BCFFF502041"
     }
     {
-        name = "Resource Hash Checks"
-        description = "skip data checksum checks"
-        games = "DOOMTheDarkAges.exe"
-        vanilla = "741F418B564841B8EFBEADDE"
-        patch   = "EB1F418B564841B8EFBEADDE"
+        name = "Build Manifest Size Checks"
+        description = "skip checking against filesizes inside build-manifest"
+        games = "DOOMEternalx64vk.exe"
+        vanilla = "FF5068483BC57443"
+        patch   = "FF50684889C5EB43"
     }
 }
 checksums {
+    "eternal_steam_03042026"         = "baa2815a445bfdc8784c7bd62f78d291"
+    "eternal_steam_03042026_patched" = "6d12e4973061ccd3bba8463e5777cd2d"
+    "sandbox_steam_06052026"         = "361bb11d4860b7de68a27202b998bdb6"
+    "sandbox_steam_06052026_patched" = "07742801e2fed29062a59d0d41b3edb1"
     "darkage_steam_07092026"         = "0349c41bcab5b19a9b435d73a80958db"
     "darkage_steam_07092026_patched" = "98f8f76824e29b680b4b18bb08383a63"
+    "darkage_steam_07292026"         = "367e13fe5cbc971a4babdb249f58f72b"
+    "darkage_steam_07292026_patched" = "848d82671209b1aa2d37848b5f1de077"
 }
