@@ -226,7 +226,7 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 		e.numMetaEntries = 0;
 		e.depIndices = 0;
 		e.numDependencies = 0;
-		e.generationTimeStamp = 0;
+		e.generationTimeStamp = -1; // Must set to -1 because Sandbox uses resource_loadMostRecent 1
 		for(int i = 0; i < sizeof(e.padding); i++) 
 			e.padding[i] = 0; // Indeterminant in release builds. Must set = 0 to stabilize hash for hot reloading
 
@@ -364,7 +364,7 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 
 	// IDCL
 	ResourceWriter.write("IDCL", 4);
-	for(int i = 0; i < idclsize - 4; i++);
+	for(int i = 0; i < idclsize - 4; i++)
 		ResourceWriter.put('\0');
 
 	ResourceWriter.close();
@@ -947,6 +947,7 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 			argflags |= argflag_nolaunch;
 		}
 
+		#if 0
 		else if (arg == "--neverpatch") {
 			atlog("ARGS: Executable patcher will never run. This should only be used for debugging!");
 			argflags |= argflag_neverpatch;
@@ -960,6 +961,7 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 			char c = getchar();
 			argflags |= argflag_forceload;
 		}
+		#endif
 
 		else if(arg == "--gamedir") { // This is for debug builds
 			if(++i == argc)
@@ -970,30 +972,19 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 
 		else {
 			LABEL_EXIT_HELP:
-			atlog("AtlanModLoader.exe [--verbose] [--notimer] [--nolaunch] [--forceload] [--neverpatch] [--gamedir <Dark Ages Installation Folder>]");
+			atlog("AtlanModLoader.exe [--verbose] [--notimer] [--nolaunch] [--gamedir <Dark Ages Installation Folder>]");
 			return;
 		}
 	}
 
-	const fspath cachepath       = gamedirectory / "modloader_cache.bin";
 	const fspath manifestpath    = gamedirectory / "base/build-manifest.bin";
 	const fspath exepath		 = gamedirectory / "DOOMTheDarkAges.exe";
-
-	struct LoaderCache_t {
-		std::filesystem::file_time_type WriteTime;
-	} loadercache, newcache;
-
 
 	/* Check the game directory is valid */
 	if (!std::filesystem::exists(gamedirectory) || !std::filesystem::is_directory(gamedirectory)) {
 		atlog("FATAL ERROR: %ls is not a valid directory", gamedirectory.c_str());
 		return;
 	}
-
-	#if 0
-	//Executable_Patcher_Main(gamedirectory);
-	//return;
-	#endif
 
 	/* Identify the version for the archive we must build */
 	{
@@ -1023,142 +1014,21 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 	if (CleanupLastLoad(gamedirectory) == false)
 		return;
 
-	/*
-	* Read the Cache File if it exists
-	*/
-	if(std::filesystem::exists(cachepath))
-	{
-		std::ifstream cachereader(cachepath, std::ios_base::binary);
-		cachereader.seekg(0, std::ios_base::end);
-		if(cachereader.tellg() == sizeof(LoaderCache_t)) {
-			cachereader.seekg(0, std::ios_base::beg);
-			cachereader.read(reinterpret_cast<char*>(&loadercache), sizeof(LoaderCache_t));
-		}
-		else {
-			atlog("WARNING: Cache file size mismatch. Falling back to defaults");
-		}
-		cachereader.close();
-	}
-
-	/*
-	* To determine if the game has been updated, we compare last write time
-	* with what's stored in the above cache file
-	*/
 	if (!std::filesystem::exists(exepath)) {
 		atlog("FATAL ERROR: Failed to find %ls", exepath.c_str());
 		return;
 	}
-	newcache.WriteTime = std::filesystem::last_write_time(exepath);
+
+	if (!Executable_Patcher_Main(gamedirectory)) {
+		atlog("Aborting mod loading due to executable patcher failure");
+		return;
+	}
 
 	/*
 	* Initialize Oodle Compression library
 	*/
 	if(!Oodle::AtlanOodleInit(gamedirectory))
 		return;
-
-	/*
-	* Run Proteh's Dark Ages Patcher
-	*/
-
-	bool runPatcher = newcache.WriteTime != loadercache.WriteTime;
-	if(argflags & argflag_neverpatch)
-		runPatcher = false;
-
-	if(runPatcher)
-	{
-		atlog("Game has been updated, or mod loader cache file could not be found. Performing update operations");
-
-		// Do not put slashes in any string literals here
-		const fspath patcherpath = gamedirectory / "DarkAgesPatcher.exe";
-
-		atlog("\nRunning DarkAgesPatcher.exe by Proteh");
-		if(!std::filesystem::exists(patcherpath))
-		{
-			atlog("FATAL ERROR: Could not find %ls", patcherpath.c_str()); 
-			return;
-		}
-
-		//atlog("~%ls~%ls~", patcherpath.c_str(), exepath.c_str());
-		std::string updateCommand = patcherpath.string() + " --update";
-		std::string patchCommand = patcherpath.string() + " --patch ";
-		patchCommand.append(exepath.string());
-
-		struct {
-			uint16_t code;
-			uint8_t successfulpatches;
-			uint8_t failedpatches;
-		} returndata;
-
-		bool patchsuccess;
-
-		// Edge Case: We need to support manually updating the patcher's .def file in the event
-		// that proteh or any future maintainers become unavailable.
-		// Solution: First, try patching with the existing .def file.
-		// If that fails, try to update, then patch again, before finally giving up.
-		*reinterpret_cast<int*>(&returndata) = system(patchCommand.c_str());
-		switch(returndata.code) {
-			case 6: 
-			patchsuccess = true;
-			break;
-
-			case 0:
-			patchsuccess = returndata.failedpatches == 0;
-			break;
-
-			default:
-			patchsuccess = false;
-			break;
-		}
-
-		if (!patchsuccess) {
-			atlog("Patcher Return Codes: %hu %hhu %hhu", returndata.code, returndata.successfulpatches, returndata.failedpatches);
-			atlog("Initial patch attempt failed. Attempting to update patch definitions");
-			system(updateCommand.c_str());
-			*reinterpret_cast<int*>(&returndata) = system(patchCommand.c_str());
-		}
-		
-		switch(returndata.code) {
-			case 6: // Executable already fully patched
-			patchsuccess = true;
-			break;
-
-			case 0: // Patches applied - may be partial or complete success
-			patchsuccess = returndata.failedpatches == 0;
-			break;
-
-			default: // Failure for other reasons
-			patchsuccess = false;
-			break;
-		}
-
-		atlog("Patcher Return Codes: %hu %hhu %hhu", returndata.code, returndata.successfulpatches, returndata.failedpatches);
-		if (!patchsuccess) {
-			
-			atlog("ERROR: Dark Ages Patcher partially or fully failed to patch your game executable.");
-
-			if(argflags & argflag_forceload) {
-				atlog("Proceeding with mod loading due to --forceload");
-			}
-			else {
-				// Should be fine to abort right here without saving the cache file - like this injection attempt never happened
-				atlog("Loading mods when DarkAgesPatcher fails may cause the game to permanently crash on startup.\n"
-					  "Mod loading is being aborted out of caution.\n"
-					  "At your own risk, you may run the mod loader with --forceload to bypass this safety measure.");
-				return;
-			}
-		}
-		else {
-
-			// The newly stored time will be the write time post-patching
-			newcache.WriteTime = std::filesystem::last_write_time(exepath);
-			
-			// Write the new loader cache file
-			// This should only be done when patching is successful
-			std::ofstream cachewriter(cachepath, std::ios_base::binary);
-			cachewriter.write(reinterpret_cast<char*>(&newcache), sizeof(LoaderCache_t));
-			cachewriter.close();
-		}
-	}
 
 	/*
 	* Run the mod loader

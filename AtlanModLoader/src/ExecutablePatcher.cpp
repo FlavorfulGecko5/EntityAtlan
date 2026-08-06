@@ -235,8 +235,6 @@ bool ReadPatcherConfig(PatcherConfig_t& cfg, const fspath& exepath, const fspath
 			}
 		}
 
-		atlog("Attempting %d patches", cfg.numpatches);
-
 		EntNode& checksums = root["checksums"];
 		cfg.checksums = new gamemd5_t[checksums.getChildCount()];
 		for (const EntNode& c : checksums) {
@@ -327,6 +325,8 @@ bool Run_Executable_Patcher(const fspath& exepath, const fspath& configpath)
 			return false;
 		}
 	}
+
+	atlog("Attempting %d patches", cfg.numpatches);
 	
 	for(uint8_t* exe = (uint8_t*)exebytes.data, *const exemax = exe + exebytes.length; exe < exemax; exe++) {
 		for (patchref* p = patches; p < patchesmax; p++) {
@@ -494,24 +494,30 @@ bool Patcher_DownloadConfig(const fspath& configpath) {
 			return false;
 		}
 
-		charbuffer_t hostedMd5;
-		FileReader::ReadFile(CONFIG_MD5_PATH, hostedMd5);
+		charbuffer_t hostedMd5File;
+		FileReader::ReadFile(CONFIG_MD5_PATH, hostedMd5File);
 		std::filesystem::remove(CONFIG_MD5_PATH);
-		if (hostedMd5.length != sizeof(HashLib::md5_t)) {
+		if (hostedMd5File.length != sizeof(HashLib::md5_t) * 2) {
 			atlog("ERROR: Incorrectly sized .md5 file");
+			return false;
+		}
+
+		HashLib::md5_t hostedMd5;
+		if (!parse_hexstring((char*)hostedMd5.bytes, hostedMd5File.data, hostedMd5File.length)) {
+			atlog("ERROR: Failed to parse .md5 file");
 			return false;
 		}
 
 		charbuffer_t configbytes;
 		FileReader::ReadFile(configpath.c_str(), configbytes);
 		HashLib::md5_t realMd5 = HashLib::md5(configbytes.data, configbytes.length);
-		if (!memcmp(realMd5.bytes, hostedMd5.data, sizeof(HashLib::md5_t))) {
+		if (!memcmp(realMd5.bytes, hostedMd5.bytes, sizeof(HashLib::md5_t))) {
 			atlog("Latest config already downloaded");
 			return false;
 		}
 	}
 
-	atlog("Downloading New Patcher Config from " CONFIG_URL);
+	atlog("Downloading AtlanPatcher.txt from " CONFIG_URL);
 	HRESULT result = URLDownloadToFile(NULL, TEXT(CONFIG_URL), configpath.c_str(), 0, NULL);
 	if (result != S_OK) {
 		atlog("FATAL ERROR: Failed to download patcher config");
