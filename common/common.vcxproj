@@ -21,6 +21,7 @@
   <ItemGroup>
     <ClCompile Include="src\archives\idImage.cpp" />
     <ClCompile Include="src\archives\idImage_Encoder.cpp" />
+    <ClCompile Include="src\archives\MapResources.cpp" />
     <ClCompile Include="src\archives\PackageMapSpec.cpp" />
     <ClCompile Include="src\archives\ResourceStructs.cpp" />
     <ClCompile Include="src\archives\SlugFont.cpp" />
@@ -46,6 +47,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\archives\idImage.h" />
+    <ClInclude Include="src\archives\MapResources.h" />
     <ClInclude Include="src\archives\PackageMapSpec.h" />
     <ClInclude Include="src\archives\ResourceEnums.h" />
     <ClInclude Include="src\archives\ResourceStructs.h" />

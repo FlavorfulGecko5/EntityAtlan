@@ -87,6 +87,9 @@
     <ClCompile Include="src\hash\md5.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\archives\MapResources.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\entityslayer\EntityLogger.h">
@@ -156,6 +159,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\archives\SlugFont.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\archives\MapResources.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

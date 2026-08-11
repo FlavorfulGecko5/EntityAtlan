@@ -77,9 +77,15 @@ struct JustInTimeBuffer_t {
 	}
 };
 
+// Data aggregated from all mod config files
+struct GlobalConfig_t {
+	std::vector<std::string> mapresources; // Files to insert into mapresources
+	std::vector<std::string> mapspec;
+};
+
 namespace ModReader {
-	void ReadLooseModv2(ModDef& readto, const fspath modsfolder, const fspath& gamedir, int argflags);
-	void ReadZipMod(ModDef& readto, const fspath& zipPath, int argflags);
+	void ReadLooseModv2(ModDef& readto, const fspath modsfolder, const fspath& gamedir, int argflags, GlobalConfig_t& cfg);
+	void ReadZipMod(ModDef& readto, const fspath& zipPath, int argflags, GlobalConfig_t& cfg);
 
 	// Used for Just-In-Time loading of large zipped mod files
 	bool LoadModData(ModFile& modfile, JustInTimeBuffer_t& buffer);

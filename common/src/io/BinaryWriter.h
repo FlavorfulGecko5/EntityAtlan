@@ -197,6 +197,17 @@ class BinaryWriter
 		return *this;
 	}
 
+	void WriteBig(uint32_t value) {
+		if (next + sizeof(value) > end) {
+			GrowBuffer(GetMaxCapacity() + sizeof(value), defaultSizeMultiplier);
+		}
+
+		value = _byteswap_ulong(value);
+
+		*reinterpret_cast<uint32_t*>(next) = value;
+		next += sizeof(value);
+	}
+
 	/*
 	* SIZE STACK
 	*/

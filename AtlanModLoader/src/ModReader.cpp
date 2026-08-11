@@ -164,6 +164,11 @@ void ModReader_ConfirmModFile(ModDef& moddef, ModFile& modfile, int argflags) {
 	moddef.modFiles.push_back(modfile);
 }
 
+void ModReader_ExtractConfigData(const AtlanModConfig& modconfig, GlobalConfig_t& globalconfig) {
+	globalconfig.mapresources.insert(globalconfig.mapresources.end(), modconfig.listresources, modconfig.listresources + modconfig.numresources);
+	globalconfig.mapspec.insert(globalconfig.mapspec.end(), modconfig.listmapspec, modconfig.listmapspec + modconfig.nummapspec);
+}
+
 struct idUnzippedImageJob {
 	fspath filepath;
 	std::string assetpath;
@@ -225,7 +230,7 @@ void UnzippedImageEncodingThread(idUnzippedImageJobList* joblist) {
 	idImageEncodingContext::COMThreadRelease();
 }
 
-void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fspath& gamedir, int argflags)
+void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fspath& gamedir, int argflags, GlobalConfig_t& globalconfig)
 {
 	using namespace std::filesystem;
 
@@ -262,6 +267,7 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 
 			atlog("Found " CFG_NAME);
 			cfg.TryRead(entrypath.string());
+			ModReader_ExtractConfigData(cfg, globalconfig);
 			continue;
 		}
 
@@ -340,9 +346,9 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 	}
 }
 
-bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& readto, int argflags);
+bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& readto, int argflags, GlobalConfig_t& globalconfig);
 
-void ModReader::ReadZipMod(ModDef& mod, const fspath& zipPath, int argflags)
+void ModReader::ReadZipMod(ModDef& mod, const fspath& zipPath, int argflags, GlobalConfig_t& globalconfig)
 {
 	atlog("\n\nReading %ls\n---", zipPath.filename().c_str());
 
@@ -356,7 +362,7 @@ void ModReader::ReadZipMod(ModDef& mod, const fspath& zipPath, int argflags)
 	}
 
 	mod.modName = zipPath.stem().string();
-	mod.ActiveZip = ReadZipMod_Internal(zptr, mod, argflags);
+	mod.ActiveZip = ReadZipMod_Internal(zptr, mod, argflags, globalconfig);
 	if (!mod.ActiveZip) {
 		mz_zip_reader_end(zptr);
 	}
@@ -364,7 +370,7 @@ void ModReader::ReadZipMod(ModDef& mod, const fspath& zipPath, int argflags)
 
 // If return value is true, we should keep the zip file alive after reading
 // to enable just-in-time loading
-bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, int argflags)
+bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, int argflags, GlobalConfig_t& globalconfig)
 {
 	bool KEEP_ZIP_ALIVE = false;
 
@@ -386,6 +392,7 @@ bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, int argflags)
 		else {
 			atlog("Found " CFG_NAME);
 			cfg.TryRead(dataBuffer, dataLength);
+			ModReader_ExtractConfigData(cfg, globalconfig);
 			delete[] dataBuffer;
 		}
 	}

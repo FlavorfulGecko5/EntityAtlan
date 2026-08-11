@@ -15,6 +15,7 @@ enum ResourceType : uint32_t
 	rt_image           = 1 << 8,
 	rt_audio           = 1 << 9,
 	rt_slug_font       = 1 << 10,
+	rt_file            = 1 << 11
 };
 
 enum ResourceTypeComboFlags : uint32_t 

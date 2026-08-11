@@ -115,6 +115,19 @@ bool BinaryReader::ReadLE(int64_t& readTo) { return __BinaryReader_ReadLE_Intern
 bool BinaryReader::ReadLE(float& readTo) { return __BinaryReader_ReadLE_Internal(readTo); }
 bool BinaryReader::ReadLE(double& readTo) { return __BinaryReader_ReadLE_Internal(readTo); }
 
+bool BinaryReader::ReadBig(uint32_t& readto) {
+	if (next + sizeof(readto) > endptr) {
+		BinaryReader::ErrorDetected();
+		return false;
+	}
+
+	uint32_t temp = *reinterpret_cast<const uint32_t*>(next);
+	readto = _byteswap_ulong(temp);
+	next+= sizeof(uint32_t);
+
+	return true;
+}
+
 template<typename TYPE>
 BinaryReader& BinaryReader::__BinaryReader_RShift_Internal(TYPE& readto) {
 	if (next + sizeof(TYPE) > endptr) {

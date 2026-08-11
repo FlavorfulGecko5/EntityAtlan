@@ -12,6 +12,17 @@ struct AtlanModConfig {
 	int loadPriority = 0;
 	std::unordered_map<std::string, std::string> alias;
 
+	std::string* listresources = nullptr;
+	int numresources = 0;
+
+	std::string* listmapspec = nullptr;
+	int nummapspec = 0;
+
+	~AtlanModConfig() {
+		delete[] listresources;
+		delete[] listmapspec;
+	}
+
 	void GetNormalizedName(const std::string& in_zipname, std::string& out_assettype, std::string& out_assetname) const;
 
 	bool TryRead(const std::string& filepath);

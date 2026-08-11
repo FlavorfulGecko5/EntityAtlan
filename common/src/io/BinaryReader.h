@@ -71,6 +71,12 @@ class BinaryReader
 	bool ReadLE(double& readTo);
 
 	/*
+	* Read Big-Endian
+	*/
+	bool ReadBig(uint32_t& readto);
+	bool ReadBig(uint64_t& readto);
+
+	/*
 	* Right Shift: Equivalent to ReadLE with no return value
 	* indicating a successful read. Must check the number of
 	* failures to determine if a read was successful

@@ -126,5 +126,27 @@ bool AtlanModConfig::TryRead_Internal(EntNode& root) {
     //	atlog_deprecated << "\n" << pair.first << "-" << pair.second;
     //}
 
+    EntNode& mapspecnode = root["mapspec"];
+    if (mapspecnode.getChildCount() > 0) {
+        listmapspec = new std::string[mapspecnode.getChildCount()];
+        for (const EntNode& m : mapspecnode) {
+            if(m.IsComment())
+                continue;
+            listmapspec[nummapspec++] = m.getName();
+        }
+    }
+
+    EntNode& resourcenode = root["common_mapresources"];
+    if (resourcenode.getChildCount() > 0) {
+        listresources = new std::string[resourcenode.getChildCount()];
+
+        for (const EntNode& r : resourcenode) {
+            if(r.IsComment())
+                continue;
+
+            listresources[numresources++] = r.getNameUQ();
+        }
+    }
+
     return true;
 }

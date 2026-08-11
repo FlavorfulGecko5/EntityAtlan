@@ -244,6 +244,8 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 			case rt_mapentities:   e.version = f.resourceVersion;     e.flags = 2; e.variation = 70; break;
 			case rt_image:         e.version = imgdef.bimversion;     e.flags = 0; e.variation = 0;  break;
 			case rt_slug_font:     e.version = 14;                    e.flags = 0; e.variation = 0; break;
+			//TODO: For Eternal file version should be 1
+			case rt_file:          e.version = 2;                     e.flags = 0; e.variation = 0; break;
 
 			default:
 			if(f.typeenum & rtc_logic_decl) {
@@ -490,6 +492,56 @@ void RebuildContainerMask(const fspath metapath, const fspath newarchivepath) {
 	delete[] decomp;
 }
 
+bool Modify_PackageMapSpec(const fspath& pmspath, bool includeStreamDB, GlobalConfig_t& config) {
+
+	MapSpec_t mapspec(pmspath);
+	if(!mapspec.good)
+		return false;
+
+	std::string newfiles[] = {
+		"modarchives/common_mod.resources",
+		"modarchives/common_mod.streamdb"
+	};
+
+	bool result = mapspec.Modify(newfiles, includeStreamDB ? 2 : 1, config.mapspec.data(), config.mapspec.size());
+	if(!result)
+		return false;
+
+	mapspec.SaveToFile(pmspath);
+	return true;
+}
+
+#include "archives/MapResources.h"
+
+bool Modify_CommonMapResources(ResourceArchive& r, const ResourceEntry& e, ModFile& modfile, GlobalConfig_t& config) {
+	ResourceEntryBuffers_t tempbuffers;
+	ResourceEntryData_t entrydata = Get_EntryData(e, r.filehandle, tempbuffers);
+	assert(entrydata.returncode == EntryDataCode::OK);
+
+	// Todo: Must filter them to a set
+	atlog("Adding %zu entries to common.mapresources", config.mapresources.size());
+
+	MapResource resourcefile;
+	if(!resourcefile.Parse(entrydata.buffer, entrydata.length)) {
+		return false;
+	}
+
+	atlog("Parsed Resource File");
+
+	BinaryWriter outwriter;
+	
+	if(!resourcefile.AddFiles(config.mapresources.data(), config.mapresources.size(), outwriter))
+		return false;
+
+	atlog("Added new entries");
+
+	modfile.dataLength = outwriter.GetFilledSize();
+	modfile.dataBuffer = outwriter.Finalize();
+	modfile.ownsData = true;
+
+	return true;
+}
+
 bool IsModded_MapSpec(const fspath& path) {
 	BinaryOpener open(path.string());
 	BinaryReader reader = open.ToReader();
@@ -665,6 +717,9 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 
 	atlog("\n\nReading Mods:\n----------");
 
+	GlobalConfig_t globalconfig;
+	ModDef GlobalMod;
+
 	struct modlist_t {
 		ModDef* mods = nullptr;
 		int totalmods = 0;
@@ -677,10 +732,10 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 
 	int REALMOD_INCREMENTOR = 0;
 	for(const fspath& UnzippedFolder : UnzippedModFolders) {
-		ModReader::ReadLooseModv2(ModList.mods[REALMOD_INCREMENTOR++], UnzippedFolder, gamedir, argflags);
+		ModReader::ReadLooseModv2(ModList.mods[REALMOD_INCREMENTOR++], UnzippedFolder, gamedir, argflags, globalconfig);
 	}
 	for(const fspath& ZipPath : zipmodpaths) {
-		ModReader::ReadZipMod(ModList.mods[REALMOD_INCREMENTOR++], ZipPath, argflags);
+		ModReader::ReadZipMod(ModList.mods[REALMOD_INCREMENTOR++], ZipPath, argflags, globalconfig);
 	}
 	assert(REALMOD_INCREMENTOR == ModList.totalmods);
 
@@ -803,14 +858,6 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 		}
 		#endif
 
-		#if 0
-		if (file.typeenum & rtc_streamdb_hash) {
-			find_defaulthashes[pair.first] = &file;
-		}
-		if (file.typeenum == rt_image) {
-			streamdbsupermod.push_back(&file);
-		}
-		#else
 		if (file.typeenum == rt_image) {
 			streamdbsupermod.push_back(&file);
 			file.defaulthash = NEXT_STREAMDB_HASH++;
@@ -821,7 +868,6 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 				find_defaulthashes[pair.first] = &file;
 			}
 		}
-		#endif
 
 		if (file.typeenum == rt_audio) {
 			audiosupermod.push_back(&file);
@@ -829,6 +875,21 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 		else {
 			supermod.push_back(&file);
 		}
+	}
+
+	// We will need to track down common.mapresources if we have entries to
+	// add to it
+	if(globalconfig.mapresources.size()) {
+		GlobalMod.modFiles.emplace_back();
+		ModFile& f = GlobalMod.modFiles.back();
+		f.typestring = "file";
+		f.typeenum   = rt_file;
+		f.parentMod  = &GlobalMod;
+		f.assetPath  = "generated/buildgame/common.mapresources";
+		f.realPath   = "GENERATED";
+		f.isAtlanCompressed = false;
+		find_defaulthashes["filegenerated/buildgame/common.mapresources"] = &f;
+		supermod.push_back(&f);
 	}
 
 	/*
@@ -843,7 +904,7 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 		for (const std::string& archivepath : archivelist) 
 		{
 			ResourceArchive r;
-			idcl::ReadResource(r, (basedir / archivepath).c_str(), RF_SkipData, false);
+			idcl::ReadResource(r, (basedir / archivepath).c_str(), RF_SkipData, true);
 
 			for (uint32_t i = 0; i < r.header.numResources; i++) {
 
@@ -858,6 +919,15 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 					ModFile* f = iter->second;
 					f->defaulthash = e.defaultHash;
 					f->resourceVersion = e.version;
+
+					// TODO: If we add support for file resources with non-streamdb
+					// hashes we'll need to change how we identify common.mapresources
+					if(f->typeenum == rt_file) {
+						if (!Modify_CommonMapResources(r, e, *f, globalconfig)) {
+							atlog("Mod Loading aborting due to error editing common.mapresources");
+							return false;
+						}
+					}
 
 					find_defaulthashes.erase(lookupstring);
 
@@ -885,14 +955,18 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 		atlog("\n\nBuilding Archives:\n----------");
 
 		bool okay = BuildArchive(supermod, streamdbsupermod.size(), outarchivepath, outstreamdbpath);
-		if(okay) {
-			PackageMapSpec::InjectCommonArchive(gamedir, outarchivepath, streamdbsupermod.size() > 0);
-			RebuildContainerMask(metapath, outarchivepath);
-		}
-		else {
+		if (!okay) {
 			atlog("FATAL ERROR: Resource Mod Loading aborted due to the above error");
 			return false;
 		}
+		okay = Modify_PackageMapSpec(pmspath, streamdbsupermod.size() > 0, globalconfig);
+		if (!okay) {
+			atlog("FATAL ERROR: Mod Loading aborted due to above error with packagemapspec");
+			return false;
+		}
+
+		//PackageMapSpec::InjectCommonArchive(gamedir, outarchivepath, streamdbsupermod.size() > 0);
+		RebuildContainerMask(metapath, outarchivepath);
 	}
 
 	if (audiosupermod.size() > 0) {
