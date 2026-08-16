@@ -79,7 +79,14 @@ struct JustInTimeBuffer_t {
 
 // Data aggregated from all mod config files
 struct GlobalConfig_t {
-	std::vector<std::string> mapresources; // Files to insert into mapresources
+
+	struct mapres_t {
+		std::vector<std::string> merges;  // Files we must merge into this one
+		std::vector<std::string> entries; // Entries to insert
+	};
+
+	std::unordered_map<std::string, mapres_t> mapresinfo; 
+
 	std::vector<std::string> mapspec;
 };
 

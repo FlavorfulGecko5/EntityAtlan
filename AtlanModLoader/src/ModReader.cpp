@@ -165,8 +165,29 @@ void ModReader_ConfirmModFile(ModDef& moddef, ModFile& modfile, int argflags) {
 }
 
 void ModReader_ExtractConfigData(const AtlanModConfig& modconfig, GlobalConfig_t& globalconfig) {
-	globalconfig.mapresources.insert(globalconfig.mapresources.end(), modconfig.listresources, modconfig.listresources + modconfig.numresources);
 	globalconfig.mapspec.insert(globalconfig.mapspec.end(), modconfig.listmapspec, modconfig.listmapspec + modconfig.nummapspec);
+
+	for (int i = 0; i < modconfig.numMerges; i++) {
+		const std::string& s = modconfig.listmerges[i];
+
+		size_t delimiter = s.find('$');
+		if (delimiter == -1) {
+			atlog("ERROR: Missing $ delimiter in mapresources merge statement '%s'", s.c_str());
+			continue;
+		}
+
+		std::string from = s.substr(0, delimiter);
+		std::string to = s.substr(delimiter + 1);
+
+		globalconfig.mapresinfo[to].merges.push_back(from);
+	}
+
+	for (int i = 0; i < modconfig.numEdits; i++) {
+		AtlanModConfig::editlist_t& e = modconfig.listedits[i];
+
+		auto& vtor = globalconfig.mapresinfo[e.filename].entries;
+		vtor.insert(vtor.end(), e.entries, e.entries + e.numentries);
+	}
 }
 
 struct idUnzippedImageJob {

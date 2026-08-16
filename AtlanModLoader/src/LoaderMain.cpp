@@ -513,31 +513,148 @@ bool Modify_PackageMapSpec(const fspath& pmspath, bool includeStreamDB, GlobalCo
 
 #include "archives/MapResources.h"
 
-bool Modify_CommonMapResources(ResourceArchive& r, const ResourceEntry& e, ModFile& modfile, GlobalConfig_t& config) {
-	ResourceEntryBuffers_t tempbuffers;
-	ResourceEntryData_t entrydata = Get_EntryData(e, r.filehandle, tempbuffers);
-	assert(entrydata.returncode == EntryDataCode::OK);
+bool Query_Archives(std::unordered_map<std::string, ModFile*>& FileMap, GlobalConfig_t& config, ModDef& ModDef_MapResources, const fspath& path_mapspec) {
 
-	// Todo: Must filter them to a set
-	atlog("Adding %zu entries to common.mapresources", config.mapresources.size());
+	/*
+	* Step 1: Add all .mapresources files we need to the query map
+	*/
+	int num_reservations = 0;
+	for(const auto& pair : config.mapresinfo) {
+		std::string filetype = "file";
+		num_reservations++;
 
-	MapResource resourcefile;
-	if(!resourcefile.Parse(entrydata.buffer, entrydata.length)) {
+		// We're gonna do some real hacky stuff here
+		FileMap[filetype + pair.first] = nullptr;
+		for(const std::string& s : pair.second.merges) {
+			FileMap[filetype + s] = nullptr;
+			num_reservations++;
+		}
+	}
+
+	/*
+	* Nothing to query for? We're good
+	*/
+	if(FileMap.size() == 0)
+		return true;
+	atlog("Finding streamdb hashes for %zu mod files", FileMap.size());
+
+	struct mapresbuffer_t {
+		std::string name;
+		char* data = nullptr;
+		size_t length = 0;
+
+		~mapresbuffer_t() {
+			delete[] data;
+		}
+	};
+
+	std::vector<mapresbuffer_t> mapresbuffers;
+	mapresbuffers.reserve(num_reservations);
+
+	/*
+	* Step 2: Query for Data
+	*/
+	std::string lookupstring;
+	idcl::ArchiveIterator iter(path_mapspec, false);
+	ResourceEntryBuffers_t EntryBuffers;
+	for (const ResourceEntry& e : iter) {
+
+		lookupstring = iter.typestring;
+		lookupstring.append(iter.namestring);
+
+		const auto& mapiter = FileMap.find(lookupstring);
+		if (mapiter != FileMap.end()) {
+			ModFile* f = mapiter->second;
+
+			// Nullptr --> a .mapresource file that we need
+			if(f == nullptr) {
+				atlog("QUERY: Found %s", mapiter->first.c_str());
+				ResourceEntryData_t EntryData = Get_EntryData(e, iter.archive.filehandle, EntryBuffers);
+
+				mapresbuffers.emplace_back();
+				mapresbuffer_t& m = mapresbuffers.back();
+				m.length = EntryData.length;
+				m.data = new char[m.length];
+				memcpy(m.data, EntryData.buffer, m.length); // TODO: Transfer buffer ownership instead of copying
+				m.name = mapiter->first.substr(4); // Remove "file" from the name
+			}
+			else {
+				f->defaulthash = e.defaultHash;
+				f->resourceVersion = e.version;
+			}
+
+			FileMap.erase(mapiter);
+			if (FileMap.empty()) {
+				atlog("All hashes found");
+				break;
+			}
+		}
+	}
+
+	if (FileMap.size()) {
+		atlog("ERROR: Could not find one or more required files vanilla archives");
 		return false;
 	}
 
-	atlog("Parsed Resource File");
+	/*
+	* Step 3: Build .mapresources files
+	*/
+	for(const auto& pair : config.mapresinfo) {
+		const std::string& filename = pair.first;
 
-	BinaryWriter outwriter;
-	
-	if(!resourcefile.AddFiles(config.mapresources.data(), config.mapresources.size(), outwriter))
-		return false;
+		atlog("Modifying %s", filename.c_str());
+		
+		MapResource CurrentMap;
 
-	atlog("Added new entries");
+		for(mapresbuffer_t& m : mapresbuffers) {
+			if (m.name == filename) {
+				
+				if(!CurrentMap.Parse(m.data, m.length)) {
+					atlog("ERROR: Failed to parse file");
+					return false;
+				}
+				break;
+			}
+		}
 
-	modfile.dataLength = outwriter.GetFilledSize();
-	modfile.dataBuffer = outwriter.Finalize();
-	modfile.ownsData = true;
+		for(const std::string& importName : pair.second.merges) {
+			MapResource ImportMap;
+
+			atlog("- Merging %s into file", importName.c_str());
+
+			for(mapresbuffer_t& m : mapresbuffers) {
+				if (m.name == importName) {
+					if(!ImportMap.Parse(m.data, m.length)) {
+						atlog("ERROR: Failed to parse file to be imported");
+						return false;
+					}
+					break;
+				}
+			}
+			CurrentMap.Merge(ImportMap);
+		}
+
+		BinaryWriter finalbin;
+
+		atlog("- Adding %zu entries", pair.second.entries.size());
+		if (!CurrentMap.AddFiles((std::string*)pair.second.entries.data(), pair.second.entries.size(), finalbin)) {
+			atlog("ERROR: Failed to insert entries");
+			return false;
+		}
+
+		ModDef_MapResources.modFiles.emplace_back();
+		ModFile& f = ModDef_MapResources.modFiles.back();
+		f.typestring = "file";
+		f.typeenum = rt_file;
+		f.parentMod = &ModDef_MapResources;
+		f.assetPath = pair.first;
+		f.realPath = "GENERATED";
+		f.isAtlanCompressed = false;
+		f.dataLength = finalbin.GetFilledSize();
+		f.dataBuffer = finalbin.Finalize();
+		f.ownsData = true;
+	}
+
 
 	return true;
 }
@@ -718,6 +835,7 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 	atlog("\n\nReading Mods:\n----------");
 
 	GlobalConfig_t globalconfig;
+	globalconfig.mapresinfo.reserve(4);
 	ModDef GlobalMod;
 
 	struct modlist_t {
@@ -877,75 +995,16 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 		}
 	}
 
-	// We will need to track down common.mapresources if we have entries to
-	// add to it
-	if(globalconfig.mapresources.size()) {
-		GlobalMod.modFiles.emplace_back();
-		ModFile& f = GlobalMod.modFiles.back();
-		f.typestring = "file";
-		f.typeenum   = rt_file;
-		f.parentMod  = &GlobalMod;
-		f.assetPath  = "generated/buildgame/common.mapresources";
-		f.realPath   = "GENERATED";
-		f.isAtlanCompressed = false;
-		find_defaulthashes["filegenerated/buildgame/common.mapresources"] = &f;
-		supermod.push_back(&f);
-	}
-
 	/*
 	* Find streamdb hashes if necessary
 	*/
-	if(find_defaulthashes.size() > 0) {
-		atlog("Finding streamdb hashes for %zu mod files", find_defaulthashes.size());
-
-		std::vector<std::string> archivelist = PackageMapSpec::GetPrioritizedArchiveList(gamedir, false);
-
-		std::string lookupstring;
-		for (const std::string& archivepath : archivelist) 
-		{
-			ResourceArchive r;
-			idcl::ReadResource(r, (basedir / archivepath).c_str(), RF_SkipData, true);
-
-			for (uint32_t i = 0; i < r.header.numResources; i++) {
-
-				const ResourceEntry& e = r.entries[i];
-				const char* typestring, *namestring;
-				Get_EntryStrings(r, e, typestring, namestring);
-				lookupstring = typestring;
-				lookupstring.append(namestring);
-
-				const auto& iter = find_defaulthashes.find(lookupstring);
-				if (iter != find_defaulthashes.end()) {
-					ModFile* f = iter->second;
-					f->defaulthash = e.defaultHash;
-					f->resourceVersion = e.version;
-
-					// TODO: If we add support for file resources with non-streamdb
-					// hashes we'll need to change how we identify common.mapresources
-					if(f->typeenum == rt_file) {
-						if (!Modify_CommonMapResources(r, e, *f, globalconfig)) {
-							atlog("Mod Loading aborting due to error editing common.mapresources");
-							return false;
-						}
-					}
-
-					find_defaulthashes.erase(lookupstring);
-
-					if(find_defaulthashes.empty())
-						goto LABEL_ALL_HASHES_FOUND;
-				}
-				
-			}
-		}
-		LABEL_ALL_HASHES_FOUND:
-		if (find_defaulthashes.empty()) {
-			atlog("All hashes found");
-		}
-		else {
-			atlog("POTENTIALLY FATAL ERROR: Could not find one or more hashes for streamdb files");
-		}
+	if (!Query_Archives(find_defaulthashes, globalconfig, GlobalMod, pmspath)) {
+		atlog("Mod Loading aborted due to error when querying archives");
+		return false;
 	}
-
+	for (ModFile& f : GlobalMod.modFiles) {
+		supermod.push_back(&f);
+	}
 
 	/*
 	* BUILD THE RESOURCE ARCHIVES

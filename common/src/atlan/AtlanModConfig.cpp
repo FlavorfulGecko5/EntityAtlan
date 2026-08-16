@@ -132,19 +132,38 @@ bool AtlanModConfig::TryRead_Internal(EntNode& root) {
         for (const EntNode& m : mapspecnode) {
             if(m.IsComment())
                 continue;
-            listmapspec[nummapspec++] = m.getName();
+            listmapspec[nummapspec++] = m.getNameUQ();
         }
     }
 
-    EntNode& resourcenode = root["common_mapresources"];
-    if (resourcenode.getChildCount() > 0) {
-        listresources = new std::string[resourcenode.getChildCount()];
+    EntNode& mergenode = root["merge_mapresources"];
+    if(mergenode.getChildCount() > 0) {
+        listmerges = new std::string[mergenode.getChildCount()];
+        for (const EntNode& m : mergenode) {
+            if(m.IsComment())
+                continue;
+            listmerges[numMerges++] = m.getNameUQ();
+        }
+    }
 
-        for (const EntNode& r : resourcenode) {
-            if(r.IsComment())
+    EntNode& editnode = root["edit_mapresources"];
+    if(editnode.getChildCount() > 0) {
+        listedits = new editlist_t[editnode.getChildCount()];
+        for (EntNode& file : editnode) {
+            
+            if(file.IsComment())
                 continue;
 
-            listresources[numresources++] = r.getNameUQ();
+            editlist_t& e = listedits[numEdits++];
+            e.filename = file.getNameUQ();
+            e.entries = new std::string[file.getChildCount()];
+
+            for(const EntNode& entry : file) {
+                if(entry.IsComment())
+                    continue;
+
+                e.entries[e.numentries++] = entry.getNameUQ();
+            }
         }
     }
 

@@ -8,19 +8,33 @@ class EntNode;
 
 struct AtlanModConfig {
 
+	struct editlist_t {
+		std::string filename;
+		std::string* entries = nullptr;
+		int numentries = 0;
+
+		~editlist_t() {
+			delete[] entries;
+		}
+	};
+
 	int requiredVersion = 1;
 	int loadPriority = 0;
 	std::unordered_map<std::string, std::string> alias;
 
-	std::string* listresources = nullptr;
-	int numresources = 0;
+	std::string* listmerges = nullptr;
+	int numMerges = 0;
+
+	editlist_t* listedits = nullptr;
+	int numEdits = 0;
 
 	std::string* listmapspec = nullptr;
 	int nummapspec = 0;
 
 	~AtlanModConfig() {
-		delete[] listresources;
+		delete[] listmerges;
 		delete[] listmapspec;
+		delete[] listedits;
 	}
 
 	void GetNormalizedName(const std::string& in_zipname, std::string& out_assettype, std::string& out_assetname) const;
