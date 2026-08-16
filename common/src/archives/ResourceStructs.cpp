@@ -83,6 +83,13 @@ ResourceEntryData_t Get_EntryData(const ResourceEntry& e, FileReader& reader, Re
 
 }
 
+#define INITBUFFER(type, buffer, target, capacity) \
+if(capacity < target) { \
+	capacity = target;  \
+	delete[] buffer;    \
+	buffer = new type [target]; \
+}
+
 bool Read_ResourceArchive_Internal(ResourceArchive& r, int flags) {
 
 	FileReader& opener = r.filehandle;
@@ -105,9 +112,8 @@ bool Read_ResourceArchive_Internal(ResourceArchive& r, int flags) {
 	if (flags & RF_HeaderOnly)
 		return true;
 
-
 	// Read the Resource Entries
-	r.entries = new ResourceEntry[r.header.numResources];
+	INITBUFFER(ResourceEntry, r.entries, r.header.numResources, r.capacity_resources)
 	opener.seek(r.header.resourceEntriesOffset);
 	opener.read((char*)r.entries, r.header.numResources * sizeof(ResourceEntry));
 	if(flags & RF_StopAfterEntries)
@@ -119,8 +125,9 @@ bool Read_ResourceArchive_Internal(ResourceArchive& r, int flags) {
 	opener.read((char*)&r.stringChunk.numStrings, sizeof(uint64_t));
 
 	size_t stringBlockSize = r.header.stringTableSize - r.stringChunk.numStrings * sizeof(uint64_t) - sizeof(uint64_t);
-	r.stringChunk.offsets = new uint64_t[r.stringChunk.numStrings];
-	r.stringChunk.dataBlock = new char[stringBlockSize];
+
+	INITBUFFER(uint64_t, r.stringChunk.offsets, r.stringChunk.numStrings, r.capacity_stringoffsets);
+	INITBUFFER(char, r.stringChunk.dataBlock, stringBlockSize, r.capacity_stringblob);
 
 	opener.read((char*)r.stringChunk.offsets, r.stringChunk.numStrings * sizeof(uint64_t));
 	opener.read(r.stringChunk.dataBlock, stringBlockSize);
@@ -133,9 +140,9 @@ bool Read_ResourceArchive_Internal(ResourceArchive& r, int flags) {
 
 
 	// Initialize Dependency Data
-	r.dependencies = new ResourceDependency[r.header.numDependencies];
-	r.dependencyIndex = new uint32_t[r.header.numDepIndices];
-	r.stringIndex = new uint64_t[r.header.numStringIndices];
+	INITBUFFER(ResourceDependency, r.dependencies, r.header.numDependencies, r.capacity_dependencies);
+	INITBUFFER(uint32_t, r.dependencyIndex, r.header.numDepIndices, r.capacity_depindex);
+	INITBUFFER(uint64_t, r.stringIndex, r.header.numStringIndices, r.capacity_stringindex);
 
 	// Read Dependency Data
 	// There can be a varying number of null bytes after the final string (or none at all)
@@ -152,11 +159,13 @@ bool Read_ResourceArchive_Internal(ResourceArchive& r, int flags) {
 
 	// Determine size of data block
 	uint64_t fileLength = static_cast<uint64_t>(opener.getlength());
+	uint64_t dataBufferLength = fileLength - r.header.dataOffset;
 	opener.seek(r.header.dataOffset);
 
 	// Read the data block
+	INITBUFFER(char, r.bufferData, dataBufferLength, r.capacity_entrydata);
 	r.bufferData = new char[fileLength - r.header.dataOffset];
-	opener.read(r.bufferData, fileLength - r.header.dataOffset);
+	opener.read(r.bufferData, dataBufferLength);
 	return true;
 }
 
@@ -184,7 +193,7 @@ bool idcl::ReadResource(ResourceArchive& r, const char* pathString, int flags, b
 
 void Audit_ResourceHeader(const ResourceHeader& h, const ResourceMetaHeader& metaheader)
 {
-	assert(h.magic[0] == 'I' && h.magic[1] == 'D' && h.magic[2] == 'C' && h.magic[3] == 'L');
+	assert(*(int*)h.magic == 'LCDI');
 
 	// Version-Dependent Data
 	if (h.version == 12) {
@@ -418,10 +427,7 @@ containerMaskEntry_t GetContainerMaskHash(const fspath archivepath) {
 
 	input.seekg(start, std::ios_base::beg);
 	input.read(buffer, len);
-	assert(buffer[len - 1] == 'L');
-	assert(buffer[len - 2] == 'C');
-	assert(buffer[len - 3] == 'D');
-	assert(buffer[len - 4] == 'I');
+	assert(*(int*)(buffer + len - 4) == 'LCDI'); // Verify ending magic is present
 
 	uint64_t hash = HashLib::FarmHash64(buffer, len);
 	delete[] buffer;
@@ -430,4 +436,95 @@ containerMaskEntry_t GetContainerMaskHash(const fspath archivepath) {
 	entrydata.hash = hash;
 	entrydata.numResources = h.numResources;
 	return entrydata;
+}
+
+#include "PackageMapSpec.h"
+
+const fspath& idcl::ArchiveIterator::CurrentArchive()
+{
+	return archivepaths[nextarchiveIndex - 1];
+}
+
+idcl::ArchiveIterator::ArchiveIterator(const fspath& path_mapspec, bool p_UseContainerMask) {
+
+	archivepaths = PackageMapSpec::GetArchiveList(path_mapspec, false);
+
+	if (p_UseContainerMask) {
+		maskfile.Read(path_mapspec.parent_path().parent_path());
+	}
+}
+
+ResourceEntry* idcl::ArchiveIterator::nextarchive() {
+
+	while (1) {
+		if (nextarchiveIndex >= archivepaths.size())
+			return nullptr;
+
+		const fspath& nextpath = archivepaths[nextarchiveIndex++];
+
+		//printf("%ls\n", nextpath.c_str());
+
+		if (maskfile.maskcount) {
+			archivebitmask = maskfile.FindArchiveMask(nextpath);
+			if (!archivebitmask.size && !allowUnmasked) {
+				//printf("Skipping %ls \n", nextpath.c_str());
+				continue;
+			}
+		}
+
+		if (!idcl::ReadResource(archive, nextpath.c_str(), RF_SkipData, true)) {
+			return nullptr;
+		}
+
+		if (archive.header.numResources == 0)
+			continue;
+
+		archivemax = archive.entries + archive.header.numResources;
+		newarchiveloaded = true;
+		return archive.entries;
+	}
+}
+
+ResourceEntry* idcl::ArchiveIterator::next(ResourceEntry* current) {
+
+	while (1) {
+		current++;
+
+		if (current >= archivemax) {
+			current = nextarchive();
+			if (!current) {
+				return nullptr;
+			}
+		}
+
+		Get_EntryStrings(archive, *current, typestring, namestring);
+
+		if (archivebitmask.size) {
+			isEnabled = archivebitmask.IsLoaded(current - archive.entries);
+			if (!isEnabled && !allowDisabled) {
+				continue;
+			}
+		} 
+		else {
+			isEnabled = true;
+		}
+
+		if(typefilter && strcmp(typefilter, typestring))
+			continue;
+
+		return current;
+	}
+
+}
+
+idcl::ArchiveIterator::iter_t idcl::ArchiveIterator::begin() {
+	// Ensure we read the first archive
+	nextarchiveIndex = 0;
+	archivemax = nullptr; 
+
+	return {this, next(nullptr)};
+}
+
+idcl::ArchiveIterator::iter_t idcl::ArchiveIterator::end() {
+	return {this, nullptr};
 }

@@ -1,4 +1,5 @@
 #include "entityslayer/EntityParser.h"
+#include "entityslayer/Oodle.h"
 #include "archives/ResourceStructs.h"
 #include "archives/PackageMapSpec.h"
 #include "archives/SoundArchive.h"
@@ -25,6 +26,7 @@ struct configdata_t {
 	bool run_deserializer = true;
 	bool run_audio_extractor = false;
 	bool run_soundbank_extractor = false;
+	bool run_extra_scripts = true;
 
 	restypeset_t restypes;
 
@@ -488,6 +490,9 @@ void ExtractorMain() {
 		if (!core["run_soundbank_extractor"].ValueBool(config.run_soundbank_extractor)) {
 			atlog("WARNING: Failed to read config bool core/run_soundbank_extractor: assuming default");
 		}
+		if (!core["run_extra_scripts"].ValueBool(config.run_extra_scripts)) {
+			atlog("WARNING: Failed to read config bool core/run_extra_scripts: assuming default");
+		}
 
 
 		EntNode& restypes = root["extractor"]["resource_types"];
@@ -749,6 +754,11 @@ void ExtractorMain() {
 	}
 	else {
 		atlog("Skipping Soundbank Extractor");
+	}
+
+	if (config.run_extra_scripts) {
+		extern void RunExtraScripts(fspath gamedir, fspath outputdir);
+		RunExtraScripts(config.inputdir, config.outputdir);
 	}
 }
 

@@ -17,6 +17,10 @@ struct MapResource {
 	struct mapstring_t {
 		unsigned int length = 0;
 		const char* data = nullptr;
+
+		std::string string() const {
+			return std::string(data, length);
+		}
 	};
 
 	struct entry_t {
@@ -49,4 +53,13 @@ struct MapResource {
 	bool Parse(const char* data, size_t datalength);
 
 	bool AddFiles(std::string* entries, size_t numentries, BinaryWriter& writer);
+
+	// Merges data from another .mapresources file into this one
+	bool Merge(const MapResource& from);
+
+	std::string ToString();
+
+	bool isAnomalous(const entry_t& e) const;
+	std::string getEntryName(const entry_t& e) const;
+	std::string getEntryBytes(const entry_t& e) const;
 };

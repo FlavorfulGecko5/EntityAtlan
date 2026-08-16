@@ -105,6 +105,15 @@ struct ResourceArchive {
 	ResourceDependency* dependencies = nullptr; // header.numDependencies
 	uint32_t* dependencyIndex = nullptr; // header.numDepIndices
 	uint64_t* stringIndex = nullptr; // header.numStringIndices
+	
+	/* Buffer Capacities */
+	u32 capacity_resources     = 0;
+	u32 capacity_dependencies  = 0;
+	u32 capacity_depindex      = 0;
+	u32 capacity_stringindex   = 0;
+	u64 capacity_stringoffsets = 0;
+	u64 capacity_stringblob = 0;
+	u64 capacity_entrydata = 0;
 
 	~ResourceArchive() {
 		delete[] bufferData;
@@ -265,3 +274,54 @@ ResourceEntryData_t Get_EntryData(const ResourceArchive& r, const ResourceEntry&
 */
 
 ResourceEntryData_t Get_EntryData(const ResourceEntry& e, FileReader& reader, ResourceEntryBuffers_t& buffers);
+
+
+#include <vector>
+namespace idcl {
+	
+	struct ArchiveIterator {
+		std::vector<fspath> archivepaths;
+		size_t nextarchiveIndex = 0;
+
+		idclMaskFile maskfile;
+		idclMaskFile::entry archivebitmask; // Bitmask of the current archive
+
+		ResourceArchive archive;
+		const ResourceEntry* archivemax;
+
+		const char* typestring, *namestring; // Strings of the current resource entry
+		bool isEnabled; // Whether the current file is enabled/disabled by the container mask.
+		                // Only check this if allowDisabled = true
+
+
+		const char* typefilter = nullptr; // Optional filter string for resource types
+		bool allowUnmasked = false;       // If false, skip archives with no container mask
+		bool allowDisabled = false;       // If false, skip entries disabled by the container mask
+		bool newarchiveloaded = false;    // Toggleable flag that gets set to true once another archive is loaded
+
+		const fspath& CurrentArchive(); // Returns the name of the archive currently being iterated through
+
+		struct iter_t {
+			ArchiveIterator* controller;
+			ResourceEntry* entry;
+
+			ResourceEntry& operator*() {
+				return *entry;
+			}
+
+			bool operator!=(iter_t& other) {
+				return entry != other.entry;
+			}
+
+			void operator++() {
+				entry = controller->next(entry);
+			}
+		};
+
+		ArchiveIterator(const fspath& path_mapspec, bool UseContainerMask);
+		iter_t begin();
+		iter_t end();
+		ResourceEntry* next(ResourceEntry* current);
+		ResourceEntry* nextarchive();
+	};
+}
