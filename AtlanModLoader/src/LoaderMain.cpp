@@ -88,14 +88,6 @@ class StringTable {
 // Build the resources and streamdb archive. 
 // If this returns false something went wrong and we should abort mod loading
 bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES, fspath outarchivepath, fspath outstreamdbpath) {
-	bool HotReloadMode = modfiles.size() == 1 
-		&& !modfiles[0]->isAtlanCompressed 
-		&& modfiles[0]->parentMod->IsUnzipped 
-		&& modfiles[0]->typeenum == rt_mapentities;
-	if (HotReloadMode) {
-		atlog("Experimental Hot Reload Mode Engaged");
-	}
-
 	// Buffer for doing just-in-time reading of large mod files
 	// This way we're not loading every mod file into memory simultaneously
 	// before loading it
@@ -257,7 +249,9 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 		}
 
 		// Isolate the Hot Reload code path to keep everything else simpler
-		if (HotReloadMode) {
+		if (f.typeenum == rt_mapentities && !f.isAtlanCompressed && f.parentMod->IsUnzipped) {
+			atlog("Hot Reload Mode engaged for unzipped mapentities file");
+
 			size_t HotReloadPadding;
 			e.dataSize = 40000000;
 			if (e.dataSize >= f.dataLength) {
@@ -271,6 +265,8 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 			e.uncompressedSize = e.dataSize;
 			e.compMode = 0;
 			e.dataOffset = runningDataOffset;
+			runningDataOffset += e.dataSize;
+			runningDataOffset += 8 - runningDataOffset % 8;
 			ResourceWriter.seekp(e.dataOffset, std::ios_base::beg);
 			ResourceWriter.write((char*)f.dataBuffer, f.dataLength);
 
@@ -278,7 +274,7 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 			memset(paddingbuffer, 0, HotReloadPadding);
 			ResourceWriter.write(paddingbuffer, HotReloadPadding);
 			delete[] paddingbuffer;
-			break;
+			continue;
 		}
 
 		const char* BufferToWrite = nullptr;
@@ -424,6 +420,7 @@ void RebuildContainerMask(const fspath metapath, const fspath newarchivepath) {
 	// TODO: If adding multiple archives, must do this for every archive
 	// Get data we'll be inserting into container mask
 	containerMaskEntry_t newentry = GetContainerMaskHash(newarchivepath);
+	//atlog("Container Mask Hash: 0x%llx", newentry.hash);
 
 	// Number of uint64_t's in our bitmask.
 	// Ensure at least 1 just incase having 0 is bad
