@@ -2,7 +2,7 @@
 #include "io/BinaryReader.h"
 #include "io/BinaryWriter.h"
 
-#define MAPRESOURCE_STANDARD_BYTES 0x8000'0000'0000'0000ULL
+#define LAYERMASK_ALWAYS_LOADED 0x8000'0000'0000'0000ULL
 
 void MapResource_ReadString(BinaryReader& r, MapResource::mapstring_t& s) {
 	r >> s.length;
@@ -14,6 +14,20 @@ void MapResource_ReadStringList(BinaryReader& r, MapResource::mapstring_t* list,
 		r >> list[i].length;
 		r.ReadBytes(list[i].data, list[i].length);
 	}
+}
+
+bool MapResource::entry_t::IsAlwaysLoaded() const {
+	return layermask[2] & LAYERMASK_ALWAYS_LOADED;
+}
+
+bool MapResource::entry_t::IsLayerLoaded(uint32_t index) const {
+	return layermask[ index / 64ull] & (1ull << (index % 64ull));
+}
+
+void MapResource::entry_t::SetAlwaysLoaded() {
+	layermask[0] = 0;
+	layermask[1] = 0;
+	layermask[2] = LAYERMASK_ALWAYS_LOADED;
 }
 
 bool MapResource::Parse(const char* data, size_t datalength)
@@ -55,7 +69,7 @@ bool MapResource::Parse(const char* data, size_t datalength)
 		r.ReadBig(e.typeindex);
 		r >> e.path.length;
 		r.ReadBytes(e.path.data, e.path.length);
-		r >> e.unknown[0] >> e.unknown[1] >> e.unknown[2];
+		r >> e.layermask[0] >> e.layermask[1] >> e.layermask[2];
 	}
 
 	if (version == VERSION_IDTECH8) {
@@ -174,13 +188,13 @@ bool MapResource::AddFiles(std::string* entries, size_t num_newentries, BinaryWr
 		writer.WriteBig(e.typeindex);
 		writer << e.path.length;
 		writer.WriteBytes(e.path.data, e.path.length);
-		writer << e.unknown[0] << e.unknown[1] << e.unknown[2];
+		writer << e.layermask[0] << e.layermask[1] << e.layermask[2];
 	}
 	for (const newentry_t& n : newentries) {
 		writer.WriteBig(n.typeindex);
 		writer << (u32)n.valstring.length();
 		writer.WriteBytes(n.valstring.data(), n.valstring.length());
-		writer << (u64)0 << (u64)0 << 0x8000'0000'0000'0000ULL;
+		writer << (u64)0 << (u64)0 << LAYERMASK_ALWAYS_LOADED;
 	}
 
 
@@ -248,13 +262,26 @@ bool MapResource::Merge(const MapResource& from)
 	memcpy(new_entries + num_newentries, from.list_entries, from.num_entries * sizeof(entry_t));
 	num_newentries += from.num_entries;
 
-	// Must lookup the type string from the original
+	// Adjust merged entries
 	for (u32 i = num_entries; i < num_newentries; i++) {
+
+		// Must adjust the type index
 		new_entries[i].typeindex = TypeMap[
 			from.list_types[
 				new_entries[i].typeindex
 			].string()
 		];
+
+		// We must enable always-load for merged entries
+		// because their layermask will no longer be valid
+		// (and may potentially be out of bounds)
+		new_entries[i].SetAlwaysLoaded();
+
+		#if 0
+		if (new_types[new_entries[i].typeindex].string() == "mapentities") {
+			new_entries[i].layermask[2] = 0;
+		}
+		#endif
 	}
 
 	/*
@@ -284,10 +311,15 @@ std::string MapResource::ToString()
 {
 	std::string output;
 
-	char printbuffer[1024];
+	output.append("layers {\n");
+	for (u32 i = 0; i < num_layers; i++) {
+		mapstring_t& layer = list_layers[i];
+		output.append("\t\"");
+		output.append(layer.string());
+		output.append("\"\n");
+	}
+	output.append("}\n");
 
-	// Todo: Should we include the layers list for completion?
-	// Probably not needed?
 	for (u32 i = 0; i < num_entries; i++) {
 		entry_t& e = list_entries[i];
 
@@ -298,31 +330,17 @@ std::string MapResource::ToString()
 		output.push_back('/');
 		output.append(e.path.data, e.path.length);
 
-		if (e.unknown[0] || e.unknown[1] || e.unknown[2] != MAPRESOURCE_STANDARD_BYTES) {
-			snprintf(printbuffer, sizeof(printbuffer), "\" \"0x%llx 0x%llx 0x%llx\"\n", e.unknown[0], e.unknown[1], e.unknown[2]);
-			output.append(printbuffer);
+		if (!e.IsAlwaysLoaded()) {
+			output.append("\" \"");
+			for (u32 layer_index = 0; layer_index < num_layers; layer_index++) {
+				if (e.IsLayerLoaded(layer_index)) {
+					output.append(list_layers[layer_index].string());
+					output.push_back(' ');
+				}
+			}
+			output.append("\"\n");
 		}
 		else output.append("\"\n");
 	}
 	return output;
-}
-
-bool MapResource::isAnomalous(const entry_t& e) const
-{
-	return e.unknown[0] || e.unknown[1] || e.unknown[2] != MAPRESOURCE_STANDARD_BYTES;
-}
-
-std::string MapResource::getEntryName(const entry_t& e) const
-{
-	std::string name = list_types[e.typeindex].string();
-	name.push_back('/');
-	name.append(e.path.data, e.path.length);
-	return name;
-}
-
-std::string MapResource::getEntryBytes(const entry_t& e) const
-{
-	char printbuffer[1024];
-	int length = snprintf(printbuffer, sizeof(printbuffer), "0x%llx 0x%llx 0x%llx", e.unknown[0], e.unknown[1], e.unknown[2]);
-	return std::string(printbuffer, length);
 }

@@ -26,7 +26,11 @@ struct MapResource {
 	struct entry_t {
 		unsigned int typeindex;
 		mapstring_t path;
-		unsigned long long unknown[3];
+		uint64_t layermask[3];
+
+		bool IsAlwaysLoaded() const;
+		bool IsLayerLoaded(uint32_t index) const;
+		void SetAlwaysLoaded();
 	};
 
 	size_t original_file_length = 0;
@@ -55,11 +59,12 @@ struct MapResource {
 	bool AddFiles(std::string* entries, size_t numentries, BinaryWriter& writer);
 
 	// Merges data from another .mapresources file into this one
+	// Note: Blanket-merging mapresources files like this is a bad idea and should
+	// be avoided. Doing this can easily overload the game and cause various crashes,
+	// such as from reaching the material2 limit. It will also import the mapentities
+	// of the level you're merging from.
 	bool Merge(const MapResource& from);
 
 	std::string ToString();
 
-	bool isAnomalous(const entry_t& e) const;
-	std::string getEntryName(const entry_t& e) const;
-	std::string getEntryBytes(const entry_t& e) const;
 };

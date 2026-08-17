@@ -16,9 +16,6 @@ void Script_DumpResourceTypes(const fspath& gamedir, const fspath& outputdir)
 	std::set<std::string> restypes;
 	std::set<std::string> maprestypes;
 
-	std::unordered_map<std::string, std::string> Anomalies;
-	Anomalies.reserve(50'000);
-
 	const fspath dirmapresources = outputdir / "decoded_mapresources";
 	if(!std::filesystem::exists(dirmapresources))
 		std::filesystem::create_directory(dirmapresources);
@@ -62,22 +59,6 @@ void Script_DumpResourceTypes(const fspath& gamedir, const fspath& outputdir)
 		if(!iter.isEnabled)
 			continue;
 
-		// Gather anomalies
-		for (u32 i = 0; i < resfile.num_entries; i++) {
-			MapResource::entry_t& mapentry = resfile.list_entries[i];
-
-			if(!resfile.isAnomalous(mapentry))
-				continue;
-
-			std::string& anomlog = Anomalies[resfile.getEntryName(mapentry)];
-
-			anomlog.append("\t\"");
-			anomlog.append(resfile.getEntryBytes(mapentry));
-			anomlog.append("\" \"");
-			anomlog.append(fspath(iter.namestring).stem().string());
-			anomlog.append("\"\n");
-		}
-
 		// Output the MapResources file
 		const std::string MapResourceText = resfile.ToString();
 
@@ -108,19 +89,6 @@ void Script_DumpResourceTypes(const fspath& gamedir, const fspath& outputdir)
 	outwriter << "// All correctly capitalized resource types that appear in .mapresources and serialized files\n";
 	for (const std::string& s : maprestypes) {
 		outwriter << s << "\n";
-	}
-	outwriter.close();
-
-	// Output anomaly log
-	// Sort the keys alphabetically so the final file is easier to comprehend
-	outwriter.open(outputdir / "MapResourceAnomalies.txt");
-	std::set<std::string> SortedAnomalyKeys;
-	for (const auto& pair : Anomalies) {
-		SortedAnomalyKeys.insert(pair.first);
-	}
-	for (const std::string& s : SortedAnomalyKeys) {
-		outwriter << '"' << s << "\" {\n";
-		outwriter << Anomalies[s] << "}\n";
 	}
 	outwriter.close();
 }
