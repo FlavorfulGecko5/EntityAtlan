@@ -46,7 +46,7 @@ struct ModFile {
 	size_t dataLength = 0;
 	std::string realPath;   // The verbatim path from the zip file or mods folder
 	std::string assetPath;  // Path that will be used as the resource name
-	uint64_t defaulthash;     // For resources types with a streamdb hash 
+	uint64_t defaulthash = -1;     // For resources types with a streamdb hash 
 	uint32_t resourceVersion; // For mapentities since they span multiple versions
 	bool isAtlanCompressed;   // Is this an Atlan Compressed file?
 	//idAtlanImage imagedef; // typeenum == rt_image
@@ -83,6 +83,7 @@ struct GlobalConfig_t {
 	struct mapres_t {
 		std::vector<std::string> merges;  // Files we must merge into this one
 		std::vector<std::string> entries; // Entries to insert
+		bool LoadAll;
 	};
 
 	std::unordered_map<std::string, mapres_t> mapresinfo; 

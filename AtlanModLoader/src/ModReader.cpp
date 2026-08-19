@@ -28,6 +28,8 @@ const std::unordered_map<std::string, resourcetypeinfo_t> ValidResourceTypes = {
 	{"mapentities",   {"mapentities",   rt_mapentities,   allow_mod_yes}},
 	{"image",         {"image",         rt_image,         allow_mod_yes}},
 	{"slug_font",     {"slug_font",     rt_slug_font,     allow_mod_yes}},
+	{"baseModel",     {"baseModel",     rt_baseModel,     allow_mod_yes}},
+	{"strandsHair",   {"strandsHair",   rt_strandsHair,   allow_mod_yes}},
 
 	// Audio will be handled differently by the loader
 	{"audio", {"audio", rt_audio, allow_mod_yes}}

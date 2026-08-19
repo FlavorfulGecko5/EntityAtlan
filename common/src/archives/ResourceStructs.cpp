@@ -340,6 +340,12 @@ void Audit_ResourceArchive(const ResourceArchive& r) {
 		else if (strcmp(typeString, "slug_font") == 0) {
 			assert((e.version == 14 || e.version == 13 ) && e.flags == 0 && e.variation == 0);
 		}
+		else if (strcmp(typeString, "baseModel") == 0) {
+			assert(e.version == 62 && (e.flags == 0 || e.flags == 1) && e.variation == 0);
+		}
+		else if (strcmp(typeString, "strandsHair") == 0) {
+			assert(e.version == 48 && (e.flags == 0 || e.flags == 1) && e.variation == 0);
+		}
 		else if (logictypes.count(typeString) > 0) {
 			//printf("%s\n", typeString);
 			assert(e.dataCheckSum == e.defaultHash);

@@ -85,9 +85,15 @@ class StringTable {
 
 #include <algorithm>
 
+// md6 mesh mod wrapper, produced by the external Md6MeshTool. Layout:
+// [Md6ModWrapperHeader][Md6ModStreamInfo * numStreams][def bytes][compressed stream blobs...]
+struct Md6ModStreamInfo    { uint32_t lod; uint32_t compressedSize; };
+struct Md6ModWrapperHeader { uint32_t magic; uint32_t defSize; uint32_t numStreams; };
+#define MD6_WRAPPER_MAGIC 0x574D364DU // 'M6MW'
+
 // Build the resources and streamdb archive. 
 // If this returns false something went wrong and we should abort mod loading
-bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES, fspath outarchivepath, fspath outstreamdbpath) {
+bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILES, fspath outarchivepath, fspath outstreamdbpath) {
 	// Buffer for doing just-in-time reading of large mod files
 	// This way we're not loading every mod file into memory simultaneously
 	// before loading it
@@ -101,13 +107,13 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 	streamdb.prefetchheader.totalLength = 8;
 
 	std::vector<idStreamDB::entry_t> streamdb_entries;
-	streamdb_entries.reserve(NUM_IMAGES * 8);
+	streamdb_entries.reserve(NUM_DBFILES * 8);
 
 	// We don't know how many streamdb entries an image will have until we've loaded the data
 	// Hence we must overestimate the start of the data block
 	// TODO: If we ever support 3D or cubic images, we may need to overestimate even harder
 	const size_t streamdb_DataOffset = sizeof(idStreamDB::header) + sizeof(idStreamDB::prefetchheader_t)
-		+ 9 * NUM_IMAGES * sizeof(idStreamDB::entry_t);
+		+ 9 * NUM_DBFILES * sizeof(idStreamDB::entry_t);
 	size_t streamdb_RunningOffset = streamdb_DataOffset + (16 - streamdb_DataOffset % 16);
 
 	ResourceArchive archive;
@@ -172,7 +178,7 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 
 	std::ofstream ResourceWriter(outarchivepath, std::ios_base::binary);
 	std::ofstream StreamDBWriter;
-	if(NUM_IMAGES)
+	if(NUM_DBFILES)
 		StreamDBWriter.open(outstreamdbpath, std::ios_base::binary);
 
 	/*
@@ -226,7 +232,7 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 		// Plus these are calculated using the uncompressed data - bad if we want to pre-compress mod files
 		// HashLib::ResourceMurmurHash
 		e.dataCheckSum = -1;
-		e.defaultHash = (f.typeenum & rtc_streamdb_hash) ? f.defaulthash : e.dataCheckSum;
+		e.defaultHash = f.defaulthash; // Normally, if streamdb hash is unused, it's equal to the dataChecksum
 
 		// These values vary based on resource type
 		// Mapentities version can vary while the image version is the same as it's BIM version
@@ -236,6 +242,8 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 			case rt_mapentities:   e.version = f.resourceVersion;     e.flags = 2; e.variation = 70; break;
 			case rt_image:         e.version = imgdef.bimversion;     e.flags = 0; e.variation = 0;  break;
 			case rt_slug_font:     e.version = 14;                    e.flags = 0; e.variation = 0; break;
+			case rt_baseModel:     e.version = 62;                    e.flags = 0; e.variation = 0; break;
+			case rt_strandsHair:   e.version = 48;                    e.flags = 0; e.variation = 0; break;
 			//TODO: For Eternal file version should be 1
 			case rt_file:          e.version = 2;                     e.flags = 0; e.variation = 0; break;
 
@@ -291,6 +299,18 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 			e.compMode = 0;
 			BufferToWrite = imgdef.binaryblob;
 		}
+		else if (f.typeenum == rt_baseModel) {
+			const Md6ModWrapperHeader* wh = (const Md6ModWrapperHeader*)f.dataBuffer;
+			if (f.dataLength < sizeof(Md6ModWrapperHeader) || wh->magic != MD6_WRAPPER_MAGIC) {
+				atlog("FATAL ERROR: baseModel mod file is not a valid md6 wrapper: %s", f.realPath.c_str());
+				return false;
+			}
+			const size_t defOffset = sizeof(Md6ModWrapperHeader) + (size_t)wh->numStreams * sizeof(Md6ModStreamInfo);
+			e.dataSize = wh->defSize;
+			e.uncompressedSize = wh->defSize;
+			e.compMode = 0;
+			BufferToWrite = (char*)f.dataBuffer + defOffset; // the def; streams follow it
+		}
 		else {
 			e.dataSize = f.dataLength;
 			e.uncompressedSize = e.dataSize;
@@ -309,6 +329,30 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 		ResourceWriter.write(BufferToWrite, e.dataSize);
 
 		// StreamDB Stuff
+
+		// md6 geometry: one compressed blob per LOD, keyed by streamdb_miphash(defaultHash, 4 - lod, 0)
+		if (f.typeenum == rt_baseModel) {
+			const Md6ModWrapperHeader* wh = (const Md6ModWrapperHeader*)f.dataBuffer;
+			const Md6ModStreamInfo* streams = (const Md6ModStreamInfo*)((char*)f.dataBuffer + sizeof(Md6ModWrapperHeader));
+			const char* streamPtr = BufferToWrite + wh->defSize; // BufferToWrite points at the def
+			for (uint32_t i = 0; i < wh->numStreams; i++) {
+				idStreamDB::entry_t streamdb_entry;
+				streamdb_entry.id = HashLib::streamdb_miphash(f.defaulthash, 4 - streams[i].lod, 0);
+				streamdb_entry.length = streams[i].compressedSize;
+				streamdb_entry.offset16 = (u32)(streamdb_RunningOffset / 16);
+				streamdb_entries.push_back(streamdb_entry);
+
+				StreamDBWriter.seekp(streamdb_RunningOffset, std::ios_base::beg);
+				StreamDBWriter.write(streamPtr, streamdb_entry.length);
+
+				assert(streamdb_RunningOffset % 16 == 0);
+				streamdb_RunningOffset += streamdb_entry.length + (16 - streamdb_entry.length % 16);
+				streamPtr += streamdb_entry.length;
+			}
+			continue;
+		}
+
+
 		if(f.typeenum != rt_image)
 			continue;
 
@@ -370,7 +414,7 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_IMAGES
 	/*
 	* Finish writing the StreamDB data
 	*/
-	if(NUM_IMAGES == 0)
+	if(NUM_DBFILES == 0)
 		return true;
 
 	streamdb.header.headerLength = static_cast<u32>( sizeof(idStreamDB::header) + sizeof(idStreamDB::prefetchheader)
@@ -860,7 +904,7 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 
 	std::vector<ModFile*> supermod;
 	std::vector<ModFile*> audiosupermod;
-	std::vector<ModFile*> streamdbsupermod;
+	int streamdbFileCount = 0;
 	std::unordered_map<std::string, ModFile*> find_defaulthashes;
 	std::unordered_map<std::string, ModFile*> priorityAssets;
 
@@ -973,15 +1017,13 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 		}
 		#endif
 
-		if (file.typeenum == rt_image) {
-			streamdbsupermod.push_back(&file);
-			file.defaulthash = NEXT_STREAMDB_HASH++;
+		// If an asset requires a streamdb hash, add it to the lookup map
+		if (file.typeenum & rtc_query_dbhash) {
+			find_defaulthashes[pair.first] = &file;
 		}
-		else {
-			// If an asset requires a streamdb hash, add it to the lookup map
-			if (file.typeenum & rtc_streamdb_hash) {
-				find_defaulthashes[pair.first] = &file;
-			}
+		else if (file.typeenum & rtc_assign_dbhash) {
+			streamdbFileCount++;
+			file.defaulthash = NEXT_STREAMDB_HASH++;
 		}
 
 		if (file.typeenum == rt_audio) {
@@ -1010,18 +1052,16 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 	if (supermod.size() > 0) {
 		atlog("\n\nBuilding Archives:\n----------");
 
-		bool okay = BuildArchive(supermod, streamdbsupermod.size(), outarchivepath, outstreamdbpath);
+		bool okay = BuildArchive(supermod, streamdbFileCount, outarchivepath, outstreamdbpath);
 		if (!okay) {
 			atlog("FATAL ERROR: Resource Mod Loading aborted due to the above error");
 			return false;
 		}
-		okay = Modify_PackageMapSpec(pmspath, streamdbsupermod.size() > 0, globalconfig);
+		okay = Modify_PackageMapSpec(pmspath, streamdbFileCount > 0, globalconfig);
 		if (!okay) {
 			atlog("FATAL ERROR: Mod Loading aborted due to above error with packagemapspec");
 			return false;
 		}
-
-		//PackageMapSpec::InjectCommonArchive(gamedir, outarchivepath, streamdbsupermod.size() > 0);
 		RebuildContainerMask(metapath, outarchivepath);
 	}
 

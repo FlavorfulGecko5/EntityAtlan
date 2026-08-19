@@ -15,7 +15,11 @@ enum ResourceType : uint32_t
 	rt_image           = 1 << 8,
 	rt_audio           = 1 << 9,
 	rt_slug_font       = 1 << 10,
-	rt_file            = 1 << 11
+	rt_file            = 1 << 11,
+	rt_compfile        = 1 << 12,
+	rt_binaryFile      = 1 << 13,
+	rt_baseModel       = 1 << 14,
+	rt_strandsHair     = 1 << 15
 };
 
 enum ResourceTypeComboFlags : uint32_t 
@@ -24,5 +28,6 @@ enum ResourceTypeComboFlags : uint32_t
 	rtc_serialized    = rt_entityDef  | rt_mapentities | rtc_logic_decl,
 	rtc_no_extension  = rt_entityDef  | rt_mapentities | rtc_logic_decl | rt_audio | rt_slug_font,
 	rtc_last_number   = rt_audio,
-	rtc_streamdb_hash = rt_mapentities | rt_image
+	rtc_query_dbhash  = rt_mapentities,
+	rtc_assign_dbhash = rt_image | rt_baseModel
 };

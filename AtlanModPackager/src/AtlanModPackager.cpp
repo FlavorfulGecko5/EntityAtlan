@@ -125,7 +125,9 @@ void PackagerMain(const char* DIR_GAME, fspath DIR_INPUT, fspath ZIP_OUTPUT)
 		{"logicLibrary",  rt_logicLibrary},
 		{"logicUIWidget", rt_logicUIWidget},
 		{"mapentities",   rt_mapentities},
-		{"slug_font",     rt_slug_font}
+		{"slug_font",     rt_slug_font},
+		{"baseModel",	  rt_baseModel},
+		{"strandsHair",   rt_strandsHair}
 	};
 
 	AtlanModConfig ModConfig;
