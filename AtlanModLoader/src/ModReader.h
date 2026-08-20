@@ -81,9 +81,8 @@ struct JustInTimeBuffer_t {
 struct GlobalConfig_t {
 
 	struct mapres_t {
-		std::vector<std::string> merges;  // Files we must merge into this one
 		std::vector<std::string> entries; // Entries to insert
-		bool LoadAll;
+		bool LoadAll = false;
 	};
 
 	std::unordered_map<std::string, mapres_t> mapresinfo; 

@@ -169,26 +169,29 @@ void ModReader_ConfirmModFile(ModDef& moddef, ModFile& modfile, int argflags) {
 void ModReader_ExtractConfigData(const AtlanModConfig& modconfig, GlobalConfig_t& globalconfig) {
 	globalconfig.mapspec.insert(globalconfig.mapspec.end(), modconfig.listmapspec, modconfig.listmapspec + modconfig.nummapspec);
 
-	for (int i = 0; i < modconfig.numMerges; i++) {
-		const std::string& s = modconfig.listmerges[i];
+	for (int i = 0; i < modconfig.numEdits; i++) {
+		AtlanModConfig::editlist_t& editlist = modconfig.listedits[i];
+		GlobalConfig_t::mapres_t& g = globalconfig.mapresinfo[editlist.filename];
 
-		size_t delimiter = s.find('$');
-		if (delimiter == -1) {
-			atlog("ERROR: Missing $ delimiter in mapresources merge statement '%s'", s.c_str());
+		const std::string& key = editlist.editlist;
+
+		if(key == "LOAD_ALL") {
+			g.LoadAll = true;
 			continue;
 		}
 
-		std::string from = s.substr(0, delimiter);
-		std::string to = s.substr(delimiter + 1);
+		bool foundList = false;
+		for (int k = 0; k < modconfig.numAssetlists; k++) {
+			AtlanModConfig::assetlist_t& alist = modconfig.listassets[k];
+			if (alist.listname == key) {
+				g.entries.insert(g.entries.end(), alist.entries, alist.entries + alist.numentries);
+				foundList = true;
+				break;
+			}
+		}
 
-		globalconfig.mapresinfo[to].merges.push_back(from);
-	}
-
-	for (int i = 0; i < modconfig.numEdits; i++) {
-		AtlanModConfig::editlist_t& e = modconfig.listedits[i];
-
-		auto& vtor = globalconfig.mapresinfo[e.filename].entries;
-		vtor.insert(vtor.end(), e.entries, e.entries + e.numentries);
+		if(!foundList)
+			atlog("CONFIG ERROR: Unknown asset list named %s ", key.c_str());
 	}
 }
 

@@ -136,34 +136,35 @@ bool AtlanModConfig::TryRead_Internal(EntNode& root) {
         }
     }
 
-    EntNode& mergenode = root["merge_mapresources"];
-    if(mergenode.getChildCount() > 0) {
-        listmerges = new std::string[mergenode.getChildCount()];
-        for (const EntNode& m : mergenode) {
-            if(m.IsComment())
+    EntNode& assetnode = root["asset_lists"];
+    if(assetnode.getChildCount() > 0) {
+        listassets = new assetlist_t[assetnode.getChildCount()];
+        for (EntNode& anode : assetnode) {
+            if(anode.IsComment())
                 continue;
-            listmerges[numMerges++] = m.getNameUQ();
+
+            assetlist_t& a = listassets[numAssetlists++];
+            a.listname = anode.getNameUQ();
+            a.entries = new std::string[anode.getChildCount()];
+
+            for (const EntNode& entry : anode) {
+                if (entry.IsComment())
+                    continue;
+                a.entries[a.numentries++] = entry.getNameUQ();
+            }
         }
     }
 
-    EntNode& editnode = root["edit_mapresources"];
+    EntNode& editnode = root["mapresources"];
     if(editnode.getChildCount() > 0) {
         listedits = new editlist_t[editnode.getChildCount()];
         for (EntNode& file : editnode) {
             
             if(file.IsComment())
                 continue;
-
             editlist_t& e = listedits[numEdits++];
             e.filename = file.getNameUQ();
-            e.entries = new std::string[file.getChildCount()];
-
-            for(const EntNode& entry : file) {
-                if(entry.IsComment())
-                    continue;
-
-                e.entries[e.numentries++] = entry.getNameUQ();
-            }
+            e.editlist = file.getValueUQ();
         }
     }
 

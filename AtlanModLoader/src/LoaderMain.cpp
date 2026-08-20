@@ -566,10 +566,6 @@ bool Query_Archives(std::unordered_map<std::string, ModFile*>& FileMap, GlobalCo
 
 		// We're gonna do some real hacky stuff here
 		FileMap[filetype + pair.first] = nullptr;
-		for(const std::string& s : pair.second.merges) {
-			FileMap[filetype + s] = nullptr;
-			num_reservations++;
-		}
 	}
 
 	/*
@@ -633,7 +629,7 @@ bool Query_Archives(std::unordered_map<std::string, ModFile*>& FileMap, GlobalCo
 	}
 
 	if (FileMap.size()) {
-		atlog("ERROR: Could not find one or more required files vanilla archives");
+		atlog("ERROR: Could not find one or more required files in vanilla archives");
 		return false;
 	}
 
@@ -658,27 +654,11 @@ bool Query_Archives(std::unordered_map<std::string, ModFile*>& FileMap, GlobalCo
 			}
 		}
 
-		for(const std::string& importName : pair.second.merges) {
-			MapResource ImportMap;
-
-			atlog("- Merging %s into file", importName.c_str());
-
-			for(mapresbuffer_t& m : mapresbuffers) {
-				if (m.name == importName) {
-					if(!ImportMap.Parse(m.data, m.length)) {
-						atlog("ERROR: Failed to parse file to be imported");
-						return false;
-					}
-					break;
-				}
-			}
-			CurrentMap.Merge(ImportMap);
-		}
-
 		BinaryWriter finalbin;
 
-		atlog("- Adding %zu entries", pair.second.entries.size());
-		if (!CurrentMap.AddFiles((std::string*)pair.second.entries.data(), pair.second.entries.size(), finalbin)) {
+		atlog("- New Entries: %zu, Load All: %hhu", pair.second.entries.size(), pair.second.LoadAll);
+		if (!CurrentMap.AddFiles((std::string*)pair.second.entries.data(), pair.second.entries.size(), 
+			pair.second.LoadAll, finalbin)) {
 			atlog("ERROR: Failed to insert entries");
 			return false;
 		}

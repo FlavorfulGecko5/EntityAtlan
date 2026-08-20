@@ -56,14 +56,17 @@ struct MapResource {
 	
 	bool Parse(const char* data, size_t datalength);
 
-	bool AddFiles(std::string* entries, size_t numentries, BinaryWriter& writer);
+	// If LoadAll: Iterate through the entries and disable all their layermasks
+	bool AddFiles(std::string* entries, size_t numentries, bool LoadAll, BinaryWriter& writer);
 
+	#if 0
 	// Merges data from another .mapresources file into this one
 	// Note: Blanket-merging mapresources files like this is a bad idea and should
 	// be avoided. Doing this can easily overload the game and cause various crashes,
 	// such as from reaching the material2 limit. It will also import the mapentities
 	// of the level you're merging from.
 	bool Merge(const MapResource& from);
+	#endif
 
 	std::string ToString();
 

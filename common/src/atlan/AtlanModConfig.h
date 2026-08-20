@@ -8,22 +8,27 @@ class EntNode;
 
 struct AtlanModConfig {
 
-	struct editlist_t {
-		std::string filename;
+	struct assetlist_t {
+		std::string listname;
 		std::string* entries = nullptr;
 		int numentries = 0;
 
-		~editlist_t() {
+		~assetlist_t() {
 			delete[] entries;
 		}
+	};
+
+	struct editlist_t {
+		std::string filename;
+		std::string editlist;
 	};
 
 	int requiredVersion = 1;
 	int loadPriority = 0;
 	std::unordered_map<std::string, std::string> alias;
 
-	std::string* listmerges = nullptr;
-	int numMerges = 0;
+	assetlist_t* listassets = nullptr;
+	int numAssetlists = 0;
 
 	editlist_t* listedits = nullptr;
 	int numEdits = 0;
@@ -32,7 +37,7 @@ struct AtlanModConfig {
 	int nummapspec = 0;
 
 	~AtlanModConfig() {
-		delete[] listmerges;
+		delete[] listassets;
 		delete[] listmapspec;
 		delete[] listedits;
 	}

@@ -104,7 +104,7 @@ void MapResource_WriteStringList(BinaryWriter& w, MapResource::mapstring_t* list
 #include <unordered_map>
 #include "atlan/AtlanLogger.h"
 
-bool MapResource::AddFiles(std::string* entries, size_t num_newentries, BinaryWriter& writer) {
+bool MapResource::AddFiles(std::string* entries, size_t num_newentries, bool LoadAll, BinaryWriter& writer) {
 	writer.EnsureAvailable(original_file_length + num_newentries * 120);
 
 	struct newentry_t {
@@ -188,7 +188,9 @@ bool MapResource::AddFiles(std::string* entries, size_t num_newentries, BinaryWr
 		writer.WriteBig(e.typeindex);
 		writer << e.path.length;
 		writer.WriteBytes(e.path.data, e.path.length);
-		writer << e.layermask[0] << e.layermask[1] << e.layermask[2];
+		if(LoadAll)
+			writer << (u64)0 << (u64)0 << LAYERMASK_ALWAYS_LOADED;
+		else writer << e.layermask[0] << e.layermask[1] << e.layermask[2];
 	}
 	for (const newentry_t& n : newentries) {
 		writer.WriteBig(n.typeindex);
@@ -210,6 +212,7 @@ bool MapResource::AddFiles(std::string* entries, size_t num_newentries, BinaryWr
 	return true;
 }
 
+#if 0
 bool MapResource::Merge(const MapResource& from)
 {
 	mapstring_t* new_types = new mapstring_t[num_types + from.num_types];
@@ -298,7 +301,7 @@ bool MapResource::Merge(const MapResource& from)
 	#ifdef _DEBUG
 
 	BinaryWriter outwriter;
-	this->AddFiles(nullptr, 0, outwriter);
+	this->AddFiles(nullptr, 0, false, outwriter);
 	MapResource errorchecker;
 	errorchecker.Parse(outwriter.GetBuffer(), outwriter.GetFilledSize());
 
@@ -306,6 +309,7 @@ bool MapResource::Merge(const MapResource& from)
 
 	return true;
 }
+#endif
 
 std::string MapResource::ToString()
 {
