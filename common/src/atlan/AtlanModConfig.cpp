@@ -68,6 +68,28 @@ typedef EntNode enode;
 #define CFG_LOADPRIORITY "loadPriority"
 #define CFG_ALIASES "aliasing"
 
+void AtlanModConfig__ReadListBuffer(AtlanModConfig::namedlist_t*& list, int& num, EntNode& node) {
+
+    if(node.getChildCount() == 0)
+        return;
+
+    list = new AtlanModConfig::namedlist_t[node.getChildCount()];
+    for (EntNode& anode : node) {
+        if (anode.IsComment())
+            continue;
+
+        AtlanModConfig::namedlist_t& a = list[num++];
+        a.listname = anode.getNameUQ();
+        a.entries = new std::string[anode.getChildCount()];
+
+        for (const EntNode& entry : anode) {
+            if (entry.IsComment())
+                continue;
+            a.entries[a.numentries++] = entry.getNameUQ();
+        }
+    }
+}
+
 bool AtlanModConfig::TryRead_Internal(EntNode& root) {
 
     /*
@@ -136,37 +158,11 @@ bool AtlanModConfig::TryRead_Internal(EntNode& root) {
         }
     }
 
-    EntNode& assetnode = root["asset_lists"];
-    if(assetnode.getChildCount() > 0) {
-        listassets = new assetlist_t[assetnode.getChildCount()];
-        for (EntNode& anode : assetnode) {
-            if(anode.IsComment())
-                continue;
+    EntNode& assetnode = root["assets"];
+    AtlanModConfig__ReadListBuffer(listassets, numAssetlists, assetnode);
 
-            assetlist_t& a = listassets[numAssetlists++];
-            a.listname = anode.getNameUQ();
-            a.entries = new std::string[anode.getChildCount()];
-
-            for (const EntNode& entry : anode) {
-                if (entry.IsComment())
-                    continue;
-                a.entries[a.numentries++] = entry.getNameUQ();
-            }
-        }
-    }
-
-    EntNode& editnode = root["mapresources"];
-    if(editnode.getChildCount() > 0) {
-        listedits = new editlist_t[editnode.getChildCount()];
-        for (EntNode& file : editnode) {
-            
-            if(file.IsComment())
-                continue;
-            editlist_t& e = listedits[numEdits++];
-            e.filename = file.getNameUQ();
-            e.editlist = file.getValueUQ();
-        }
-    }
+    EntNode& resnode = root["mapresources"];
+    AtlanModConfig__ReadListBuffer(listedits, numEdits, resnode);
 
     return true;
 }

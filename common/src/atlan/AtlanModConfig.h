@@ -8,29 +8,24 @@ class EntNode;
 
 struct AtlanModConfig {
 
-	struct assetlist_t {
+	struct namedlist_t {
 		std::string listname;
 		std::string* entries = nullptr;
 		int numentries = 0;
 
-		~assetlist_t() {
+		~namedlist_t() {
 			delete[] entries;
 		}
-	};
-
-	struct editlist_t {
-		std::string filename;
-		std::string editlist;
 	};
 
 	int requiredVersion = 1;
 	int loadPriority = 0;
 	std::unordered_map<std::string, std::string> alias;
 
-	assetlist_t* listassets = nullptr;
+	namedlist_t* listassets = nullptr;
 	int numAssetlists = 0;
 
-	editlist_t* listedits = nullptr;
+	namedlist_t* listedits = nullptr;
 	int numEdits = 0;
 
 	std::string* listmapspec = nullptr;

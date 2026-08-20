@@ -170,31 +170,33 @@ void ModReader_ExtractConfigData(const AtlanModConfig& modconfig, GlobalConfig_t
 	globalconfig.mapspec.insert(globalconfig.mapspec.end(), modconfig.listmapspec, modconfig.listmapspec + modconfig.nummapspec);
 
 	for (int i = 0; i < modconfig.numEdits; i++) {
-		AtlanModConfig::editlist_t& editlist = modconfig.listedits[i];
+		AtlanModConfig::namedlist_t& editlist = modconfig.listedits[i];
 		std::string fullname = "generated/buildgame/";
-		fullname.append(editlist.filename);
+		fullname.append(editlist.listname);
 		fullname.append(".mapresources");
 		GlobalConfig_t::mapres_t& g = globalconfig.mapresinfo[fullname];
 
-		const std::string& key = editlist.editlist;
+		for (int sindex = 0; sindex < editlist.numentries; sindex++) {
+			const std::string& key = editlist.entries[sindex];
 
-		if(key == "LOAD_ALL") {
-			g.LoadAll = true;
-			continue;
-		}
-
-		bool foundList = false;
-		for (int k = 0; k < modconfig.numAssetlists; k++) {
-			AtlanModConfig::assetlist_t& alist = modconfig.listassets[k];
-			if (alist.listname == key) {
-				g.entries.insert(g.entries.end(), alist.entries, alist.entries + alist.numentries);
-				foundList = true;
-				break;
+			if (key == "LOAD_ALL") {
+				g.LoadAll = true;
+				continue;
 			}
-		}
 
-		if(!foundList)
-			atlog("CONFIG ERROR: Unknown asset list named %s ", key.c_str());
+			bool foundList = false;
+			for (int k = 0; k < modconfig.numAssetlists; k++) {
+				AtlanModConfig::namedlist_t& alist = modconfig.listassets[k];
+				if (alist.listname == key) {
+					g.entries.insert(g.entries.end(), alist.entries, alist.entries + alist.numentries);
+					foundList = true;
+					break;
+				}
+			}
+
+			if (!foundList)
+				atlog("CONFIG ERROR: Unknown asset list named %s ", key.c_str());
+		}
 	}
 }
 
