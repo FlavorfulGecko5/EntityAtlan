@@ -559,11 +559,8 @@ bool Query_Archives(std::unordered_map<std::string, ModFile*>& FileMap, GlobalCo
 	/*
 	* Step 1: Add all .mapresources files we need to the query map
 	*/
-	int num_reservations = 0;
 	for(const auto& pair : config.mapresinfo) {
 		std::string filetype = "file";
-		num_reservations++;
-
 		// We're gonna do some real hacky stuff here
 		FileMap[filetype + pair.first] = nullptr;
 	}
@@ -573,20 +570,7 @@ bool Query_Archives(std::unordered_map<std::string, ModFile*>& FileMap, GlobalCo
 	*/
 	if(FileMap.size() == 0)
 		return true;
-	atlog("Finding streamdb hashes for %zu mod files", FileMap.size());
-
-	struct mapresbuffer_t {
-		std::string name;
-		char* data = nullptr;
-		size_t length = 0;
-
-		~mapresbuffer_t() {
-			delete[] data;
-		}
-	};
-
-	std::vector<mapresbuffer_t> mapresbuffers;
-	mapresbuffers.reserve(num_reservations);
+	atlog("Querying archives for %zu files", FileMap.size());
 
 	/*
 	* Step 2: Query for Data
@@ -600,31 +584,53 @@ bool Query_Archives(std::unordered_map<std::string, ModFile*>& FileMap, GlobalCo
 		lookupstring.append(iter.namestring);
 
 		const auto& mapiter = FileMap.find(lookupstring);
-		if (mapiter != FileMap.end()) {
-			ModFile* f = mapiter->second;
+		if(mapiter == FileMap.end())
+			continue;
+		ModFile* f = mapiter->second;
 
-			// Nullptr --> a .mapresource file that we need
-			if(f == nullptr) {
-				atlog("QUERY: Found %s", mapiter->first.c_str());
-				ResourceEntryData_t EntryData = Get_EntryData(e, iter.archive.filehandle, EntryBuffers);
+		// Nullptr --> a .mapresource file that we need
+		if(f == nullptr) {
+			ResourceEntryData_t EntryData = Get_EntryData(e, iter.archive.filehandle, EntryBuffers);
 
-				mapresbuffers.emplace_back();
-				mapresbuffer_t& m = mapresbuffers.back();
-				m.length = EntryData.length;
-				m.data = new char[m.length];
-				memcpy(m.data, EntryData.buffer, m.length); // TODO: Transfer buffer ownership instead of copying
-				m.name = mapiter->first.substr(4); // Remove "file" from the name
-			}
-			else {
-				f->defaulthash = e.defaultHash;
-				f->resourceVersion = e.version;
+			atlog("Modifying %s", iter.namestring);
+
+			MapResource CurrentMap;
+
+			if (!CurrentMap.Parse(EntryData.buffer, EntryData.length)) {
+				atlog("ERROR: Failed to parse file");
+				return false;
 			}
 
-			FileMap.erase(mapiter);
-			if (FileMap.empty()) {
-				atlog("All hashes found");
-				break;
+			GlobalConfig_t::mapres_t& editinfo = config.mapresinfo.find(iter.namestring)->second;
+			BinaryWriter finalbin;
+
+			atlog("- New Entries: %zu, Load All: %hhu", editinfo.entries.size(), editinfo.LoadAll);
+			if (!CurrentMap.AddFiles(editinfo.entries.data(), editinfo.entries.size(), editinfo.LoadAll, finalbin)) {
+				atlog("ERROR: Failed to insert entries");
+				return false;
 			}
+
+			ModDef_MapResources.modFiles.emplace_back();
+			f = &ModDef_MapResources.modFiles.back();
+			f->typestring = "file";
+			f->typeenum = rt_file;
+			f->parentMod = &ModDef_MapResources;
+			f->assetPath = iter.namestring;
+			f->realPath = "GENERATED";
+			f->isAtlanCompressed = false;
+			f->dataLength = finalbin.GetFilledSize();
+			f->dataBuffer = finalbin.Finalize();
+			f->ownsData = true;
+		}
+		else {
+			f->defaulthash = e.defaultHash;
+			f->resourceVersion = e.version;
+		}
+
+		FileMap.erase(mapiter);
+		if (FileMap.empty()) {
+			atlog("All hashes found");
+			break;
 		}
 	}
 
@@ -632,51 +638,6 @@ bool Query_Archives(std::unordered_map<std::string, ModFile*>& FileMap, GlobalCo
 		atlog("ERROR: Could not find one or more required files in vanilla archives");
 		return false;
 	}
-
-	/*
-	* Step 3: Build .mapresources files
-	*/
-	for(const auto& pair : config.mapresinfo) {
-		const std::string& filename = pair.first;
-
-		atlog("Modifying %s", filename.c_str());
-		
-		MapResource CurrentMap;
-
-		for(mapresbuffer_t& m : mapresbuffers) {
-			if (m.name == filename) {
-				
-				if(!CurrentMap.Parse(m.data, m.length)) {
-					atlog("ERROR: Failed to parse file");
-					return false;
-				}
-				break;
-			}
-		}
-
-		BinaryWriter finalbin;
-
-		atlog("- New Entries: %zu, Load All: %hhu", pair.second.entries.size(), pair.second.LoadAll);
-		if (!CurrentMap.AddFiles((std::string*)pair.second.entries.data(), pair.second.entries.size(), 
-			pair.second.LoadAll, finalbin)) {
-			atlog("ERROR: Failed to insert entries");
-			return false;
-		}
-
-		ModDef_MapResources.modFiles.emplace_back();
-		ModFile& f = ModDef_MapResources.modFiles.back();
-		f.typestring = "file";
-		f.typeenum = rt_file;
-		f.parentMod = &ModDef_MapResources;
-		f.assetPath = pair.first;
-		f.realPath = "GENERATED";
-		f.isAtlanCompressed = false;
-		f.dataLength = finalbin.GetFilledSize();
-		f.dataBuffer = finalbin.Finalize();
-		f.ownsData = true;
-	}
-
-
 	return true;
 }
 

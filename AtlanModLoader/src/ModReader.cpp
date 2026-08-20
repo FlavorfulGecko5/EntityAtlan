@@ -171,7 +171,10 @@ void ModReader_ExtractConfigData(const AtlanModConfig& modconfig, GlobalConfig_t
 
 	for (int i = 0; i < modconfig.numEdits; i++) {
 		AtlanModConfig::editlist_t& editlist = modconfig.listedits[i];
-		GlobalConfig_t::mapres_t& g = globalconfig.mapresinfo[editlist.filename];
+		std::string fullname = "generated/buildgame/";
+		fullname.append(editlist.filename);
+		fullname.append(".mapresources");
+		GlobalConfig_t::mapres_t& g = globalconfig.mapresinfo[fullname];
 
 		const std::string& key = editlist.editlist;
 

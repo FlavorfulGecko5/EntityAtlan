@@ -143,7 +143,9 @@ bool MapResource::AddFiles(std::string* entries, size_t num_newentries, bool Loa
 		uint32_t typeindex;
 		const auto& iter = typeindexmap.find(typestring);
 		if (iter == typeindexmap.end()) {
+			#ifdef _DEBUG
 			atlog("Adding new resource type %s", typestring.c_str());
+			#endif
 
 			typeindex = num_types + (uint32_t)newtypes.size();
 			typeindexmap[typestring] = typeindex;
