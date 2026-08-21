@@ -65,21 +65,26 @@ size_t GetSampleMetaSize(const char* data, size_t len)
 
 void BuildSoundMetadata(const fspath soundsfolder, const uint32_t numSamples)
 {
-	BinaryOpener file((soundsfolder / "soundmetadata.bin.backup").string());
-	assert(file.Okay());
+	charbuffer_t rawfile;
+	FileReader::ReadFile((soundsfolder / "soundmetadata.bin.backup").c_str(), rawfile);
 
-	const char* data = file.data();
-	size_t length = file.len();
-	size_t maskindex = sndMetadata::FindContainerMask(data, length);
+	sndMetaData2 parsedmeta;
+	if (!parsedmeta.Parse(rawfile.data, rawfile.length, true)) {
+		atlog("ERROR: Failed to parse soundmetadata");
+		return;
+	}
+
+	const size_t length_premask  = parsedmeta.ptr_maskStart - parsedmeta.ptr_start;
+	const size_t length_mask     = parsedmeta.ptr_maskEnd - parsedmeta.ptr_maskStart;
+	const size_t length_postmask = parsedmeta.ptr_end - parsedmeta.ptr_maskEnd;
 
 	std::ofstream outwriter(soundsfolder / "soundmetadata.bin", std::ios_base::binary);
 
 	// Write everything preceding the container mask
-	outwriter.write(data, maskindex);
+	outwriter.write(parsedmeta.ptr_start, length_premask);
 
 	// Increment the number of mask groups
-	uint32_t numgroups = *reinterpret_cast<const uint32_t*>(data + maskindex);
-	numgroups++;
+	uint32_t numgroups = 1 + *reinterpret_cast<const uint32_t*>(parsedmeta.ptr_maskStart);
 	outwriter.write( rc(numgroups), sizeof(numgroups));
 
 
@@ -99,7 +104,10 @@ void BuildSoundMetadata(const fspath soundsfolder, const uint32_t numSamples)
 	}
 
 	// Write the rest of the vanilla container mask (resuming after the group count)
-	outwriter.write(data + maskindex + 4, length - (maskindex + 4));
+	outwriter.write(parsedmeta.ptr_maskStart + 4, length_mask - 4);
+
+	// Write everything after the container mask
+	outwriter.write(parsedmeta.ptr_maskEnd, length_postmask);
 
 	// Write some magic at the end of the file to easily detect if this file is modded or not
 	outwriter.write("ATLANMOD", 8);

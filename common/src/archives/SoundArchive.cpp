@@ -109,87 +109,15 @@ void aksnd::GetSampleData(const aksnd::entry& e, std::ifstream& stream, char*& b
 	stream.read(buffer, e.encodedSize);
 }
 
-aksnd::samplehash aksnd::GetSampleHash(const aksnd::entry& e)
+bool AudioSampleMap::Build_V2(std::string soundfolder)
 {
-	BinaryReader reader(entrymeta + e.metaoffset, e.metasize);
+	charbuffer_t rawmeta;
+	FileReader::ReadFile((soundfolder + "/soundmetadata.bin").c_str(), rawmeta);
 
-	uint32_t chunksize;
-	assert(reader.GoRight(16)); // RIFF + Total chunk size + "WAVEfmt "
-	assert(reader.ReadLE(chunksize));
-	assert(reader.GoRight(chunksize));
-
-	assert(memcmp(reader.GetNext(), "hash", 4) == 0);
-	assert(reader.GoRight(4));
-	assert(reader.ReadLE(chunksize));
-	assert(chunksize == 16);
-
-	samplehash hash;
-	assert(reader.ReadLE(hash.lower));
-	assert(reader.ReadLE(hash.upper));
-
-	return hash;
-}
-
-size_t SoundMetaData_FindSection6(const char* soundmetadata, size_t soundmetadata_length) {
-	uint32_t total = 0, fnv = 0, stringlength = 0;
-	const char* string = nullptr;
-
-	BinaryReader reader(soundmetadata, soundmetadata_length);
-
-	// Sound Events
-	assert(reader.ReadLE(total));
-	for (uint32_t i = 0; i < total; i++) {
-		assert(reader.ReadLE(stringlength));
-		assert(reader.GoRight(stringlength + 4 + 1)); // fnv hash + language id
-		assert(reader.ReadLE(stringlength));
-		assert(reader.GoRight(stringlength));
+	sndMetaData2 parsedmeta;
+	if (!parsedmeta.Parse_DarkAges(rawmeta.data, rawmeta.length)) {
+		return false;
 	}
-
-	// Section 2
-	assert(reader.ReadLE(total));
-	for (uint32_t i = 0; i < total; i++) {
-		assert(reader.GoRight(4));
-		assert(reader.ReadLE(stringlength));
-		assert(reader.GoRight(stringlength));
-	}
-
-	// Section 3
-	assert(reader.ReadLE(total));
-	for (uint32_t i = 0; i < total; i++) {
-		assert(reader.ReadLE(stringlength));
-		assert(reader.GoRight(stringlength + 4));
-	}
-
-	// Section 4 and 5
-	for (int CHUNK = 0; CHUNK < 2; CHUNK++) {
-		assert(reader.ReadLE(total));
-		for (uint32_t i = 0; i < total; i++) {
-			assert(reader.GoRight(4));
-			assert(reader.ReadLE(stringlength));
-			assert(reader.GoRight(stringlength));
-
-			uint32_t listlength;
-			assert(reader.ReadLE(listlength));
-
-			for (uint32_t subindex = 0; subindex < listlength; subindex++) {
-				assert(reader.GoRight(4));
-				assert(reader.ReadLE(stringlength));
-				assert(reader.GoRight(stringlength));
-			}
-		}
-	}
-
-	return reader.GetPosition();
-}
-
-void AudioSampleMap::Build_V2(std::string soundfolder)
-{
-	BinaryOpener open(soundfolder + "/soundmetadata.bin");
-	BinaryReader reader = open.ToReader();
-
-	// Section 6 of the sound meta data maps sample IDs to strings
-	const size_t SEC6_POSITION = SoundMetaData_FindSection6(reader.GetBuffer(), reader.GetLength());
-	reader.Goto(SEC6_POSITION);
 
 	duplicateLog = "Some audio samples are used in multiple sound events.\n"
 		"This file logs all duplicate usages of a single audio sample\n\n";
@@ -198,40 +126,42 @@ void AudioSampleMap::Build_V2(std::string soundfolder)
 	std::unordered_map<uint32_t, std::set<uint32_t>> duplicatesets; // Dynamic STL happy fun time!!!!
 	duplicatesets.reserve(4000);
 	{
+		// Section 6 of the sound meta data maps sample IDs to strings
+		BinaryReader reader(parsedmeta.ptr_darkages_section6, parsedmeta.ptr_darkages_section6_end - parsedmeta.ptr_darkages_section6);
 		uint32_t total = 0, stringlength = 0, bnkfnv = 0;
 		const char* string = nullptr;
 
-		assert(reader.ReadLE(total));
+		reader >> total;
 		for (uint32_t i = 0; i < total; i++) {
-			assert(reader.ReadLE(stringlength));
-			assert(reader.ReadBytes(string, stringlength));
-			assert(reader.ReadLE(bnkfnv));
+			reader >> stringlength;
+			reader.ReadBytes(string, stringlength);
+			reader >> bnkfnv;
 
-			assert(bnkfnv == HashLib::akfnv_insensitive(string, stringlength));
-			assert(bnk_eventstring_map.find(bnkfnv) == bnk_eventstring_map.end());
+			check(bnkfnv == HashLib::akfnv_insensitive(string, stringlength));
+			check(bnk_eventstring_map.find(bnkfnv) == bnk_eventstring_map.end());
 			bnk_eventstring_map[bnkfnv] = std::string(string, stringlength);
 
 			uint8_t extralistflag = 0;
 			uint32_t listlength = 0;
-			assert(reader.GoRight(5));
-			assert(reader.ReadLE(extralistflag));
-			assert(reader.GoRight(5));
-			assert(reader.ReadLE(listlength));
+			reader.GoRight(5);
+			reader >> extralistflag;
+			reader.GoRight(5);
+			reader >> listlength;
 
 			if (extralistflag == 0) {
 				for (uint32_t listind = 0; listind < listlength; listind++) {
-					assert(reader.ReadLE(stringlength));
-					assert(reader.GoRight(stringlength + 4));
+					reader >> stringlength;
+					reader.GoRight(stringlength + 4);
 				}
-				assert(reader.ReadLE(listlength));
+				reader.ReadLE(listlength);
 			}
 
 			for (uint32_t sampleindex = 0; sampleindex < listlength; sampleindex++) {
 				uint32_t sampleid = 0;
 
-				assert(reader.ReadLE(sampleid));
-				assert(reader.ReadLE(stringlength));
-				assert(reader.GoRight(stringlength)); // Language string, not the sample name
+				reader.ReadLE(sampleid);
+				reader.ReadLE(stringlength);
+				reader.GoRight(stringlength); // Language string, not the sample name
 
 				if (sample_bnk_idmap.find(sampleid) != sample_bnk_idmap.end()) {
 					duplicate_sample_usages++;
@@ -242,6 +172,8 @@ void AudioSampleMap::Build_V2(std::string soundfolder)
 				}
 			}
 		}
+
+		check(reader.ReachedEOF());
 	}
 
 	// Step 3: Write out the duplicate log
@@ -258,7 +190,7 @@ void AudioSampleMap::Build_V2(std::string soundfolder)
 	}
 
 	// Step 4: Build the container mask
-	containermask.Build(reader.GetNext(), reader.GetRemaining(), soundfolder);
+	containermask.Build(parsedmeta.ptr_maskStart, parsedmeta.ptr_maskEnd - parsedmeta.ptr_maskStart, soundfolder);
 }
 
 std::string AudioSampleMap::ResolveEventName(const uint32_t sampleId) const
@@ -273,78 +205,6 @@ std::string AudioSampleMap::ResolveEventName(const uint32_t sampleId) const
 	assert(stringiter != bnk_eventstring_map.end());
 
 	return stringiter->second;
-}
-
-size_t sndMetadata::FindContainerMask(const char* metastart, const size_t metalength)
-{
-	// We have to parse through the entirety of soundmetadata.bin to reach
-	// the container mask section
-
-	BinaryReader reader(metastart, metalength);
-
-	uint8_t byte;
-	uint32_t numevents = 0;
-	uint32_t stringlength = 0;
-
-	reader.Goto(SoundMetaData_FindSection6(metastart, metalength));
-
-	// Skip Section 6
-	assert(reader.ReadLE(numevents));
-	for (uint32_t i = 0; i < numevents; i++) {
-		assert(reader.ReadLE(stringlength));
-		assert(reader.GoRight(stringlength));
-		assert(reader.GoRight(4));
-
-		uint8_t extralistflag = 0;
-		assert(reader.GoRight(5));
-		assert(reader.ReadLE(extralistflag));
-		assert(reader.GoRight(5));
-		uint32_t listlength = 0;
-		assert(reader.ReadLE(listlength));
-
-		if (extralistflag == 0) {
-			for (uint32_t langind = 0; langind < listlength; langind++) {
-				assert(reader.ReadLE(stringlength));
-				assert(reader.GoRight(stringlength + 4));
-			}
-			assert(reader.ReadLE(listlength));
-		}
-
-		for (uint32_t langind = 0; langind < listlength; langind++) {
-			assert(reader.GoRight(4));
-			assert(reader.ReadLE(stringlength));
-			assert(reader.GoRight(stringlength));
-		}
-	}
-
-	return reader.GetPosition();
-}
-
-void sndMetadata::Read(const std::string& soundfolder)
-{
-	std::ifstream file(soundfolder + "/soundmetadata.bin", std::ios_base::binary);
-	assert(file.good());
-
-	file.seekg(0, std::ios_base::end);
-	filelength = file.tellg();
-	rawfile = new char[filelength];
-	file.seekg(0, std::ios_base::beg);
-	file.read(rawfile, filelength);
-	file.close();
-
-	containermaskIndex = FindContainerMask(rawfile, filelength);
-	ContainerMask.Build(rawfile + containermaskIndex, filelength - containermaskIndex, soundfolder);
-}
-
-void sndContainerMask::Build(const std::string soundfolder)
-{
-	BinaryOpener open(soundfolder + "/soundmetadata.bin");
-	BinaryReader reader = open.ToReader();
-
-	size_t maskstart = sndMetadata::FindContainerMask(reader.GetBuffer(), reader.GetLength());
-	assert(reader.GoRight(maskstart));
-
-	Build(reader.GetNext(), reader.GetRemaining(), soundfolder);
 }
 
 void sndContainerMask::Build(const char* copyfrom, size_t length, const std::string& soundfolder)
@@ -520,4 +380,222 @@ bool akpck::Build(EntryList_t& entries, const char* pckstart, const size_t pckle
 	memcpy(entries.data(), reader.GetNext(), bytesize);
 
 	return true;
+}
+
+// Read a string followed by it's fnv hash
+void __forceinline sndNameHash(BinaryReader& r) {
+	u32 length;
+	r >> length;
+	r.GoRight(length);
+	r >> length;
+}
+
+void sndNameHashList(BinaryReader& r) {
+	u32 listlength;
+	r >> listlength;
+	for(u32 i = 0; i < listlength; i++)
+		sndNameHash(r);
+}
+
+// Read an fnv hash followed by it's string
+void __forceinline sndHashName(BinaryReader& r) {
+	u32 length;
+	r >> length >> length;
+	r.GoRight(length);
+}
+
+void sndHashNameList(BinaryReader& r) {
+	u32 listlength;
+	r >> listlength;
+	for (u32 i = 0; i < listlength; i++)
+		sndHashName(r);
+}
+
+void __forceinline sndString(BinaryReader& r) {
+	u32 length;
+	r >> length;
+	r.GoRight(length);
+}
+
+bool sndMetaData2::Parse_ContainerMask(BinaryReader& r) {
+	u32 listlength;
+	ptr_maskStart = r.GetNext();
+	check(r.ReadLE(listlength));
+	for (u32 i = 0; i < listlength; i++) {
+		u32 sublist;
+		u32 numInts;
+
+		sndString(r);
+		r >> sublist;
+		for (u32 k = 0; k < sublist; k++) {
+			r >> numInts >> numInts;
+			r.GoRight(numInts * sizeof(u32));
+		}
+	}
+	ptr_maskEnd = r.GetNext();
+}
+
+bool sndMetaData2::Parse_Eternal(char* data, size_t length, bool StopAfterContainerMask)
+{
+	ptr_start = data;
+	ptr_end = data + length;
+	version = VERSION_IDTECH7;
+
+	BinaryReader r(data, length);
+
+	// Version Number
+	check(r.check32(0x17));
+
+	u32 listlength;
+
+	// Section 1: PCK list
+	sndNameHashList(r);
+
+	// Section 2: Container Mask
+	if(!Parse_ContainerMask(r))
+		return false;
+	if(StopAfterContainerMask)
+		return true;
+
+	// Section 3: Bank List (very small)
+	sndNameHashList(r);
+
+	// Section 4: Effects (smallish)
+	sndHashNameList(r);
+
+	// Section 5: Parameters
+	sndHashNameList(r);
+
+	// Section 6: Switch Groups
+	// Section 7: Switch States
+	for (u32 chunk = 0; chunk < 2; chunk++) {
+		check(r.ReadLE(listlength));
+		for (u32 i = 0; i < listlength; i++) {
+			sndHashName(r);
+			sndHashNameList(r);
+		}
+	}
+
+	// Section 8: Event Path Nodes Strings
+	// This is a block of C Strings with no length fields
+	check(r.ReadLE(listlength));
+	r.GoRight(listlength);
+
+	// Section 9: Sound Events
+	check(r.ReadLE(listlength));
+	for (u32 i = 0; i < listlength; i++) {
+		
+		u32 sublist;
+		u32 word;
+		u16 half;
+		u8 byte;
+
+		sndHashName(r);
+		r >> word >> half >> word >> word;
+
+		// Sublists: Sound IDs, Sound Bank IDs, PathNodeIds
+		for (u32 k = 0; k < 3; k++) {
+			r >> sublist;
+			r.GoRight(sublist * sizeof(u32));
+		}
+	}
+
+	// Section 10: Unknown Integers
+	check(r.ReadLE(listlength));
+	r.GoRight(listlength * sizeof(u32));
+
+	// "ATLANMOD" signature that indicates a modded metadata file
+	if (!r.ReachedEOF()) {
+		r.check32('ALTA');
+		r.check32('DOMN');
+	}
+	return r.ReachedEOF();
+}
+
+bool sndMetaData2::Parse_DarkAges(char* data, size_t length)
+{
+	ptr_start = data;
+	ptr_end = data + length;
+
+	version = VERSION_IDTECH8;
+
+	BinaryReader r(data, length);
+	
+	u32 listlength;
+	u8 byte;
+
+	// Section 1: Sound Events
+	check(r.ReadLE(listlength));
+	for (u32 i = 0; i < listlength; i++) {
+		sndNameHash(r); // Event name
+		r >> byte;      // Language ID
+		sndString(r);   // Language String
+	}
+
+	// Section 2: Unknown
+	sndHashNameList(r);
+
+	// Section 3: Unknown
+	sndNameHashList(r);
+
+	// Section 4: Sound Switches
+	// Section 5: Sound States
+	for (u32 chunk = 0; chunk < 2; chunk++) {
+		check(r.ReadLE(listlength));
+		u32 sublist;
+
+		for (u32 i = 0; i < listlength; i++) {
+			sndHashName(r);
+			sndHashNameList(r);
+		}
+	}
+
+	// Section 6: Bnk Sample Lists
+	ptr_darkages_section6 = r.GetNext();
+	check(r.ReadLE(listlength));
+	for (u32 i = 0; i < listlength; i++) {
+
+		u32 sublist;
+		u32 word;
+		u8 flag0;
+
+		sndNameHash(r);
+		r >> byte >> word >> flag0 >> byte >> word;
+
+		if (!flag0) {
+			r >> sublist;
+			for (u32 k = 0; k < sublist; k++) {
+				sndString(r);
+				r >> word; // Float playbacktime
+			}
+		}
+
+		r >> sublist;
+		for (u32 k = 0; k < sublist; k++) {
+			r >> word;
+			sndString(r);
+		}
+	}
+	ptr_darkages_section6_end = r.GetNext();
+
+	// Section 7: Container Mask
+	if(!Parse_ContainerMask(r))
+		return false;
+
+	// "ATLANMOD" signature that indicates a modded metadata file
+	if (!r.ReachedEOF()) {
+		r.check32('ALTA'); 
+		r.check32('DOMN');
+	}
+	return r.ReachedEOF();
+}
+
+bool sndMetaData2::Parse(char* data, size_t length, bool StopAfterContainerMask)
+{
+	u32 first = *(u32*)data;
+
+	if (first & 0xFFFFFF00) {
+		return Parse_DarkAges(data, length);
+	}
+	return Parse_Eternal(data, length, StopAfterContainerMask);
 }

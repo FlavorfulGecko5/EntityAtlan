@@ -190,7 +190,10 @@ void AudioExtractor(const configdata_t& config)
 	create_directories(audiodir);
 
 	AudioSampleMap sampleMap;
-	sampleMap.Build_V2((config.inputdir / snddir).string());
+	if (!sampleMap.Build_V2((config.inputdir / snddir).string())) {
+		atlog("FATAL ERROR: Error while building Audio Sample map");
+		return;
+	}
 	const sndContainerMask& ContainerMask = sampleMap.GetMask();
 
 	// Prioritized Archive List

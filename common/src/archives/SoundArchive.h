@@ -70,17 +70,6 @@ class aksnd
 	std::string GetSampleName(const aksnd::entry& e, bool searchForLabel) const;
 
 	void GetSampleData(const aksnd::entry& e, std::ifstream& stream, char*& buffer, size_t& buffersize) const;
-
-	struct samplehash {
-		uint64_t lower;
-		uint64_t upper;
-
-		bool operator!=(const samplehash& other) const {
-			return lower != other.lower || upper != other.upper;
-		}
-	};
-
-	aksnd::samplehash GetSampleHash(const aksnd::entry& e);
 };
 
 
@@ -113,31 +102,8 @@ struct sndContainerMask {
 	~sndContainerMask() {
 		delete[] rawdata;
 	}
-
-	void Build(const std::string soundfolder);
 	
 	void Build(const char* copyfrom, size_t length, const std::string& soundfolder);
-};
-
-// Representation of soundmetadata.bin
-class sndMetadata 
-{
-	sndContainerMask ContainerMask;
-	size_t containermaskIndex = 0;
-
-	char* rawfile = nullptr;
-	size_t filelength = 0;
-
-
-public:
-	~sndMetadata() {
-		delete[] rawfile;
-	}
-
-	// Returns the start index of the Container Mask Chunk
-	static size_t FindContainerMask(const char* metastart, const size_t metalength);
-
-	void Read(const std::string& soundfolder);
 };
 
 class AudioSampleMap
@@ -150,7 +116,7 @@ class AudioSampleMap
 	sndContainerMask containermask;
 
 	public:
-	void Build_V2(std::string soundfolder);
+	bool Build_V2(std::string soundfolder);
 
 	std::string ResolveEventName(const uint32_t sampleId) const;
 
@@ -188,3 +154,32 @@ namespace akpck {
 
 
 }
+
+class BinaryReader;
+
+// Unified Interface for accessing data from idTech7 and 8 SoundMetaDatas
+struct sndMetaData2 {
+
+	enum version_t {
+		VERSION_IDTECH7,
+		VERSION_IDTECH8
+	};
+
+	version_t version;
+
+	const char* ptr_start = nullptr; // Ptr to start of file
+	const char* ptr_end = nullptr;   // Ptr to end of file (first byte after it)
+
+	const char* ptr_maskStart = nullptr; // Ptr to start of container mask chunk
+	const char* ptr_maskEnd = nullptr;   // Ptr to first byte after container mask chunk
+
+	const char* ptr_darkages_section6 = nullptr;     // Ptr to the "Sample Lists" section
+	const char* ptr_darkages_section6_end = nullptr; // Ptr to first byte after section 6
+
+	bool Parse_Eternal(char* data, size_t length, bool StopAfterContainerMask);
+	bool Parse_DarkAges(char* data, size_t length);
+	bool Parse(char* data, size_t length, bool StopAfterContainerMask);
+
+private:
+	bool Parse_ContainerMask(BinaryReader& r);
+};
