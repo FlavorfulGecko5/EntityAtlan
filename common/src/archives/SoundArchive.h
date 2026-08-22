@@ -16,13 +16,26 @@ class aksnd
 	* TYPES
 	*/
 
+	enum game_t {
+		game_eternal,
+		game_darkages
+	};
+
+	struct eternalmeta {
+		uint16_t encoding; // 2 == .opus; 3 == .wem
+		uint16_t metasize;
+	};
+
 	struct entry {
 		uint64_t farmhash;    // Farmhash64 of the the entry's decoded data (not necessarily the same as the encoded version stored in the archive)
 		uint32_t id;          // ID used to reference this sample inside of soundbanks
 		uint32_t encodedSize; // Size of the entry's data as it's stored inside the archive. In Dark Ages, always matches decodedSize
 		uint32_t offset;      // Relative to beginning of file
 		uint32_t decodedSize;
-		uint32_t metasize;
+		union {
+			uint32_t da_metasize;
+			eternalmeta de;
+		} metaunion;
 		uint32_t metaoffset; // Relative to global offset 0xC
 
 		//	ushort soundFormat = binaryReader.ReadUInt16();
@@ -51,6 +64,7 @@ class aksnd
 	uint32_t numentries;
 	char* entrymeta = nullptr;
 	aksnd::entry* entries = nullptr;
+	game_t game;
 
 	~aksnd()
 	{
@@ -65,7 +79,7 @@ class aksnd
 
 
 
-	bool ReadFrom(const char* filepath);
+	bool ReadFrom(const char* filepath, aksnd::game_t p_game);
 
 	std::string GetSampleName(const aksnd::entry& e, bool searchForLabel) const;
 
@@ -106,14 +120,18 @@ struct sndContainerMask {
 	void Build(const char* copyfrom, size_t length, const std::string& soundfolder);
 };
 
+struct sndMetaData2;
+
 class AudioSampleMap
 {
 	std::unordered_map<uint32_t, std::string> bnk_eventstring_map;
-	std::unordered_map<uint32_t, uint32_t> sample_bnk_idmap;
+	std::unordered_map<uint32_t, uint32_t>    sample_bnk_idmap;
+	std::unordered_map<uint32_t, std::string> eternal_sample_map;
 	int duplicate_sample_usages = 0;
 	std::string duplicateLog;
 
 	sndContainerMask containermask;
+	aksnd::game_t game;
 
 	public:
 	bool Build_V2(std::string soundfolder);
@@ -123,6 +141,10 @@ class AudioSampleMap
 	const std::string& GetDuplicateLog() const {return duplicateLog;}
 
 	const sndContainerMask& GetMask() const {return containermask;}
+
+	private:
+	bool Build_DarkAges(sndMetaData2& metadata);
+	bool Build_Eternal(sndMetaData2& metadata);
 };
 
 namespace akmetadata {
@@ -160,12 +182,7 @@ class BinaryReader;
 // Unified Interface for accessing data from idTech7 and 8 SoundMetaDatas
 struct sndMetaData2 {
 
-	enum version_t {
-		VERSION_IDTECH7,
-		VERSION_IDTECH8
-	};
-
-	version_t version;
+	aksnd::game_t version;
 
 	const char* ptr_start = nullptr; // Ptr to start of file
 	const char* ptr_end = nullptr;   // Ptr to end of file (first byte after it)

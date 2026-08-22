@@ -149,10 +149,10 @@ void ModBuilder::BuildAudioArchives(const fspath soundsfolder, const std::vector
 		eptr->encodedSize = (uint32_t)samplelen;
 		eptr->decodedSize = (uint32_t)samplelen;
 		eptr->metaoffset  = (uint32_t)(headerchunk.GetPosition() - 0x0C);
-		eptr->metasize    = (uint32_t)GetSampleMetaSize(samplebuffer, samplelen);
+		eptr->metaunion.da_metasize = (uint32_t)GetSampleMetaSize(samplebuffer, samplelen);
 
 		// TODO: Test if necessary
-		headerchunk.WriteBytes(samplebuffer, eptr->metasize);
+		headerchunk.WriteBytes(samplebuffer, eptr->metaunion.da_metasize);
 
 		*eptr++;
 	}

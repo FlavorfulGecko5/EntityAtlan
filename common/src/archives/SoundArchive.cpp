@@ -44,8 +44,10 @@
 */
 
 
-bool aksnd::ReadFrom(const char* filepath)
+bool aksnd::ReadFrom(const char* filepath, aksnd::game_t p_game)
 {
+	game = p_game;
+
 	// Read Header into memory
 	std::ifstream reader(filepath, std::ios_base::binary);
 	assert(reader.good());
@@ -66,16 +68,16 @@ bool aksnd::ReadFrom(const char* filepath)
 
 std::string aksnd::GetSampleName(const aksnd::entry& e, bool searchForLabel) const
 {
-	// For music specifically, there's an addtllabl field
-	const char* metachunk = entrymeta + e.metaoffset;
-	const char* metamax = metachunk + e.metasize;
-
 	std::string entryname;
 
 	// Not the safest thing to do...should really do a proper parse through
 	// the chunks to see if this field exists instead of this.
-	if (searchForLabel)
+	if (searchForLabel && game == game_darkages)
 	{
+		// For music specifically, there's an addtllabl field
+		const char* metachunk = entrymeta + e.metaoffset;
+		const char* metamax = metachunk + e.metaunion.da_metasize;
+
 		while (metachunk < metamax) {
 			if (*metachunk == 'a' && memcmp(metachunk, "adtllabl", 8) == 0)
 			{
@@ -109,16 +111,7 @@ void aksnd::GetSampleData(const aksnd::entry& e, std::ifstream& stream, char*& b
 	stream.read(buffer, e.encodedSize);
 }
 
-bool AudioSampleMap::Build_V2(std::string soundfolder)
-{
-	charbuffer_t rawmeta;
-	FileReader::ReadFile((soundfolder + "/soundmetadata.bin").c_str(), rawmeta);
-
-	sndMetaData2 parsedmeta;
-	if (!parsedmeta.Parse_DarkAges(rawmeta.data, rawmeta.length)) {
-		return false;
-	}
-
+bool AudioSampleMap::Build_DarkAges(sndMetaData2& parsedmeta) {
 	duplicateLog = "Some audio samples are used in multiple sound events.\n"
 		"This file logs all duplicate usages of a single audio sample\n\n";
 
@@ -189,22 +182,80 @@ bool AudioSampleMap::Build_V2(std::string soundfolder)
 		duplicateLog.append("\n\n");
 	}
 
+	return true;
+}
+
+#include "entityslayer/EntityParser.h"
+
+bool AudioSampleMap::Build_Eternal(sndMetaData2& parsedmeta) {
+
+	eternal_sample_map.reserve(25000);
+
+	try {
+		EntityParser parser("vgmstream/EternalSampleIdMap.txt", ParsingMode::PERMISSIVE);
+
+		EntNode& root = *parser.getRoot();
+
+		for (const EntNode& e : root) {
+			
+			// Sample IDs seem to stay within the range of positive signed integers
+			int sampleID;
+			e.ValueInt(sampleID, 0, 0x7FFFFFFF);
+			eternal_sample_map[(u32)sampleID] = e.getNameUQ();
+		}
+	}
+	catch(...) {return false; }
+
+	return true;
+}
+
+bool AudioSampleMap::Build_V2(std::string soundfolder)
+{
+	charbuffer_t rawmeta;
+	FileReader::ReadFile((soundfolder + "/soundmetadata.bin").c_str(), rawmeta);
+
+	sndMetaData2 parsedmeta;
+	if(!parsedmeta.Parse(rawmeta.data, rawmeta.length, true)) {
+		return false;
+	}
+
+	game = parsedmeta.version;
+	bool result;
+	if (game == aksnd::game_darkages) {
+		result = Build_DarkAges(parsedmeta);
+	}
+	else {
+		result = Build_Eternal(parsedmeta);
+	}
+	if(!result)
+		return false;
+
 	// Step 4: Build the container mask
 	containermask.Build(parsedmeta.ptr_maskStart, parsedmeta.ptr_maskEnd - parsedmeta.ptr_maskStart, soundfolder);
+	return true;
 }
 
 std::string AudioSampleMap::ResolveEventName(const uint32_t sampleId) const
 {
-	const auto& iter = sample_bnk_idmap.find(sampleId);
-	if (iter == sample_bnk_idmap.end()) {
-		return "~UNRESOLVED";
-	}
-	
-	uint32_t bnkid = iter->second;
-	const auto& stringiter = bnk_eventstring_map.find(bnkid);
-	assert(stringiter != bnk_eventstring_map.end());
+	if (game == aksnd::game_darkages) {
+		const auto& iter = sample_bnk_idmap.find(sampleId);
+		if (iter == sample_bnk_idmap.end()) {
+			return "~UNRESOLVED";
+		}
 
-	return stringiter->second;
+		uint32_t bnkid = iter->second;
+		const auto& stringiter = bnk_eventstring_map.find(bnkid);
+		assert(stringiter != bnk_eventstring_map.end());
+
+		return stringiter->second;
+	}
+
+	const auto& iter = eternal_sample_map.find(sampleId);
+	if (iter == eternal_sample_map.end()) {
+		return "~UNRESOLVED.wav";
+	}
+	return iter->second;
+
 }
 
 void sndContainerMask::Build(const char* copyfrom, size_t length, const std::string& soundfolder)
@@ -433,13 +484,14 @@ bool sndMetaData2::Parse_ContainerMask(BinaryReader& r) {
 		}
 	}
 	ptr_maskEnd = r.GetNext();
+	return true;
 }
 
 bool sndMetaData2::Parse_Eternal(char* data, size_t length, bool StopAfterContainerMask)
 {
 	ptr_start = data;
 	ptr_end = data + length;
-	version = VERSION_IDTECH7;
+	version = aksnd::game_eternal;
 
 	BinaryReader r(data, length);
 
@@ -517,7 +569,7 @@ bool sndMetaData2::Parse_DarkAges(char* data, size_t length)
 	ptr_start = data;
 	ptr_end = data + length;
 
-	version = VERSION_IDTECH8;
+	version = aksnd::game_darkages;
 
 	BinaryReader r(data, length);
 	
@@ -542,8 +594,6 @@ bool sndMetaData2::Parse_DarkAges(char* data, size_t length)
 	// Section 5: Sound States
 	for (u32 chunk = 0; chunk < 2; chunk++) {
 		check(r.ReadLE(listlength));
-		u32 sublist;
-
 		for (u32 i = 0; i < listlength; i++) {
 			sndHashName(r);
 			sndHashNameList(r);

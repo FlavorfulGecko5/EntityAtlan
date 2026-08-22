@@ -62,11 +62,9 @@ struct audiothreadargs {
 std::mutex AUDIO_MAP_MUTEX;
 
 void AudioThread(audiothreadargs args) {
+	const aksnd::game_t GAME = args.snd->game;
 
-	//aksnd snd;
-	//snd.ReadFrom(args.archivepath.string().c_str());
-
-	const fspath audiotempfile = args.archiveoutdir.parent_path() / (std::string("audiotempfile_") + std::to_string(args.threadid) + ".wav");
+	fspath audiotempfile = args.archiveoutdir.parent_path() / (std::string("audiotempfile_") + std::to_string(args.threadid) + ".wav");
 
 	std::ifstream archivereader(args.archivepath, std::ios_base::binary);
 	assert(archivereader.good());
@@ -101,7 +99,7 @@ void AudioThread(audiothreadargs args) {
 					tryiter.first->second = true;
 
 					#ifdef _DEBUG
-					printf("Re-extracting %d\n", e.id);
+					printf("\nRe-extracting %d\n", e.id);
 					#endif
 				}
 				else {
@@ -111,31 +109,63 @@ void AudioThread(audiothreadargs args) {
 			}
 		}
 
-		std::string samplename = args.snd->GetSampleName(e, args.archiveType == et_music);
-		std::string sampleevent = args.samplemap->ResolveEventName(e.id);
+		fspath sampleoutpath_decomp;
+		if(GAME == aksnd::game_darkages) {
 
-		// Some adjustments to simplify the final output path where possible
-		switch (args.archiveType)
-		{
+			std::string samplename = args.snd->GetSampleName(e, args.archiveType == et_music);
+			std::string sampleevent = args.samplemap->ResolveEventName(e.id);
+
+			// Some adjustments to simplify the final output path where possible
+			switch (args.archiveType)
+			{
 			case et_music:
-			sampleevent = "";
-			break;
+				sampleevent = "";
+				break;
 
 			case et_voice: case et_cine:
-			samplename = sampleevent + "_" + samplename;
-			sampleevent = "";
-			break;
+				samplename = sampleevent + "_" + samplename;
+				sampleevent = "";
+				break;
+			}
+
+			sampleoutpath_decomp = args.archiveoutdir / sampleevent / samplename;
+			// MONITOR: Is this thread-safe?
+			create_directory(sampleoutpath_decomp.parent_path());
+		}
+		else {
+			std::string samplepath = args.samplemap->ResolveEventName(e.id);
+
+			// Insert the sample ID before the extension
+			samplepath.erase(samplepath.end() - 4, samplepath.end());
+			samplepath.push_back('_');
+			samplepath.append(std::to_string(e.id));
+			samplepath.append(".wav");
+
+			sampleoutpath_decomp = args.archiveoutdir / samplepath;
+
+			// Eternal's official sample names can have nested directories
+			std::filesystem::create_directories(sampleoutpath_decomp.parent_path());
+
+			// Vgmstream will fail to open the file if the extension doesn't match
+			// up with it's encoding...
+			if (e.metaunion.de.encoding == 2) {
+				audiotempfile.replace_extension(".opus");
+			}
+			else audiotempfile.replace_extension(".wav");
 		}
 
+		if(sampleoutpath_decomp.wstring().length() > 250) {
+			atlog("\nWARNING: Long audio sample path %ls", sampleoutpath_decomp.c_str());
+		}
 
 		args.snd->GetSampleData(e, archivereader, samplebuffer, bufferSize);
-
-		const fspath sampleoutpath_decomp = args.archiveoutdir / sampleevent / samplename;
-
-		// MONITOR: Is this thread-safe?
-		create_directory(sampleoutpath_decomp.parent_path());
-
 		compressedWriter.open(args.decode_samples ? audiotempfile : sampleoutpath_decomp, std::ios_base::binary);
+
+		// This happened once during a test run extracting Eternal's SFX
+		// I'm assuming this to be an extremely rare, one-off error until proven otherwise
+		if (!compressedWriter.good()) { 
+			atlog("\nRARE ERROR: Failed to open temporary file writer for %ls", sampleoutpath_decomp.c_str());
+		}
 		assert(compressedWriter.good());
 		compressedWriter.write(samplebuffer, e.encodedSize);
 		compressedWriter.close();
@@ -175,17 +205,15 @@ void AudioThread(audiothreadargs args) {
 void AudioExtractor(const configdata_t& config) 
 {
 	using namespace std::filesystem;
-	if(!exists(config.inputdir / "DOOMTheDarkAges.exe")) {
-		atlog("FATAL ERROR: Atlan Audio Extractor only supports DOOM: The Dark Ages");
-		return;
-	}
+
+	const aksnd::game_t GAME = exists(config.inputdir / "DOOMTheDarkAges.exe") ? aksnd::game_darkages : aksnd::game_eternal;
 
 	if (!exists("vgmstream/vgmstream-cli.exe")) {
 		atlog("FATAL ERROR: Missing vgmstream");
 		return;
 	}
 
-	const fspath snddir = config.inputdir / "base" / "sound" / "soundbanks" / "pc";
+	const fspath snddir = config.inputdir / "base/sound/soundbanks/pc";
 	const fspath audiodir = config.outputdir / "audio";
 	create_directories(audiodir);
 
@@ -226,11 +254,11 @@ void AudioExtractor(const configdata_t& config)
 		const sndContainerMask::entry archiveMask = archivesToExtract[archiveIndex];
 		SoundArchiveType archiveType;
 
-		if(archiveMask.fnvstring.find("SFX") != std::string::npos)
+		if(archiveMask.fnvstring.find("SFX") != -1 || archiveMask.fnvstring.find("sfx") != -1)
 			archiveType = et_sfx;
-		else if(archiveMask.fnvstring.find("MUSIC") != std::string::npos)
+		else if(archiveMask.fnvstring.find("MUSIC") != -1 || archiveMask.fnvstring.find("music") != -1)
 			archiveType = et_music;
-		else if(archiveMask.fnvstring.find("CINEMAT") != std::string::npos)
+		else if(archiveMask.fnvstring.find("CINEMAT") != -1)
 			archiveType = et_cine;
 		else archiveType = et_voice;
 
@@ -248,7 +276,7 @@ void AudioExtractor(const configdata_t& config)
 
 
 		aksnd snd;
-		snd.ReadFrom(archivepath.string().c_str());
+		snd.ReadFrom(archivepath.string().c_str(), GAME);
 
 		// In case the container masks wind up being out-of-order
 		if(snd.numentries > archiveMask.size) {
