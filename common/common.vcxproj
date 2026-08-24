@@ -19,6 +19,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\archives\Blang.cpp" />
     <ClCompile Include="src\archives\idImage.cpp" />
     <ClCompile Include="src\archives\idImage_Encoder.cpp" />
     <ClCompile Include="src\archives\MapResources.cpp" />
@@ -32,6 +33,7 @@
     <ClCompile Include="src\atlan\AtlanModConfig.cpp" />
     <ClCompile Include="src\atlan\AtlanOodle.cpp" />
     <ClCompile Include="src\atlan\AtlanProfiling.cpp" />
+    <ClCompile Include="src\crypt\aescbc\aescbc.cpp" />
     <ClCompile Include="src\entityslayer\EntityLogger.cpp" />
     <ClCompile Include="src\entityslayer\EntityNode.cpp" />
     <ClCompile Include="src\entityslayer\EntityParser.cpp" />
@@ -46,6 +48,7 @@
     <ClCompile Include="src\miniz\miniz.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\archives\Blang.h" />
     <ClInclude Include="src\archives\idImage.h" />
     <ClInclude Include="src\archives\MapResources.h" />
     <ClInclude Include="src\archives\PackageMapSpec.h" />
@@ -59,6 +62,7 @@
     <ClInclude Include="src\atlan\AtlanModConfig.h" />
     <ClInclude Include="src\atlan\AtlanOodle.h" />
     <ClInclude Include="src\atlan\AtlanProfiling.h" />
+    <ClInclude Include="src\crypt\aescbc\aescbc.h" />
     <ClInclude Include="src\entityslayer\EntityLogger.h" />
     <ClInclude Include="src\entityslayer\EntityNode.h" />
     <ClInclude Include="src\entityslayer\EntityParser.h" />

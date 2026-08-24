@@ -3,6 +3,7 @@
 #include "archives/ResourceStructs.h"
 #include "archives/PackageMapSpec.h"
 #include "archives/SoundArchive.h"
+#include "archives/Blang.h"
 #include "atlan/AtlanLogger.h"
 #include "atlan/AtlanOodle.h"
 #include "DeserialMain.h"
@@ -647,6 +648,8 @@ void ExtractorMain() {
 
 		descriptorData.aliases.reserve(500000);
 
+		std::ofstream outputstream;
+
 		for(size_t i = 0; i < packages.size(); i++) {
 			fspath respath = basepath / packages[i];
 			int filecount = 0;
@@ -745,6 +748,22 @@ void ExtractorMain() {
 						entrydata.length = extraBuffer.length;
 					}
 				}
+				else if (strcmp(typestring, "binaryFile") == 0) {
+					if (std::string(namestring).find(".blang") != -1) {
+						idcl::blang_decrypt((char*)entrydata.buffer, entrydata.length, namestring, extraBuffer);
+						entrydata.buffer = extraBuffer.data;
+						entrydata.length = extraBuffer.length;
+
+						std::string json;
+						idcl::blang_tojson(entrydata.buffer, entrydata.length, json);
+
+						fspath json_outpath = config.outputdir / typestring / namestring;
+						json_outpath.replace_extension(".json");
+						outputstream.open(json_outpath, std::ios_base::binary);
+						outputstream << json;
+						outputstream.close();
+					}
+				}
 				else if(strcmp( typestring, "logicObjectDescriptor") == 0) {
 					adjustedNameString = "logicObjectDescriptor_";
 					adjustedNameString.append(std::to_string(descriptorData.total));
@@ -771,7 +790,10 @@ void ExtractorMain() {
 				}
 
 				// Write the file
-				std::ofstream outputstream(output_path, std::ios_base::binary);
+				outputstream.open(output_path, std::ios_base::binary);
+				if(!outputstream.good()) {
+					atlog("ERROR: Failed to open file %ls for writing", output_path.c_str());
+				}
 				outputstream.write(entrydata.buffer, entrydata.length);
 				outputstream.close();
 			}
@@ -781,9 +803,9 @@ void ExtractorMain() {
 
 		// Write the LogicObjectDescriptor alias file, if it's populated
 		if(descriptorData.total > 0) {
-			std::ofstream descriptorwriter(config.outputdir / "logicObjectDescriptor/aliases.txt", std::ios_base::binary);
-			descriptorwriter << descriptorData.aliases;
-			descriptorwriter.close();
+			outputstream.open(config.outputdir / "logicObjectDescriptor/aliases.txt", std::ios_base::binary);
+			outputstream << descriptorData.aliases;
+			outputstream.close();
 		}
 		atlog("Extraction Complete: %llu files extracted in total", extractedFileMap.size());
 	}

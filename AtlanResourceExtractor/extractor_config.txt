@@ -20,6 +20,7 @@ extractor = {
 		binarymd6def
 		file
 		compfile
+		binaryFile
 		logicObjectDescriptor
 	}
 }
