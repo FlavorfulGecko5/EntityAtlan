@@ -388,14 +388,10 @@ void SoundBankExtractor(const fspath& inputdir, fspath outputdir) {
 	outputdir /= "bnk";
 	create_directories(outputdir);
 	
-	akpck::LangMap_t     pcklangmap;
-	akpck::EntryList_t   pckentrylist;
-	akmetadata::fnvmap_t pckfnvmap;
-
-
 	const fspath path_metadata = inputdir / "base/sound/soundbanks/pc/soundmetadata.bin";
-	const fspath path_titanpck = inputdir / "base/sound/soundbanks/pc/Titan.pck";
+	const fspath dir_soundbanks = inputdir / "base/sound/soundbanks/pc";
 	
+	akmetadata::fnvmap_t pckfnvmap;
 	if(!exists(path_metadata)) {
 		atlog("FATAL ERROR: Could not locate soundmetadata.bin");
 		return;
@@ -405,68 +401,73 @@ void SoundBankExtractor(const fspath& inputdir, fspath outputdir) {
 		akmetadata::Build(pckfnvmap, soundmetadata.data(), soundmetadata.len());
 	}
 
-	if(!exists(path_titanpck)) {
-		atlog("FATAL ERROR: Could not locate Titan.pck");
-		return;
+	for (const auto& dir_iter : directory_iterator(dir_soundbanks)) {
+
+		const fspath path_pck = dir_iter.path();
+		if(path_pck.extension() != ".pck")
+			continue;
+
+		akpck::LangMap_t     pcklangmap;
+		akpck::EntryList_t   pckentrylist;
+
+		BinaryOpener pckopener(path_pck.string());
+		akpck::Build(pcklangmap, pckopener.data(), pckopener.len());
+		akpck::Build(pckentrylist, pckopener.data(), pckopener.len());
+
+		// Pre-create language directories
+		for(const auto& pair : pcklangmap) {
+			fspath outfolder = outputdir / pair.second;
+			create_directories(outfolder);
+		}
+
+		atlog("Extracting %llu Sound Banks From %ls", pckentrylist.size(), path_pck.stem().c_str());
+
+		int total_extracted = 0;
+		BinaryReader reader = pckopener.ToReader();
+		for(const akpck::entry& bnk : pckentrylist) {
+			assert(bnk.chunksize == 1);
+
+			printf("\rProgress: %d / %d", total_extracted, (int)pckentrylist.size());
+
+			if(pcklangmap.find(bnk.langid) == pcklangmap.end()) {
+				atlog("ERROR: Could not resolve language id to string");
+				continue;
+			}
+
+			if (pckfnvmap.find(bnk.id) == pckfnvmap.end()) {
+				atlog("ERROR: Could not resolve bnk hash to string");
+				continue;
+			}
+
+			if(!reader.Goto(bnk.offset * bnk.chunksize)) {
+				atlog("ERROR: Sound bank out of bounds?");
+				continue;
+			}
+			if(reader.GetRemaining() < bnk.size * bnk.chunksize) {
+				atlog("ERROR: Sound bank too big?");
+				continue;
+			}
+
+
+			std::string outputpath = outputdir.string();
+			outputpath.push_back('/');
+			outputpath.append(pcklangmap[bnk.langid]);
+			outputpath.push_back('/');
+			outputpath.append(pckfnvmap[bnk.id]);
+			outputpath.append(".bnk");
+
+			if(outputpath.length() > 250) {
+				atlog("WARNING: Output path exceeding safe thresholds");
+			}
+
+			std::ofstream outwriter(outputpath, std::ios_base::binary);
+			outwriter.write(reader.GetNext(), bnk.chunksize * bnk.size);
+			outwriter.close();
+
+			total_extracted++;
+		}
+		printf("\rSound Banks extracted successfully\n");
 	}
-
-	BinaryOpener pckopener(path_titanpck.string());
-	akpck::Build(pcklangmap, pckopener.data(), pckopener.len());
-	akpck::Build(pckentrylist, pckopener.data(), pckopener.len());
-
-	// Pre-create language directories
-	for(const auto& pair : pcklangmap) {
-		fspath outfolder = outputdir / pair.second;
-		create_directories(outfolder);
-	}
-
-	atlog("Extracting %llu Sound Banks", pckentrylist.size());
-
-	int total_extracted = 0;
-	BinaryReader reader = pckopener.ToReader();
-	for(const akpck::entry& bnk : pckentrylist) {
-		assert(bnk.chunksize == 1);
-
-		printf("\rProgress: %d / %d", total_extracted, (int)pckentrylist.size());
-
-		if(pcklangmap.find(bnk.langid) == pcklangmap.end()) {
-			atlog("ERROR: Could not resolve language id to string");
-			continue;
-		}
-
-		if (pckfnvmap.find(bnk.id) == pckfnvmap.end()) {
-			atlog("ERROR: Could not resolve bnk hash to string");
-			continue;
-		}
-
-		if(!reader.Goto(bnk.offset * bnk.chunksize)) {
-			atlog("ERROR: Sound bank out of bounds?");
-			continue;
-		}
-		if(reader.GetRemaining() < bnk.size * bnk.chunksize) {
-			atlog("ERROR: Sound bank too big?");
-			continue;
-		}
-
-
-		std::string outputpath = outputdir.string();
-		outputpath.push_back('/');
-		outputpath.append(pcklangmap[bnk.langid]);
-		outputpath.push_back('/');
-		outputpath.append(pckfnvmap[bnk.id]);
-		outputpath.append(".bnk");
-
-		if(outputpath.length() > 250) {
-			atlog("WARNING: Output path exceeding safe thresholds");
-		}
-
-		std::ofstream outwriter(outputpath, std::ios_base::binary);
-		outwriter.write(reader.GetNext(), bnk.chunksize * bnk.size);
-		outwriter.close();
-
-		total_extracted++;
-	}
-	printf("\rSound Banks extracted successfully\n");
 }
 
 /*

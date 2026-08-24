@@ -359,24 +359,53 @@ void sndContainerMask::Build(const char* copyfrom, size_t length, const std::str
 
 bool akmetadata::Build(fnvmap_t& fnvmap, const char* metastart, const size_t metalength)
 {
-	uint32_t total = 0, stringlength = 0, fnv = 0;
-	const char* string = nullptr;
-	BinaryReader reader(metastart, metalength);
+	sndMetaData2 parsedmeta;
+	if(!parsedmeta.Parse((char*)metastart, metalength, false))
+		return false;
 
-	// The SoundEvents section (Section #1) of soundmetadata.bin provides a complete
-	// mapping of soundbank fnv hashes to strings
-	assert(reader.ReadLE(total));
-	for (uint32_t i = 0; i < total; i++) {
-		assert(reader.ReadLE(stringlength));
-		assert(reader.ReadBytes(string, stringlength));
-		assert(reader.ReadLE(fnv));
+	if (parsedmeta.version == aksnd::game_darkages) {
 
-		assert(fnv == HashLib::akfnv_insensitive(string, stringlength));
-		fnvmap[fnv] = std::string(string, stringlength);
+		// Eternal's map will be very small because they cram everything into
+		// a few banks
+		fnvmap.reserve(8000);
 
-		assert(reader.GoRight(1));
-		assert(reader.ReadLE(stringlength));
-		assert(reader.GoRight(stringlength));
+		uint32_t total = 0, stringlength = 0, fnv = 0;
+		const char* string = nullptr;
+		BinaryReader reader(metastart, metalength);
+
+		// The SoundEvents section (Section #1) of soundmetadata.bin provides a complete
+		// mapping of soundbank fnv hashes to strings
+		reader >> total;
+		for (uint32_t i = 0; i < total; i++) {
+			reader >> stringlength;
+			reader.ReadBytes(string, stringlength);
+			reader >> fnv;
+
+			check(fnv == HashLib::akfnv_insensitive(string, stringlength));
+			fnvmap[fnv] = std::string(string, stringlength);
+
+			reader.GoRight(1);
+			reader.ReadLE(stringlength);
+			reader.GoRight(stringlength);
+		}
+
+		return true;
+	}
+
+	BinaryReader r(parsedmeta.ptr_eternal_section3, parsedmeta.ptr_eternal_section3_end - parsedmeta.ptr_eternal_section3);
+
+	u32 num;
+	r >> num;
+	for (u32 i = 0; i < num; i++) {
+		u32 hash, length;
+		const char* bytes;
+
+		r >> length;
+		r.ReadBytes(bytes, length);
+		r >> hash;
+
+		// These strings include ".bnk" which gets added in later by our extractor code
+		fnvmap[hash] = std::string(bytes, length - 4);
 	}
 
 	return true;
@@ -510,7 +539,9 @@ bool sndMetaData2::Parse_Eternal(char* data, size_t length, bool StopAfterContai
 		return true;
 
 	// Section 3: Bank List (very small)
+	ptr_eternal_section3 = r.GetNext();
 	sndNameHashList(r);
+	ptr_eternal_section3_end = r.GetNext();
 
 	// Section 4: Effects (smallish)
 	sndHashNameList(r);

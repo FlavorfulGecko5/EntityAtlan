@@ -193,6 +193,9 @@ struct sndMetaData2 {
 	const char* ptr_darkages_section6 = nullptr;     // Ptr to the "Sample Lists" section
 	const char* ptr_darkages_section6_end = nullptr; // Ptr to first byte after section 6
 
+	const char* ptr_eternal_section3 = nullptr; // Ptr to the "Bnk Names" section
+	const char* ptr_eternal_section3_end = nullptr;
+
 	bool Parse_Eternal(char* data, size_t length, bool StopAfterContainerMask);
 	bool Parse_DarkAges(char* data, size_t length);
 	bool Parse(char* data, size_t length, bool StopAfterContainerMask);
