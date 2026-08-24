@@ -275,6 +275,11 @@ ResourceEntryData_t Get_EntryData(const ResourceArchive& r, const ResourceEntry&
 
 ResourceEntryData_t Get_EntryData(const ResourceEntry& e, FileReader& reader, ResourceEntryBuffers_t& buffers);
 
+namespace idcl {
+
+	// Decompress a "compfile" resource
+	bool compfile_decompress(char* in_compdata, size_t in_complength, charbuffer_t& out_decomp);
+}
 
 #include <vector>
 namespace idcl {

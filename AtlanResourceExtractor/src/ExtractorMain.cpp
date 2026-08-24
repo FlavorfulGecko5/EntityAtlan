@@ -632,6 +632,7 @@ void ExtractorMain() {
 		const fspath basepath = config.inputdir / "base";
 		std::unordered_map<std::string, bool> extractedFileMap;
 
+		charbuffer_t extraBuffer;
 		ResourceEntryBuffers_t entryBuffers;
 		entryBuffers.init(24000);
 
@@ -650,7 +651,7 @@ void ExtractorMain() {
 			int filecount = 0;
 
 			atlog("Extracting from %ls", respath.filename().c_str());
-			
+
 			ResourceArchive archive;
 			idcl::ReadResource(archive, respath.c_str(), RF_SkipData, true);
 
@@ -678,7 +679,7 @@ void ExtractorMain() {
 
 					const auto& tryresult = extractedFileMap.try_emplace(setstring, isloaded);
 					if (!tryresult.second) { // Key already exists in map
-						
+
 						// Rare Edge Case: The first copy of the file we extracted is disabled by the container mask
 						// But another version in a lower-priority archive is enabled instead.
 						// We re-extract the enabled version of the file under the assumption that it's more accurate.
@@ -699,6 +700,18 @@ void ExtractorMain() {
 					filecount++;
 				}
 
+				// Get the entry data
+				ResourceEntryData_t entrydata = Get_EntryData(e, archive.filehandle, entryBuffers);
+				if (entrydata.returncode != EntryDataCode::OK) {
+					if (entrydata.returncode == EntryDataCode::UNKNOWN_COMPRESSION) {
+						atlog("ERROR: Unknown compression format %hhu on file %s/%s", e.compMode, typestring, namestring);
+					}
+					else {
+						atlog("ERROR: Failure code %d on file %s/%s", (int)entrydata.returncode, typestring, namestring);
+						continue;
+					}
+				}
+
 				// Make adjustments to the output name string depending on the resource type
 				std::string adjustedNameString;
 				if (strcmp(typestring, "rs_streamfile") == 0) {
@@ -713,8 +726,22 @@ void ExtractorMain() {
 				else if (strcmp(typestring, "mapentities") == 0) {
 					adjustedNameString = namestring;
 					for (char& c : adjustedNameString) {
-						if(c == '/')
+						if (c == '/')
 							c = '@';
+					}
+				}
+				else if (strcmp(typestring, "compfile") == 0) {
+					adjustedNameString = namestring;
+					if (adjustedNameString.find(".entities") != -1) {
+						for (char& c : adjustedNameString) {
+							if(c == '/')
+								c = '@';
+						}
+					}
+					// Decompress and swap the data we're outputting
+					if (idcl::compfile_decompress((char*)entrydata.buffer, entrydata.length, extraBuffer)) {
+						entrydata.buffer = extraBuffer.data;
+						entrydata.length = extraBuffer.length;
 					}
 				}
 				else if(strcmp( typestring, "logicObjectDescriptor") == 0) {
@@ -740,19 +767,6 @@ void ExtractorMain() {
 
 					if (output_path.string().length() > 250)
 						atlog("WARNING: Filepath %ls exceeding safe limit. Unexpected behavior may occur", output_path.c_str());
-				}
-
-
-				// Get the entry data
-				ResourceEntryData_t entrydata = Get_EntryData(e, archive.filehandle, entryBuffers);
-				if (entrydata.returncode != EntryDataCode::OK) {
-					if(entrydata.returncode == EntryDataCode::UNKNOWN_COMPRESSION) {
-						atlog("ERROR: Unknown compression format %hhu on file %ls", e.compMode, output_path.c_str());
-					}
-					else {
-						atlog("ERROR: Failure code %d on file %ls", (int)entrydata.returncode, output_path.c_str());
-						continue;
-					}
 				}
 
 				// Write the file

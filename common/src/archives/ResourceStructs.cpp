@@ -32,6 +32,32 @@ void Get_DependencyStrings(const ResourceArchive& r, const ResourceDependency& d
 	namestring = r.stringChunk.dataBlock + r.stringChunk.offsets[d.name];
 }
 
+
+bool idcl::compfile_decompress(char* in_compdata, size_t in_complength, charbuffer_t& out_decomp)
+{
+	check(in_complength > 16);
+
+	u64 size_decomp = *(u64*)in_compdata;
+	u64 size_comp = *(u64*)(in_compdata + 8);
+
+	// If this is true then the file's contents are not compressed
+	if (size_comp == -1) {
+		check(size_decomp == in_complength - 16);
+		out_decomp.EnsureCapacity(size_decomp);
+		out_decomp.length = size_decomp;
+		memcpy(out_decomp.data, in_compdata + 16, size_decomp);
+		return true;
+	}
+
+	// Verify Oodle compression signature is present
+	check(in_complength - 16 == size_comp && (u8)in_compdata[16] == 0x8C)
+
+	out_decomp.EnsureCapacity(size_decomp);
+	out_decomp.length = size_decomp;
+
+	return Oodle::DecompressBuffer(in_compdata + 16, size_comp, out_decomp.data, size_decomp);
+}
+
 ResourceEntryData_t Get_EntryData_Internal(const ResourceEntry& e, char* raw, char*& buffer, size_t& buffersize) {
 	switch (e.compMode)
 	{

@@ -19,6 +19,7 @@ extractor = {
 		mapentities
 		binarymd6def
 		file
+		compfile
 		logicObjectDescriptor
 	}
 }
@@ -32,6 +33,7 @@ deserializer = {
 }
 audio_extractor = {
 	audio_types = {
+		/* Audio types for DOOM: The Dark Ages */
 		//MUSIC
 		//SFX
 		//CINEMATIC
@@ -45,6 +47,20 @@ audio_extractor = {
 		//Russian
 		//Spanish(Mexico)
 		//Spanish(Spain)
+
+		/* Audio types for DOOM: Eternal */
+		//music
+		//sfx
+		//vo_English(US)
+		//vo_French(France)
+		//vo_German
+		//vo_Italian
+		//vo_Japanese
+		//vo_Polish
+		//vo_Portuguese(Brazil)
+		//vo_Russian
+		//vo_Spanish(Mexico)
+		//vo_Spanish(Spain)
 	}
 	max_threads = 8
 	decode_samples = 1
