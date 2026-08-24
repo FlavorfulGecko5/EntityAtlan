@@ -49,8 +49,8 @@ struct audiothreadargs {
 	const AudioSampleMap* samplemap;
 	fspath archivepath;
 	fspath archiveoutdir;
-	uint32_t firstindex;
-	uint32_t maxindex;
+	uint32_t* ptr_nextindex;
+	uint32_t endindex;
 	SoundArchiveType archiveType;
 	int threadid;
 	std::atomic<int>* totalSamples;
@@ -62,6 +62,7 @@ struct audiothreadargs {
 std::mutex AUDIO_MAP_MUTEX;
 
 void AudioThread(audiothreadargs args) {
+	using namespace std::filesystem;
 	const aksnd::game_t GAME = args.snd->game;
 
 	fspath audiotempfile = args.archiveoutdir.parent_path() / (std::string("audiotempfile_") + std::to_string(args.threadid) + ".wav");
@@ -74,20 +75,34 @@ void AudioThread(audiothreadargs args) {
 	size_t bufferSize = 4000000;
 	char* samplebuffer = new char[bufferSize];
 
-	int localSampleCount = 0;
-	int progressInterval = (args.maxindex - args.firstindex) / 10 + 1;
-	if (progressInterval > 25) {
-		progressInterval = 25;
-	}
+	u32 localExtractionCount = 0;
+	u32 print_lastiter = 0;
+	u32 print_numcheck = args.snd->numentries / 5 + 1;
+	if(print_numcheck > 25)
+		print_numcheck = 25;
 
-	for (uint32_t iter = args.firstindex; iter < args.maxindex; iter++) {
-
-		const aksnd::entry& e = args.snd->entries[iter];
-
+	while(1) {
+		aksnd::entry e;
+		u32 iter;
 		{
+			std::lock_guard<std::mutex> map_lock(AUDIO_MAP_MUTEX);
+
+			iter = *args.ptr_nextindex;
+			if(iter >= args.endindex)
+				break;
+			*args.ptr_nextindex += 1;
+			e = args.snd->entries[iter];
+
+			// Some samples are empty?
+			if (e.encodedSize == 0) {
+				#ifdef _DEBUG
+				printf("\nSkipping empty sample\n");
+				#endif
+				continue;
+			}
+
 			bool isloaded = args.bitmask.IsLoaded(iter);
 
-			std::lock_guard<std::mutex> map_lock(AUDIO_MAP_MUTEX);
 			const auto& tryiter = args.extractedSamples->try_emplace(e.id, isloaded);
 
 			// We've extracted this sample before
@@ -99,7 +114,7 @@ void AudioThread(audiothreadargs args) {
 					tryiter.first->second = true;
 
 					#ifdef _DEBUG
-					printf("\nRe-extracting %d\n", e.id);
+					printf("\nRe-extracting %u\n", e.id);
 					#endif
 				}
 				else {
@@ -161,12 +176,11 @@ void AudioThread(audiothreadargs args) {
 		args.snd->GetSampleData(e, archivereader, samplebuffer, bufferSize);
 		compressedWriter.open(args.decode_samples ? audiotempfile : sampleoutpath_decomp, std::ios_base::binary);
 
-		// This happened once during a test run extracting Eternal's SFX
-		// I'm assuming this to be an extremely rare, one-off error until proven otherwise
-		if (!compressedWriter.good()) { 
-			atlog("\nRARE ERROR: Failed to open temporary file writer for %ls", sampleoutpath_decomp.c_str());
+		// Rare issue caused by file handles still being active after vgmstream finishes executing
+		while (!compressedWriter.good()) {
+			atlog("\nRARE ERROR: Temporary file open failed. Retrying", sampleoutpath_decomp.c_str());
+			compressedWriter.open(args.decode_samples ? audiotempfile : sampleoutpath_decomp, std::ios_base::binary);
 		}
-		assert(compressedWriter.good());
 		compressedWriter.write(samplebuffer, e.encodedSize);
 		compressedWriter.close();
 
@@ -183,23 +197,30 @@ void AudioThread(audiothreadargs args) {
 			assert(returnresult == 0);
 		}
 
-		if(localSampleCount % progressInterval == 0) {
-			args.totalSamples->fetch_add(localSampleCount);
-			localSampleCount = 0;
+		if(args.threadid == 0) {
+			if(iter - print_lastiter >= print_numcheck) {
+				print_lastiter = iter;
 
-			printf("\rProgress %d / %d", args.totalSamples->load(), args.snd->numentries);
+				printf("\rProgress %d / %d", iter + 1, args.snd->numentries);
+			}
 		}
-		localSampleCount++;
+		localExtractionCount++;
 	}
 
-	args.totalSamples->fetch_add(localSampleCount);
+	args.totalSamples->fetch_add(localExtractionCount);
 	delete[] samplebuffer;
-	if(exists(audiotempfile))
-		remove(audiotempfile);
 
-	#ifdef _DEBUG
-	printf("\nThread %d Finished\n", args.threadid);
-	#endif
+	// Cleanup temporary files
+	// We have to do things this way because, in rare
+	// circumtances, something is causing active file handles to remain
+	// after vgmstream finishes executing.
+	std::error_code err;
+	audiotempfile.replace_extension(".opus");
+	while(exists(audiotempfile))
+		remove(audiotempfile, err);
+	audiotempfile.replace_extension(".wav");
+	while(exists(audiotempfile))
+		remove(audiotempfile, err);
 }
 
 void AudioExtractor(const configdata_t& config) 
@@ -284,6 +305,7 @@ void AudioExtractor(const configdata_t& config)
 			return;
 		}
 
+		u32 nextSample = 0;
 		std::atomic<int> totalSamples = 0;
 		std::thread threadpool[THREADMAX];
 		
@@ -315,20 +337,8 @@ void AudioExtractor(const configdata_t& config)
 			args.bitmask = archiveMask;
 			args.decode_samples = config.decode_samples;
 
-			args.firstindex = nextIndex;
-			args.maxindex = nextIndex + snd.numentries / threadsToUse + snd.numentries % threadsToUse;
-			nextIndex = args.maxindex;
-
-
-			// If we exceed the total early, restrict the number of threads
-			if (args.maxindex >= snd.numentries) {
-				args.maxindex = snd.numentries;
-				threadsToUse = t + 1;
-			}
-
-			#ifdef _DEBUG
-			printf("Thread %d [%d, %d)\n", t, args.firstindex, args.maxindex);
-			#endif
+			args.ptr_nextindex = &nextSample;
+			args.endindex = snd.numentries;
 
 			threadpool[t] = std::thread(AudioThread, args);
 		}
