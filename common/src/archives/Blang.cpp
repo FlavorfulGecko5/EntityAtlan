@@ -77,10 +77,12 @@ R"(",
 
 		for (u32 i = 0; i < len; i++) {
 			char c = bytes[i];
-			if (c == '\n')     json.append("\\n");
-			else if(c == '\\') json.append("\\\\");
-			else if(c == '"')  json.append("\\\"");
-			else               json.push_back(c);
+			if (c == '\n')      json.append("\\n");
+			else if (c == '\r') json.append("\\r");
+			else if (c == '\\') json.append("\\\\");
+			else if (c == '"')  json.append("\\\"");
+			else if (c == '\t') json.append("\\t");
+			else                json.push_back(c);
 		}
 
 		//json.append(bytes, len);
@@ -96,5 +98,48 @@ R"("
 
 	json.pop_back(); json.pop_back(); // Pop newline and trailing comma (stupid json)
 	json.append("]}");
+	return true;
+}
+
+bool idcl::blang_totxt(const char* data, size_t datalength, std::string& txt)
+{
+	txt.reserve(datalength);
+
+	u32 numstrings;
+
+	BinaryReader r(data, datalength);
+	r.GoRight(8);
+	check(r.ReadBig(numstrings));
+
+	u32 len;
+	const char* bytes;
+
+	for (u32 i = 0; i < numstrings; i++) {
+		r >> len >> len; // Skip hash
+		check(r.ReadBytes(bytes, len));
+
+		txt.append(bytes, len);
+		txt.append(" \"");
+
+		r >> len;
+		check(r.ReadBytes(bytes, len));
+
+		for (u32 k = 0; k < len; k++) {
+			char c = bytes[k];
+			if (c == '\n')      txt.append("\\n");
+			else if(c == '\r')  txt.append("\\r");
+			else if (c == '\\') txt.append("\\\\");
+			else if (c == '"')  txt.append("\\\"");
+			else if (c == '\t') txt.append("\\t");
+			else                txt.push_back(c);
+		}
+		txt.append("\"\n");
+
+		// Ignore feature set
+		r >> len;
+		r.GoRight(len);
+	}
+
+
 	return true;
 }

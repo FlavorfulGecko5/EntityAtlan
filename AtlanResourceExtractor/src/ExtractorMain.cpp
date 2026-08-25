@@ -478,7 +478,7 @@ void ExtractorMain() {
 	/*
 	* REMEMBER TO UPDATE VERSION NUMBER
 	*/
-	atlog("Atlan Resource Extractor v3.3 by FlavorfulGecko5");
+	atlog("Atlan Resource Extractor v4.0 by FlavorfulGecko5");
 
 	/*
 	* Parse and validate config file
@@ -754,13 +754,13 @@ void ExtractorMain() {
 						entrydata.buffer = extraBuffer.data;
 						entrydata.length = extraBuffer.length;
 
-						std::string json;
-						idcl::blang_tojson(entrydata.buffer, entrydata.length, json);
+						std::string txt;
+						idcl::blang_totxt(entrydata.buffer, entrydata.length, txt);
 
-						fspath json_outpath = config.outputdir / typestring / namestring;
-						json_outpath.replace_extension(".json");
-						outputstream.open(json_outpath, std::ios_base::binary);
-						outputstream << json;
+						fspath txt_outpath = config.outputdir / typestring / namestring;
+						txt_outpath.replace_extension(".txt");
+						outputstream.open(txt_outpath, std::ios_base::binary);
+						outputstream << txt;
 						outputstream.close();
 					}
 				}
