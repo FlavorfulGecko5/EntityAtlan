@@ -38,7 +38,7 @@ std::mutex g_getjob_mutex;
 std::mutex g_addzip_mutex;
 
 void ImageEncodingThread(idImageJobList* joblist) {
-	
+	size_t CurrentIndex;
 	idImageJob CurrentJob;
 	idImageEncodingResults ImageOutput;
 	std::string OutputLog;
@@ -58,13 +58,14 @@ void ImageEncodingThread(idImageJobList* joblist) {
 
 			CurrentJob = joblist->jobs.back();
 			joblist->jobs.pop_back();
+			CurrentIndex = joblist->jobs.size();
 		}
 
 		OutputLog = CurrentJob.zippath;
 		OutputLog.append(" (");
 		OutputLog.append(CurrentJob.assetpath);
 		OutputLog.append(" )\n");
-		bool success = joblist->context->EncodeImage(CurrentJob.assetpath, CurrentJob.encodinginfo, CurrentJob.filepath.c_str(), ImageOutput, OutputLog);
+		bool success = joblist->context->EncodeImage(CurrentJob.assetpath, CurrentIndex, CurrentJob.encodinginfo, CurrentJob.filepath.c_str(), ImageOutput, OutputLog);
 		if (!success) {
 			atlog_raw(OutputLog.data(), OutputLog.length(), false);
 			continue;
@@ -312,7 +313,14 @@ void PackagerMain(const char* DIR_GAME, fspath DIR_INPUT, fspath ZIP_OUTPUT)
 				DIR_GAME = ".";
 
 			atlog("Initializing Image Encoder with directory %s", DIR_GAME);
-			if (!ImageEncoder.InitializeContext(DIR_GAME, 6))
+
+			std::vector<std::string> temp_assetpaths;
+			temp_assetpaths.reserve(ImageJobs.jobs.size());
+			for (const idImageJob& j : ImageJobs.jobs) {
+				temp_assetpaths.push_back(j.assetpath);
+			}
+
+			if (!ImageEncoder.InitializeContext(DIR_GAME, 6, temp_assetpaths.data(), temp_assetpaths.size()))
 				return;
 		}
 

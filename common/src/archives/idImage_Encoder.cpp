@@ -29,7 +29,7 @@ void idImageEncodingContext::COMThreadRelease() {
 	CoUninitialize();
 }
 
-bool idImageEncodingContext::InitializeContext(const std::string& gamedir, int in_CompressionLevel) {
+bool idImageEncodingContext::InitializeContext(const std::string& gamedir, int in_CompressionLevel, const std::string* in_AssetPaths, size_t num_AssetPaths) {
 
 	m_CompressionLevel = in_CompressionLevel;
 		
@@ -69,7 +69,7 @@ bool idImageEncodingContext::InitializeContext(const std::string& gamedir, int i
 	* Step 3: Build the Image Header Map
 	*/
 
-	if (idImageHeaderMap_Build(m_headermap, gamedir) == false) {
+	if (idImageHeaderMap_Build(gamedir, in_AssetPaths, num_AssetPaths, m_querylist) == false) {
 		atlog("FATAL ERROR: Failed to create ImageHeaderMap for image encoder.\n"
 			  "Please ensure AtlanModPackager and AtlanModLoader are placed in your game directory");
 		return false;
@@ -91,10 +91,9 @@ bool idImageEncodingContext::Release() {
 	m_context = nullptr;
 	m_device = nullptr;
 
-	m_headermap.clear();
-	m_headermap.rehash(0);
-
 	m_initialized = false;
+
+	delete[] m_querylist;
 
 	return true;
 }
@@ -192,7 +191,7 @@ bool BuildOriginalImageHeader(const std::string& AssetPath, const std::string& E
 	}
 }
 
-bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const std::string& EncodingInfo, const wchar_t* FilePath, idImageEncodingResults& FINAL_IMAGE, std::string& OutputLog) const
+bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, size_t JobIndex, const std::string& EncodingInfo, const wchar_t* FilePath, idImageEncodingResults& FINAL_IMAGE, std::string& OutputLog) const
 {
 	/*
 	* Step 1: Locate the vanilla ImageHeader for this file
@@ -201,8 +200,8 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const std
 	ImageHeader header;
 	DXGI_FORMAT dxgiFormat;
 	{
-		const auto& pair = m_headermap.find(AssetPath);
-		if (pair == m_headermap.end()) {
+		idImageEncodingQuery& query = m_querylist[JobIndex];
+		if (!query.found) {
 			
 			if (BuildOriginalImageHeader(AssetPath, EncodingInfo, header, OutputLog)) {
 				OutputLog.append("   Non-Vanilla Image Recognized ( ");
@@ -218,7 +217,7 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const std
 			}
 		}
 		else {
-			header = pair->second;
+			header = query.header;
 		}
 	}
 
@@ -271,18 +270,20 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, const std
 	//printf("\rCompressing Texture...");
 	if (DXGI_UseGpuEncoding(dxgiFormat)) {
 		// Need this mutex to prevent nullptr dereferences or DXGI_ERROR_DEVICE_REMOVED when encoding multiple
-		// images on the GPU simultaneously. The cause of this problem is unknown
+		// images on the GPU simultaneously. Graphics Device context is not thread-safe
+		// The multithreading flag DirectX::TEX_COMPRESS_PARALLEL has been removed because we're already
+		// maxing out the CPU with 8 parallel jobs. So removing this flag actually makes the encoder ~2% faster
 		static std::mutex g_gpu_encoding_mutex;
 		std::lock_guard<std::mutex> lock(g_gpu_encoding_mutex);
 		result = Compress(m_device, TEMP_IMAGE.GetImages(), TEMP_IMAGE.GetImageCount(), TEMP_IMAGE.GetMetadata(),
 			dxgiFormat, 
-			DirectX::TEX_COMPRESS_PARALLEL | (IsSRGB ? DirectX::TEX_COMPRESS_SRGB : DirectX::TEX_COMPRESS_DEFAULT), 
+			(IsSRGB ? DirectX::TEX_COMPRESS_SRGB : DirectX::TEX_COMPRESS_DEFAULT), 
 			DirectX::TEX_ALPHA_WEIGHT_DEFAULT, image);
 	}
 	else {
 		result = Compress(TEMP_IMAGE.GetImages(), TEMP_IMAGE.GetImageCount(), TEMP_IMAGE.GetMetadata(),
 			dxgiFormat, 
-			DirectX::TEX_COMPRESS_PARALLEL | (IsSRGB ? DirectX::TEX_COMPRESS_SRGB : DirectX::TEX_COMPRESS_DEFAULT),
+			(IsSRGB ? DirectX::TEX_COMPRESS_SRGB : DirectX::TEX_COMPRESS_DEFAULT),
 			DirectX::TEX_THRESHOLD_DEFAULT, image);
 	}
 	if (FAILED(result)) {
@@ -494,56 +495,50 @@ bool idAtlanImage::Read(const uint8_t* data, size_t length) {
 
 #include "PackageMapSpec.h"
 
-bool idImageHeaderMap_Build(idImageHeaderMap_t& HEADER_MAP, const std::string& gamedir)
+bool idImageHeaderMap_Build(const std::string& gamedir, const std::string* AssetPaths, const size_t NumAssetPaths, idImageEncodingQuery*& out_results)
 {
-	// TODO: The container mask is not accounted for in this
-	// Will need to monitor for any edge cases of textures not loading properly
-	HEADER_MAP.reserve(45000);
-	std::vector<std::string> ARCHIVE_LIST = PackageMapSpec::GetPrioritizedArchiveList(gamedir, false);
-	const fspath BASE_DIR = fspath(gamedir) / "base";
+	std::unordered_map<std::string, int> IndexMap;
+	IndexMap.reserve(NumAssetPaths);
+	for(size_t i = 0; i < NumAssetPaths; i++)
+		IndexMap[AssetPaths[i]] = i;
+
+	if(out_results)
+		delete[] out_results;
+	out_results = new idImageEncodingQuery[NumAssetPaths];
+
+	idcl::ArchiveIterator iter(gamedir + "/base/packagemapspec.json", false);
+	iter.typefilter = "image";
+
 
 	ResourceEntryBuffers_t entrybuffers;
 
-	const char* TypeString = nullptr, *NameString = nullptr;
-	std::string NameStringSTD;
-
-	for (const std::string& ARCHIVE_NAME : ARCHIVE_LIST) {
-		const fspath ARCHIVE_PATH = BASE_DIR / ARCHIVE_NAME;
-		ResourceArchive r;
-		idcl::ReadResource(r, ARCHIVE_PATH.c_str(), RF_SkipData, true);
-
-		for (uint32_t i = 0; i < r.header.numResources; i++) {
-			
-			const ResourceEntry& e = r.entries[i];
-			Get_EntryStrings(r, e, TypeString, NameString);
-
-			if(strcmp(TypeString, "image") != 0)
-				continue;
-
-			if (e.uncompressedSize == 0) {
-				//printf("%s\n", NameString);
-				continue;
-			}
-
-			NameStringSTD = NameString;
-
-			if (HEADER_MAP.find(NameStringSTD) != HEADER_MAP.end()) {
-				continue;
-			}
-
-			ResourceEntryData_t entrydata = Get_EntryData(e, r.filehandle, entrybuffers);
-			if (entrydata.returncode != EntryDataCode::OK) {
-				return false;
-			}
-
-			ImageHeader imgheader;
-			if(!imgheader.Read(entrydata.buffer, entrydata.length))
-				return false;
-
-			HEADER_MAP[NameStringSTD] = imgheader;
+	for (const ResourceEntry& e : iter) {
+		if (e.uncompressedSize == 0) {
+			//printf("%s\n", NameString);
+			continue;
 		}
-		
+
+		const auto& IndexIter = IndexMap.find(iter.namestring);
+		if(IndexIter == IndexMap.end())
+			continue;
+		size_t Index = IndexIter->second;
+		if(out_results[Index].found)
+			continue;
+
+		ResourceEntryData_t entrydata = Get_EntryData(e, iter.archive.filehandle, entrybuffers);
+		if (entrydata.returncode != EntryDataCode::OK) {
+			return false;
+		}
+;
+		if(!out_results[Index].header.Read(entrydata.buffer, entrydata.length))
+			return false;
+		out_results[Index].found = true;
+
+		IndexMap.erase(IndexIter);
+		if(IndexMap.size() == 0)
+			return true;
 	}
 
-	return HEADER_MAP.size() > 0;
+	// Failing to find all images is acceptable, in the case of new images
+	return true;
 }

@@ -307,9 +307,9 @@ bool idImageExtensionData::FromAssetPath(const std::string& AssetPath)
 				continue;
 
 			const auto& mtliter = StringTMKmap.find(propvalue);
-			check(mtliter != StringTMKmap.end());
-
-			m_material = mtliter->second;
+			if (mtliter != StringTMKmap.end()) {
+				m_material = mtliter->second;
+			}
 		}
 		else {
 			if (propkey == "streamed") {
@@ -326,8 +326,9 @@ bool idImageExtensionData::FromAssetPath(const std::string& AssetPath)
 			}
 			else {
 				const auto& FMTIter = StringFMTmap.find(propkey);
-				check(FMTIter != StringFMTmap.end());
-				m_format = FMTIter->second;
+				if (FMTIter != StringFMTmap.end()) {
+					m_format = FMTIter->second;
+				}
 			}
 		}
 

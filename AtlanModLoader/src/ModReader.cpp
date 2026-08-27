@@ -217,7 +217,7 @@ struct idUnzippedImageJobList {
 std::mutex g_getunzippedjob_mutex;
 
 void UnzippedImageEncodingThread(idUnzippedImageJobList* joblist) {
-
+	size_t CurrentIndex;
 	idUnzippedImageJob CurrentJob;
 	idImageEncodingResults ImageOutput;
 	std::string OutputLog;
@@ -235,13 +235,14 @@ void UnzippedImageEncodingThread(idUnzippedImageJobList* joblist) {
 
 			CurrentJob = joblist->jobs.back();
 			joblist->jobs.pop_back();
+			CurrentIndex = joblist->jobs.size();
 		}
 
 		OutputLog = CurrentJob.realPath;
 		OutputLog.append(" (");
 		OutputLog.append(CurrentJob.assetpath);
 		OutputLog.append(" )\n");
-		bool success = joblist->context->EncodeImage(CurrentJob.assetpath, 
+		bool success = joblist->context->EncodeImage(CurrentJob.assetpath, CurrentIndex,
 			CurrentJob.encodinginfo, CurrentJob.filepath.c_str(), ImageOutput, OutputLog);
 		atlog_raw(OutputLog.data(), OutputLog.length(), false);
 		if (!success)
@@ -364,7 +365,14 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 
 		idImageEncodingContext ImageEncoder;
 		atlog("Initializing Image Encoder with directory %ls", gamedir.c_str());
-		if(!ImageEncoder.InitializeContext(gamedir.string(), 3))
+
+		std::vector<std::string> temp_assetpaths;
+		temp_assetpaths.reserve(ImageJobs.jobs.size());
+		for (const idUnzippedImageJob& j : ImageJobs.jobs) {
+			temp_assetpaths.push_back(j.assetpath);
+		}
+
+		if(!ImageEncoder.InitializeContext(gamedir.string(), 3, temp_assetpaths.data(), temp_assetpaths.size()))
 			return;
 
 		ImageJobs.context = &ImageEncoder;

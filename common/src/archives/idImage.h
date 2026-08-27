@@ -208,7 +208,12 @@ struct idImage {
 
 typedef std::unordered_map<std::string, ImageHeader> idImageHeaderMap_t;
 
-bool idImageHeaderMap_Build(idImageHeaderMap_t& map, const std::string& gamedir);
+struct idImageEncodingQuery {
+    ImageHeader header;
+    bool found = false;
+};
+
+bool idImageHeaderMap_Build(const std::string& gamedir, const std::string* AssetPaths, const size_t NumAssetPaths, idImageEncodingQuery*& out_results);
 
 struct ID3D11Device;
 struct ID3D11DeviceContext;
@@ -230,10 +235,10 @@ struct idImageEncodingContext {
     ID3D11Device*        m_device = nullptr; // Device is thread-safe, but context is NOT thread-safe
     ID3D11DeviceContext* m_context = nullptr;
     D3D_FEATURE_LEVEL    m_featurelevel;
-    idImageHeaderMap_t   m_headermap;
+    idImageEncodingQuery* m_querylist = nullptr;
     
-    bool InitializeContext(const std::string& gamedir, int in_CompressionLevel);
-    bool EncodeImage(const std::string& AssetPath, const std::string& EncodingInfo, const wchar_t* FilePath, idImageEncodingResults& results, std::string& OutputLog) const;
+    bool InitializeContext(const std::string& gamedir, int in_CompressionLevel, const std::string* in_AssetPaths, size_t num_AssetPaths);
+    bool EncodeImage(const std::string& AssetPath, size_t JobIndex, const std::string& EncodingInfo, const wchar_t* FilePath, idImageEncodingResults& results, std::string& OutputLog) const;
     bool Release();
 
     ~idImageEncodingContext() {
