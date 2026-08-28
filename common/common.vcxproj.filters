@@ -176,5 +176,8 @@
     <ClInclude Include="src\crypt\aescbc\aescbc.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\archives\GameEnums.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

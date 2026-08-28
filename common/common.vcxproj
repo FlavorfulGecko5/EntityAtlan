@@ -49,6 +49,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\archives\Blang.h" />
+    <ClInclude Include="src\archives\GameEnums.h" />
     <ClInclude Include="src\archives\idImage.h" />
     <ClInclude Include="src\archives\MapResources.h" />
     <ClInclude Include="src\archives\PackageMapSpec.h" />

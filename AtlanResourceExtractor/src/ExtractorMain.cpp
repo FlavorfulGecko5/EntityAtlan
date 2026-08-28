@@ -64,7 +64,7 @@ std::mutex AUDIO_MAP_MUTEX;
 
 void AudioThread(audiothreadargs args) {
 	using namespace std::filesystem;
-	const aksnd::game_t GAME = args.snd->game;
+	const gamebit_t GAME = args.snd->game;
 
 	fspath audiotempfile = args.archiveoutdir.parent_path() / (std::string("audiotempfile_") + std::to_string(args.threadid) + ".wav");
 
@@ -126,7 +126,7 @@ void AudioThread(audiothreadargs args) {
 		}
 
 		fspath sampleoutpath_decomp;
-		if(GAME == aksnd::game_darkages) {
+		if(GAME == game_darkages) {
 
 			std::string samplename = args.snd->GetSampleName(e, args.archiveType == et_music);
 			std::string sampleevent = args.samplemap->ResolveEventName(e.id);
@@ -228,7 +228,7 @@ void AudioExtractor(const configdata_t& config)
 {
 	using namespace std::filesystem;
 
-	const aksnd::game_t GAME = exists(config.inputdir / "DOOMTheDarkAges.exe") ? aksnd::game_darkages : aksnd::game_eternal;
+	const gamebit_t GAME = exists(config.inputdir / "DOOMTheDarkAges.exe") ? game_darkages : game_eternal;
 
 	if (!exists("vgmstream/vgmstream-cli.exe")) {
 		atlog("FATAL ERROR: Missing vgmstream");

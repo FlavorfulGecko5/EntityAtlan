@@ -4,6 +4,7 @@
 #include <set>
 #include <iosfwd>
 #include <unordered_map>
+#include "GameEnums.h"
 
 typedef unsigned long long uint64_t;
 typedef unsigned int uint32_t;
@@ -15,11 +16,6 @@ class aksnd
 	/*
 	* TYPES
 	*/
-
-	enum game_t {
-		game_eternal,
-		game_darkages
-	};
 
 	struct eternalmeta {
 		uint16_t encoding; // 2 == .opus; 3 == .wem
@@ -64,7 +60,7 @@ class aksnd
 	uint32_t numentries;
 	char* entrymeta = nullptr;
 	aksnd::entry* entries = nullptr;
-	game_t game;
+	gamebit_t game;
 
 	~aksnd()
 	{
@@ -79,7 +75,7 @@ class aksnd
 
 
 
-	bool ReadFrom(const char* filepath, aksnd::game_t p_game);
+	bool ReadFrom(const char* filepath, gamebit_t p_game);
 
 	std::string GetSampleName(const aksnd::entry& e, bool searchForLabel) const;
 
@@ -131,7 +127,7 @@ class AudioSampleMap
 	std::string duplicateLog;
 
 	sndContainerMask containermask;
-	aksnd::game_t game;
+	gamebit_t game;
 
 	public:
 	bool Build_V2(std::string soundfolder);
@@ -182,7 +178,7 @@ class BinaryReader;
 // Unified Interface for accessing data from idTech7 and 8 SoundMetaDatas
 struct sndMetaData2 {
 
-	aksnd::game_t version;
+	gamebit_t version;
 
 	const char* ptr_start = nullptr; // Ptr to start of file
 	const char* ptr_end = nullptr;   // Ptr to end of file (first byte after it)

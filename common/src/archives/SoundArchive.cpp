@@ -44,7 +44,7 @@
 */
 
 
-bool aksnd::ReadFrom(const char* filepath, aksnd::game_t p_game)
+bool aksnd::ReadFrom(const char* filepath, gamebit_t p_game)
 {
 	game = p_game;
 
@@ -221,7 +221,7 @@ bool AudioSampleMap::Build_V2(std::string soundfolder)
 
 	game = parsedmeta.version;
 	bool result;
-	if (game == aksnd::game_darkages) {
+	if (game == game_darkages) {
 		result = Build_DarkAges(parsedmeta);
 	}
 	else {
@@ -237,7 +237,7 @@ bool AudioSampleMap::Build_V2(std::string soundfolder)
 
 std::string AudioSampleMap::ResolveEventName(const uint32_t sampleId) const
 {
-	if (game == aksnd::game_darkages) {
+	if (game == game_darkages) {
 		const auto& iter = sample_bnk_idmap.find(sampleId);
 		if (iter == sample_bnk_idmap.end()) {
 			return "~UNRESOLVED";
@@ -363,7 +363,7 @@ bool akmetadata::Build(fnvmap_t& fnvmap, const char* metastart, const size_t met
 	if(!parsedmeta.Parse((char*)metastart, metalength, false))
 		return false;
 
-	if (parsedmeta.version == aksnd::game_darkages) {
+	if (parsedmeta.version == game_darkages) {
 
 		// Eternal's map will be very small because they cram everything into
 		// a few banks
@@ -520,7 +520,7 @@ bool sndMetaData2::Parse_Eternal(char* data, size_t length, bool StopAfterContai
 {
 	ptr_start = data;
 	ptr_end = data + length;
-	version = aksnd::game_eternal;
+	version = game_eternal;
 
 	BinaryReader r(data, length);
 
@@ -600,7 +600,7 @@ bool sndMetaData2::Parse_DarkAges(char* data, size_t length)
 	ptr_start = data;
 	ptr_end = data + length;
 
-	version = aksnd::game_darkages;
+	version = game_darkages;
 
 	BinaryReader r(data, length);
 	
