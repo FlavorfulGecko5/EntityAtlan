@@ -362,7 +362,9 @@ void reserial::rs_start_mapentity(const EntNode& root, BinaryWriter& entities, c
 			entities.WriteBytes(defname.data(), defname.length());
 
 			entities.pushSizeStack();
+			propertyStack.push_back(defname);
 			rs_start_entitydef(defnode, entities);
+			propertyStack.pop_back();
 			entities.popSizeStack();
 		}
 
@@ -647,6 +649,7 @@ void reserial::rs_idList(const EntNode& property, BinaryWriter& writer, rsfunc_t
 
 			if (*last != ']') {
 				LogWarning("idList property has no index!");
+				propertyStack.pop_back();
 				buffer++;
 				continue;
 			}
@@ -704,8 +707,16 @@ void reserial::rs_staticList(const EntNode& property, BinaryWriter& writer, rese
 			int namelength = e->NameLength();
 			const char* last = name + namelength - 1;
 
+			// As a side effect to this approach, the actual name of the list properties
+			// don't matter, only their indices. This let's the serializer work when
+			// people copy paste their templates from Eternal
 			if (*last != ']') {
-				LogWarning("Static array property has no index!");
+				// Edge Case: Ignore 'num' so we're not flooding the console with
+				// errors when people copy-paste templates from Eternal
+				if (e->getName() != "num") {
+					LogWarning("Static array property has no index!");
+				}
+				propertyStack.pop_back();
 				buffer++;
 				continue;
 			}
@@ -724,6 +735,7 @@ void reserial::rs_staticList(const EntNode& property, BinaryWriter& writer, rese
 
 			if (index >= basetype.arrayLength) {
 				LogWarning("Static array index out of bounds!");
+				propertyStack.pop_back();
 				buffer++;
 				continue;
 			}
