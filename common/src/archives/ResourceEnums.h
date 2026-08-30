@@ -29,5 +29,6 @@ enum ResourceTypeComboFlags : uint32_t
 	rtc_no_extension  = rt_entityDef  | rt_mapentities | rtc_logic_decl | rt_audio | rt_slug_font,
 	rtc_last_number   = rt_audio,
 	rtc_query_dbhash  = rt_mapentities,
-	rtc_assign_dbhash = rt_image | rt_baseModel
+	rtc_assign_dbhash = rt_image | rt_baseModel,
+	rtc_deferload     = rt_image | rt_baseModel | rt_strandsHair
 };

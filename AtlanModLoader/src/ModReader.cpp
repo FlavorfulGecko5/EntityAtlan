@@ -17,22 +17,22 @@ typedef std::filesystem::path fspath;
 
 // Key is the start of the file path
 const std::unordered_map<std::string, resourcetypeinfo_t> ValidResourceTypes = {
-	{"rs_streamfile", {"rs_streamfile", rt_rs_streamfile, allow_mod_yes}},
-	{"decls",         {"rs_streamfile", rt_rs_streamfile, allow_mod_yes, "generated/decls/"}},
-	{"entityDef",     {"entityDef",     rt_entityDef,     allow_mod_yes}},
-	{"logicClass",    {"logicClass",    rt_logicClass,    allow_mod_yes}},
-	{"logicEntity",   {"logicEntity",   rt_logicEntity,   allow_mod_yes}},
-	{"logicFX",       {"logicFX",       rt_logicFX,       allow_mod_yes}},
-	{"logicLibrary",  {"logicLibrary",  rt_logicLibrary,  allow_mod_yes}},
-	{"logicUIWidget", {"logicUIWidget", rt_logicUIWidget, allow_mod_yes}},
-	{"mapentities",   {"mapentities",   rt_mapentities,   allow_mod_yes}},
-	{"image",         {"image",         rt_image,         allow_mod_yes}},
-	{"slug_font",     {"slug_font",     rt_slug_font,     allow_mod_yes}},
-	{"baseModel",     {"baseModel",     rt_baseModel,     allow_mod_yes}},
-	{"strandsHair",   {"strandsHair",   rt_strandsHair,   allow_mod_yes}},
+	{"rs_streamfile", {"rs_streamfile", rt_rs_streamfile, game_all, 0, 0}},
+	{"decls",         {"rs_streamfile", rt_rs_streamfile, game_all, 0, 0, "generated/decls/"}},
+	{"entityDef",     {"entityDef",     rt_entityDef,     game_darkages, 21}},
+	{"logicClass",    {"logicClass",    rt_logicClass,    game_darkages, 4}},
+	{"logicEntity",   {"logicEntity",   rt_logicEntity,   game_darkages, 4}},
+	{"logicFX",       {"logicFX",       rt_logicFX,       game_darkages, 4}},
+	{"logicLibrary",  {"logicLibrary",  rt_logicLibrary,  game_darkages, 4}},
+	{"logicUIWidget", {"logicUIWidget", rt_logicUIWidget, game_darkages, 4}},
+	{"mapentities",   {"mapentities",   rt_mapentities,   game_darkages, 86}},
+	{"image",         {"image",         rt_image,         game_darkages, 26}},
+	{"slug_font",     {"slug_font",     rt_slug_font,     game_darkages, 14}},
+	{"baseModel",     {"baseModel",     rt_baseModel,     game_darkages, 62}},
+	{"strandsHair",   {"strandsHair",   rt_strandsHair,   game_darkages, 48}},
 
 	// Audio will be handled differently by the loader
-	{"audio", {"audio", rt_audio, allow_mod_yes}}
+	{"audio", {"audio", rt_audio, game_darkages}}
 };
 
 /*
@@ -68,10 +68,13 @@ bool ModReader_ValidatePath(ModFile& modfile, const AtlanModConfig& cfg, std::st
 			return false;
 		}
 
-		if (!iter->second.allow) {
+		gamebit_t local_game = g_game;
+		if(~iter->second.gamebits & local_game) {
 			atlog("ERROR: Disabled resource type for file \"%s\"", modfile.realPath.c_str());
 			return false;
 		}
+
+		modfile.resourceVersion = local_game == game_darkages ? iter->second.version_da : iter->second.version_et;
 		modfile.typestring = iter->second.typestring;
 		modfile.typeenum = iter->second.typeenum;
 		modfile.assetPath = iter->second.namestart;
@@ -482,7 +485,10 @@ bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, int argflags, Global
 		* Read the mod data
 		*/
 
-		if (modfile.typeenum != rt_image) {
+		if (modfile.typeenum & rtc_deferload) {
+			KEEP_ZIP_ALIVE = true;
+		}
+		else {
 			void* dataBuffer = nullptr;
 			size_t dataLength = 0;
 			dataBuffer = mz_zip_reader_extract_to_heap(zptr, i, &dataLength, 0);
@@ -492,9 +498,6 @@ bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, int argflags, Global
 			}
 			modfile.dataBuffer = dataBuffer;
 			modfile.dataLength = dataLength;
-		}
-		else {
-			KEEP_ZIP_ALIVE = true;
 		}
 
 		ModReader_ConfirmModFile(mod, modfile, argflags);

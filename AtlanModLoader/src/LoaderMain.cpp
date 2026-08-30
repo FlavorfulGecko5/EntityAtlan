@@ -234,26 +234,16 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 		e.dataCheckSum = -1;
 		e.defaultHash = f.defaulthash; // Normally, if streamdb hash is unused, it's equal to the dataChecksum
 
-		// These values vary based on resource type
-		// Mapentities version can vary while the image version is the same as it's BIM version
-		switch(f.typeenum) {
-			case rt_rs_streamfile: e.version = 0;                     e.flags = 0; e.variation = 0;  break;
-			case rt_entityDef:     e.version = 21;                    e.flags = 2; e.variation = 70; break;
-			case rt_mapentities:   e.version = f.resourceVersion;     e.flags = 2; e.variation = 70; break;
-			case rt_image:         e.version = imgdef.bimversion;     e.flags = 0; e.variation = 0;  break;
-			case rt_slug_font:     e.version = 14;                    e.flags = 0; e.variation = 0; break;
-			case rt_baseModel:     e.version = 62;                    e.flags = 0; e.variation = 0; break;
-			case rt_strandsHair:   e.version = 48;                    e.flags = 0; e.variation = 0; break;
-			//TODO: For Eternal file version should be 1
-			case rt_file:          e.version = 2;                     e.flags = 0; e.variation = 0; break;
+		// Todo move this to image-only code block
+		if(f.typeenum == rt_image)
+			e.version = imgdef.bimversion;
+		else e.version = f.resourceVersion;
 
-			default:
-			if(f.typeenum & rtc_logic_decl) {
-				e.version = 4; e.flags = 2; e.variation = 70; break;
-			}
-
-			atlog("ERROR: Unsupported resource type made it into build");
-			return false;
+		if(f.typeenum & rtc_serialized) {
+			e.flags = 2; e.variation = 70;
+		}
+		else {
+			e.flags = 0; e.variation = 0;
 		}
 
 		// Isolate the Hot Reload code path to keep everything else simpler
@@ -621,6 +611,9 @@ bool Query_Archives(std::unordered_map<std::string, ModFile*>& FileMap, GlobalCo
 			f->dataLength = finalbin.GetFilledSize();
 			f->dataBuffer = finalbin.Finalize();
 			f->ownsData = true;
+			if(g_game == game_darkages)
+				f->resourceVersion = 2;
+			else f->resourceVersion = 1;
 		}
 		else {
 			f->defaulthash = e.defaultHash;
@@ -795,16 +788,6 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 			if(dirEntry.path().extension() == ".zip")
 				zipmodpaths.push_back(dirEntry.path());
 		}
-
-		// If there are no folders, treat the mods folder itself as an unzipped mod folder
-		// Currently this causes invalid resource type errors to be thrown because stuff inside
-		// dollar folders will be interpreted as mod files. Shouldn't be a big deal
-		// UPDATE: We're not going to support this:
-		// 1. The log spam as mentioned gets annoying when there are lots of disabled folders
-		// 2. This approach should not be encouraged compared to using subfolders
-		//if(UnzippedModFolders.size() == 0) {
-		//	UnzippedModFolders.push_back(modsdir);
-		//}
 
 		atlog("\nMod Zips: %zu Unzipped Mod Folders: %zu", zipmodpaths.size(), UnzippedModFolders.size());
 	}
@@ -1088,47 +1071,35 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 		}
 	}
 
-	const fspath manifestpath    = gamedirectory / "base/build-manifest.bin";
-	const fspath exepath		 = gamedirectory / "DOOMTheDarkAges.exe";
-
 	/* Check the game directory is valid */
-	if (!std::filesystem::exists(gamedirectory) || !std::filesystem::is_directory(gamedirectory)) {
+	if (!std::filesystem::is_directory(gamedirectory)) {
 		atlog("FATAL ERROR: %ls is not a valid directory", gamedirectory.c_str());
 		return;
 	}
 
 	/* Identify the version for the archive we must build */
-	{
-		const fspath metapath = (gamedirectory / "base") / "meta.resources";
-		if (!exists(metapath)) {
-			atlog("FATAL ERROR: Failed to find %ls", metapath.c_str());
-			return;
-		}
 
-		ResourceArchive metaarchive;
-		idcl::ReadResource(metaarchive, metapath.c_str(), RF_HeaderOnly, false);
-		g_archiveversion = metaarchive.header.version;
+	if (std::filesystem::exists(gamedirectory / "DOOMTheDarkAges.exe")) {
+		g_archiveversion = 13;
+		g_game = game_darkages;
+	}
+	else if (std::filesystem::exists(gamedirectory / "DOOMEternalx64vk.exe")) {
+		g_archiveversion = 12;
+		g_game = game_eternal;
 
-		if (g_archiveversion != 12 && g_archiveversion != 13) {
-			atlog("FATAL ERROR: Unsupported resource archive version %d", g_archiveversion);
-			return;
-		}
-
-		// Incase of future, mod-breaking game updates...
-		if (metaarchive.header.numResources != 1) {
-			atlog("FATAL ERROR: meta.resources has %u files instead of 1!", metaarchive.header.numResources);
-			return;
-		}
+		#if 1 // Turn this off when Eternal is supported
+		atlog("FATAL ERROR: Doom Eternal not supported");
+		return;
+		#endif
+	}
+	else {
+		atlog("FATAL ERROR: Could not locate valid game executable");
+		return;
 	}
 
 	/* Cleanup last mod load. Moved this here so it's execution is independent of the executable patcher's success */
 	if (CleanupLastLoad(gamedirectory) == false)
 		return;
-
-	if (!std::filesystem::exists(exepath)) {
-		atlog("FATAL ERROR: Failed to find %ls", exepath.c_str());
-		return;
-	}
 
 	if (!Executable_Patcher_Main(gamedirectory)) {
 		atlog("Aborting mod loading due to executable patcher failure");

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "archives/GameEnums.h"
+
 #define MOD_LOADER_VERSION 8
 
 enum ArgFlags {
@@ -14,3 +16,4 @@ enum ArgFlags {
 
 // What version the output resource archive should be
 inline int g_archiveversion = -1;
+inline gamebit_t g_game = game_none;

@@ -10,15 +10,12 @@ struct ModFile;
 
 typedef std::filesystem::path fspath;
 
-enum AllowModFile : uint8_t {
-	allow_mod_no = 0,
-	allow_mod_yes = 1
-};
-
 struct resourcetypeinfo_t {
 	std::string_view typestring;
 	ResourceType typeenum;
-	AllowModFile allow;
+	u8 gamebits;    // Games this resource type is supported in
+	u32 version_da; // ResourceEntry::version when game is Dark Ages
+	u32 version_et; // ResourceEntry::version when game is Eternal
 	std::string_view namestart;
 };
 
@@ -47,9 +44,8 @@ struct ModFile {
 	std::string realPath;   // The verbatim path from the zip file or mods folder
 	std::string assetPath;  // Path that will be used as the resource name
 	uint64_t defaulthash = -1;     // For resources types with a streamdb hash 
-	uint32_t resourceVersion; // For mapentities since they span multiple versions
+	uint32_t resourceVersion; // ResourceEntry::version
 	bool isAtlanCompressed;   // Is this an Atlan Compressed file?
-	//idAtlanImage imagedef; // typeenum == rt_image
 };
 
 inline void ModFile_Free(ModFile& mfile) {
