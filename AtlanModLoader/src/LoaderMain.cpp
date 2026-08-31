@@ -85,11 +85,113 @@ class StringTable {
 
 #include <algorithm>
 
+// Data we'll need to share across several functions related to archive building
+struct BuildArchiveStreams {
+	std::vector<idStreamDB::entry_t> streamEntries;
+	std::ofstream reswriter;
+	std::ofstream streamwriter;
+	size_t resDataOffset; // Running offset for resource data
+	size_t streamDataOffset; // Running offset for streamdb data
+
+	// Set Resource Entry's data offset and write it's data
+	// Everything in the entry besides it's data offset must be set by this point
+	void WriteResource(const char* buffer, ResourceEntry& e) {
+		e.dataOffset = resDataOffset;
+		reswriter.seekp(e.dataOffset, std::ios_base::beg);
+		reswriter.write(buffer, e.dataSize);
+
+		// TODO: There's a fair bit of padding between each resource data block.
+		// At a minimum, a data block has 8-byte alignment. It's unknown what the implications of ignoring
+		// these practices are
+		resDataOffset += e.dataSize;
+		resDataOffset += 8 - resDataOffset % 8;
+		assert(resDataOffset % 8 == 0);
+	}
+
+	void WriteStreamDB(const char* buffer, const size_t length) {
+		streamwriter.seekp(streamDataOffset, std::ios_base::beg);
+		streamwriter.write(buffer, length);
+
+		assert(streamDataOffset % 16 == 0);
+		streamDataOffset += length + (16 - length % 16);
+	}
+};
+
+bool BuildArchive_Image(ResourceEntry& e, const ModFile& f, BuildArchiveStreams& out) {
+
+	idAtlanImage imgdef;
+	const char* BufferToWrite = nullptr;
+
+	if (!imgdef.Read((uint8_t*)f.dataBuffer, f.dataLength)) {
+		atlog("FATAL ERROR: Image resource is not a valid Atlan Image File!\n"
+			"Please use Atlan Mod Packager to package your texture mods!\n"
+			"   Mod: %s - %s", f.parentMod->modName.c_str(), f.realPath.c_str());
+		return false;
+	}
+
+	// Write the Resource Data
+	e.version = imgdef.bimversion;
+	e.dataSize = imgdef.entry_length;
+	e.uncompressedSize = e.dataSize;
+	e.compMode = 0;
+	BufferToWrite = imgdef.binaryblob;
+	out.WriteResource(BufferToWrite, e);
+
+	// Write the StreamDB Data
+	BufferToWrite += imgdef.entry_length;
+	for (uint64_t mipindex = 0; mipindex < imgdef.streamdbmips; mipindex++) {
+		idStreamDB::entry_t streamdb_entry;
+
+		streamdb_entry.id = HashLib::streamdb_miphash(f.defaulthash, imgdef.streamdbmips - mipindex - 1, 0);
+		streamdb_entry.length = imgdef.mipinfos[mipindex].compressedSize;
+		streamdb_entry.offset16 = (u32)(out.streamDataOffset / 16);
+		out.streamEntries.push_back(streamdb_entry);
+
+		out.WriteStreamDB(BufferToWrite, streamdb_entry.length);
+		BufferToWrite += streamdb_entry.length;
+	}
+	assert(BufferToWrite == (char*)f.dataBuffer + f.dataLength);
+
+	return true;
+}
+
 // md6 mesh mod wrapper, produced by the external Md6MeshTool. Layout:
 // [Md6ModWrapperHeader][Md6ModStreamInfo * numStreams][def bytes][compressed stream blobs...]
 struct Md6ModStreamInfo    { uint32_t lod; uint32_t compressedSize; };
 struct Md6ModWrapperHeader { uint32_t magic; uint32_t defSize; uint32_t numStreams; };
 #define MD6_WRAPPER_MAGIC 0x574D364DU // 'M6MW'
+
+bool BuildArchive_BaseModel(ResourceEntry& e, const ModFile& f, BuildArchiveStreams& out) {
+	const Md6ModWrapperHeader* wh = (const Md6ModWrapperHeader*)f.dataBuffer;
+	if (f.dataLength < sizeof(Md6ModWrapperHeader) || wh->magic != MD6_WRAPPER_MAGIC) {
+		atlog("FATAL ERROR: baseModel mod file is not a valid md6 wrapper: %s", f.realPath.c_str());
+		return false;
+	}
+	const size_t defOffset = sizeof(Md6ModWrapperHeader) + (size_t)wh->numStreams * sizeof(Md6ModStreamInfo);
+	e.dataSize = wh->defSize;
+	e.uncompressedSize = wh->defSize;
+	e.compMode = 0;
+
+	const char* BufferToWrite = (char*)f.dataBuffer + defOffset; // the def; streams follow it
+	out.WriteResource(BufferToWrite, e);
+
+	// StreamDB
+	// md6 geometry: one compressed blob per LOD, keyed by streamdb_miphash(defaultHash, 4 - lod, 0)
+	const Md6ModStreamInfo* streams = (const Md6ModStreamInfo*)((char*)f.dataBuffer + sizeof(Md6ModWrapperHeader));
+	const char* streamPtr = BufferToWrite + wh->defSize; // BufferToWrite points at the def
+
+	for (uint32_t i = 0; i < wh->numStreams; i++) {
+		idStreamDB::entry_t streamdb_entry;
+		streamdb_entry.id = HashLib::streamdb_miphash(f.defaulthash, 4 - streams[i].lod, 0);
+		streamdb_entry.length = streams[i].compressedSize;
+		streamdb_entry.offset16 = (u32)(out.streamDataOffset / 16);
+		out.streamEntries.push_back(streamdb_entry);
+		out.WriteStreamDB(streamPtr, streamdb_entry.length);
+		streamPtr += streamdb_entry.length;
+	}
+
+	return true;
+}
 
 // Build the resources and streamdb archive. 
 // If this returns false something went wrong and we should abort mod loading
@@ -99,6 +201,8 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 	// before loading it
 	JustInTimeBuffer_t JIT;
 
+	BuildArchiveStreams outstreams;
+
 	idStreamDB streamdb;
 	streamdb.header.magic = STREAMDB_MAGIC;
 	streamdb.header.pad0 = 0; streamdb.header.pad1 = 0; streamdb.header.pad2 = 0;
@@ -106,15 +210,14 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 	streamdb.prefetchheader.numblocks = 0;
 	streamdb.prefetchheader.totalLength = 8;
 
-	std::vector<idStreamDB::entry_t> streamdb_entries;
-	streamdb_entries.reserve(NUM_DBFILES * 8);
+	outstreams.streamEntries.reserve(NUM_DBFILES * 8);
 
 	// We don't know how many streamdb entries an image will have until we've loaded the data
 	// Hence we must overestimate the start of the data block
 	// TODO: If we ever support 3D or cubic images, we may need to overestimate even harder
 	const size_t streamdb_DataOffset = sizeof(idStreamDB::header) + sizeof(idStreamDB::prefetchheader_t)
 		+ 9 * NUM_DBFILES * sizeof(idStreamDB::entry_t);
-	size_t streamdb_RunningOffset = streamdb_DataOffset + (16 - streamdb_DataOffset % 16);
+	outstreams.streamDataOffset = streamdb_DataOffset + (16 - streamdb_DataOffset % 16);
 
 	ResourceArchive archive;
 	ResourceHeader& h = archive.header;
@@ -176,16 +279,15 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 	h.dataOffset = archive.metaheader.metaOffset + idclsize;
 	assert(h.dataOffset % 8 == 0);
 
-	std::ofstream ResourceWriter(outarchivepath, std::ios_base::binary);
-	std::ofstream StreamDBWriter;
+	outstreams.reswriter.open(outarchivepath, std::ios_base::binary);
 	if(NUM_DBFILES)
-		StreamDBWriter.open(outstreamdbpath, std::ios_base::binary);
+		outstreams.streamwriter.open(outstreamdbpath, std::ios_base::binary);
 
 	/*
 	* Build the resource entries
 	*/
 	archive.entries = new ResourceEntry[modfiles.size()];
-	uint64_t runningDataOffset = h.dataOffset;
+	outstreams.resDataOffset = h.dataOffset;
 	for(size_t MODFILE_INDEX = 0; MODFILE_INDEX < modfiles.size(); MODFILE_INDEX++) {
 		ResourceEntry& e = archive.entries[MODFILE_INDEX];
 		const ModFile& f = *modfiles[MODFILE_INDEX];
@@ -193,17 +295,10 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 		// Because of just-in-time loading, we can no longer filter out all invalid modfiles
 		// prior to this function. For now, we'll simply abort mod loading. But perhaps
 		// there's a better way we can skip over the invalid files while loading the rest?
-		idAtlanImage imgdef;
 		if (!ModReader::LoadModData(*modfiles[MODFILE_INDEX], JIT)) {
 			atlog("FATAL ERROR: Just-in-time loading failed.\n"
 				  "(If an unzipped image file failed to encode, this is the likely cause of this error)");
 			return false; // This codepath would imply a legitimately bad error
-		}
-		if (f.typeenum == rt_image && !imgdef.Read((uint8_t*)f.dataBuffer, f.dataLength)) {
-			atlog("FATAL ERROR: Image resource is not a valid Atlan Image File!\n"
-				  "Please use Atlan Mod Packager to package your texture mods!\n"
-				  "   Mod: %s - %s", f.parentMod->modName.c_str(), f.realPath.c_str());
-			return false;
 		}
 
 		/*
@@ -233,12 +328,7 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 		// HashLib::ResourceMurmurHash
 		e.dataCheckSum = -1;
 		e.defaultHash = f.defaulthash; // Normally, if streamdb hash is unused, it's equal to the dataChecksum
-
-		// Todo move this to image-only code block
-		if(f.typeenum == rt_image)
-			e.version = imgdef.bimversion;
-		else e.version = f.resourceVersion;
-
+		e.version = f.resourceVersion;
 		if(f.typeenum & rtc_serialized) {
 			e.flags = 2; e.variation = 70;
 		}
@@ -262,15 +352,15 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 			}
 			e.uncompressedSize = e.dataSize;
 			e.compMode = 0;
-			e.dataOffset = runningDataOffset;
-			runningDataOffset += e.dataSize;
-			runningDataOffset += 8 - runningDataOffset % 8;
-			ResourceWriter.seekp(e.dataOffset, std::ios_base::beg);
-			ResourceWriter.write((char*)f.dataBuffer, f.dataLength);
+			e.dataOffset = outstreams.resDataOffset;
+			outstreams.resDataOffset += e.dataSize;
+			outstreams.resDataOffset += 8 - outstreams.resDataOffset % 8;
+			outstreams.reswriter.seekp(e.dataOffset, std::ios_base::beg);
+			outstreams.reswriter.write((char*)f.dataBuffer, f.dataLength);
 
 			char* paddingbuffer = new char[HotReloadPadding];
 			memset(paddingbuffer, 0, HotReloadPadding);
-			ResourceWriter.write(paddingbuffer, HotReloadPadding);
+			outstreams.reswriter.write(paddingbuffer, HotReloadPadding);
 			delete[] paddingbuffer;
 			continue;
 		}
@@ -284,22 +374,16 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 			BufferToWrite = (char*)f.dataBuffer + ATCF_SIZE;
 		}
 		else if(f.typeenum == rt_image) {
-			e.dataSize = imgdef.entry_length;
-			e.uncompressedSize = e.dataSize;
-			e.compMode = 0;
-			BufferToWrite = imgdef.binaryblob;
-		}
-		else if (f.typeenum == rt_baseModel) {
-			const Md6ModWrapperHeader* wh = (const Md6ModWrapperHeader*)f.dataBuffer;
-			if (f.dataLength < sizeof(Md6ModWrapperHeader) || wh->magic != MD6_WRAPPER_MAGIC) {
-				atlog("FATAL ERROR: baseModel mod file is not a valid md6 wrapper: %s", f.realPath.c_str());
+			if (!BuildArchive_Image(e, f, outstreams)) {
 				return false;
 			}
-			const size_t defOffset = sizeof(Md6ModWrapperHeader) + (size_t)wh->numStreams * sizeof(Md6ModStreamInfo);
-			e.dataSize = wh->defSize;
-			e.uncompressedSize = wh->defSize;
-			e.compMode = 0;
-			BufferToWrite = (char*)f.dataBuffer + defOffset; // the def; streams follow it
+			continue;
+		}
+		else if (f.typeenum == rt_baseModel) {
+			if (!BuildArchive_BaseModel(e, f, outstreams)) {
+				return false;
+			}
+			continue;
 		}
 		else {
 			e.dataSize = f.dataLength;
@@ -308,62 +392,7 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 			BufferToWrite = (char*)f.dataBuffer;
 		}
 
-		// TODO: There's a fair bit of padding between each resource data block.
-		// At a minimum, a data block has 8-byte alignment. It's unknown what the implications of ignoring
-		// these practices are
-		e.dataOffset = runningDataOffset;
-		runningDataOffset += e.dataSize;
-		runningDataOffset += 8 - runningDataOffset % 8;
-
-		ResourceWriter.seekp(e.dataOffset, std::ios_base::beg);
-		ResourceWriter.write(BufferToWrite, e.dataSize);
-
-		// StreamDB Stuff
-
-		// md6 geometry: one compressed blob per LOD, keyed by streamdb_miphash(defaultHash, 4 - lod, 0)
-		if (f.typeenum == rt_baseModel) {
-			const Md6ModWrapperHeader* wh = (const Md6ModWrapperHeader*)f.dataBuffer;
-			const Md6ModStreamInfo* streams = (const Md6ModStreamInfo*)((char*)f.dataBuffer + sizeof(Md6ModWrapperHeader));
-			const char* streamPtr = BufferToWrite + wh->defSize; // BufferToWrite points at the def
-			for (uint32_t i = 0; i < wh->numStreams; i++) {
-				idStreamDB::entry_t streamdb_entry;
-				streamdb_entry.id = HashLib::streamdb_miphash(f.defaulthash, 4 - streams[i].lod, 0);
-				streamdb_entry.length = streams[i].compressedSize;
-				streamdb_entry.offset16 = (u32)(streamdb_RunningOffset / 16);
-				streamdb_entries.push_back(streamdb_entry);
-
-				StreamDBWriter.seekp(streamdb_RunningOffset, std::ios_base::beg);
-				StreamDBWriter.write(streamPtr, streamdb_entry.length);
-
-				assert(streamdb_RunningOffset % 16 == 0);
-				streamdb_RunningOffset += streamdb_entry.length + (16 - streamdb_entry.length % 16);
-				streamPtr += streamdb_entry.length;
-			}
-			continue;
-		}
-
-
-		if(f.typeenum != rt_image)
-			continue;
-
-		BufferToWrite += imgdef.entry_length;
-
-		for (uint64_t mipindex = 0; mipindex < imgdef.streamdbmips; mipindex++) {
-			idStreamDB::entry_t streamdb_entry;
-
-			streamdb_entry.id       = HashLib::streamdb_miphash(f.defaulthash, imgdef.streamdbmips - mipindex - 1, 0);
-			streamdb_entry.length   = imgdef.mipinfos[mipindex].compressedSize;
-			streamdb_entry.offset16 = (u32)(streamdb_RunningOffset / 16);
-			streamdb_entries.push_back(streamdb_entry);
-
-			StreamDBWriter.seekp(streamdb_RunningOffset, std::ios_base::beg);
-			StreamDBWriter.write(BufferToWrite, streamdb_entry.length);
-			
-			assert(streamdb_RunningOffset % 16 == 0);
-			streamdb_RunningOffset += streamdb_entry.length + (16 - streamdb_entry.length % 16);
-			BufferToWrite += streamdb_entry.length;
-		}
-		assert(BufferToWrite == (char*)f.dataBuffer + f.dataLength);
+		outstreams.WriteResource(BufferToWrite, e);
 	}
 
 	Audit_ResourceArchive(archive);
@@ -372,34 +401,34 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 	* Write the archive
 	*/
 
-	ResourceWriter.seekp(0, std::ios_base::beg);
-	ResourceWriter.write((char*)&archive.header, sizeof(ResourceHeader));
+	outstreams.reswriter.seekp(0, std::ios_base::beg);
+	outstreams.reswriter.write((char*)&archive.header, sizeof(ResourceHeader));
 
 	if (g_archiveversion < 13) {
-		ResourceWriter.write((char*)&archive.metaheader, sizeof(ResourceMetaHeader));
+		outstreams.reswriter.write((char*)&archive.metaheader, sizeof(ResourceMetaHeader));
 	}
 
-	ResourceWriter.write((char*)archive.entries, sizeof(ResourceEntry) * h.numResources);
+	outstreams.reswriter.write((char*)archive.entries, sizeof(ResourceEntry) * h.numResources);
 
 	// String Chunk
 	uint64_t blobSize = h.stringTableSize - sizeof(uint64_t) - sizeof(uint64_t) * archive.stringChunk.numStrings - archive.stringChunk.paddingCount;
-	ResourceWriter.write((char*)&archive.stringChunk.numStrings, sizeof(uint64_t));
-	ResourceWriter.write((char*)archive.stringChunk.offsets, archive.stringChunk.numStrings * sizeof(uint64_t));
-	ResourceWriter.write(archive.stringChunk.dataBlock, blobSize);
+	outstreams.reswriter.write((char*)&archive.stringChunk.numStrings, sizeof(uint64_t));
+	outstreams.reswriter.write((char*)archive.stringChunk.offsets, archive.stringChunk.numStrings * sizeof(uint64_t));
+	outstreams.reswriter.write(archive.stringChunk.dataBlock, blobSize);
 	for(uint64_t i = 0; i < archive.stringChunk.paddingCount; i++)
-		ResourceWriter.put('\0');
+		outstreams.reswriter.put('\0');
 
 	// Dependencies
-	ResourceWriter.write((char*)archive.dependencies, h.numDependencies * sizeof(ResourceDependency));
-	ResourceWriter.write((char*)archive.dependencyIndex, h.numDepIndices * sizeof(uint32_t));
-	ResourceWriter.write((char*)archive.stringIndex, h.numStringIndices * sizeof(uint64_t));
+	outstreams.reswriter.write((char*)archive.dependencies, h.numDependencies * sizeof(ResourceDependency));
+	outstreams.reswriter.write((char*)archive.dependencyIndex, h.numDepIndices * sizeof(uint32_t));
+	outstreams.reswriter.write((char*)archive.stringIndex, h.numStringIndices * sizeof(uint64_t));
 
 	// IDCL
-	ResourceWriter.write("IDCL", 4);
+	outstreams.reswriter.write("IDCL", 4);
 	for(int i = 0; i < idclsize - 4; i++)
-		ResourceWriter.put('\0');
+		outstreams.reswriter.put('\0');
 
-	ResourceWriter.close();
+	outstreams.reswriter.close();
 
 	/*
 	* Finish writing the StreamDB data
@@ -408,20 +437,20 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 		return true;
 
 	streamdb.header.headerLength = static_cast<u32>( sizeof(idStreamDB::header) + sizeof(idStreamDB::prefetchheader)
-		+ sizeof(idStreamDB::entry_t) * streamdb_entries.size());
-	streamdb.header.numEntries = (u32)streamdb_entries.size();
+		+ sizeof(idStreamDB::entry_t) * outstreams.streamEntries.size());
+	streamdb.header.numEntries = (u32)outstreams.streamEntries.size();
 	if (streamdb.header.headerLength > streamdb_DataOffset) {
 		atlog("FATAL ERROR: StreamDB Header Length > Data Offset. Please report this problem!");
 		return false;
 	}
 
-	std::sort(streamdb_entries.begin(), streamdb_entries.end());
+	std::sort(outstreams.streamEntries.begin(), outstreams.streamEntries.end());
 
-	StreamDBWriter.seekp(0, std::ios_base::beg);
-	StreamDBWriter.write((char*)&streamdb.header, sizeof(streamdb.header));
-	StreamDBWriter.write((char*)streamdb_entries.data(), streamdb_entries.size() * sizeof(idStreamDB::entry_t));
-	StreamDBWriter.write((char*)&streamdb.prefetchheader, sizeof(streamdb.prefetchheader));
-	StreamDBWriter.close();
+	outstreams.streamwriter.seekp(0, std::ios_base::beg);
+	outstreams.streamwriter.write((char*)&streamdb.header, sizeof(streamdb.header));
+	outstreams.streamwriter.write((char*)outstreams.streamEntries.data(), outstreams.streamEntries.size() * sizeof(idStreamDB::entry_t));
+	outstreams.streamwriter.write((char*)&streamdb.prefetchheader, sizeof(streamdb.prefetchheader));
+	outstreams.streamwriter.close();
 
 	#ifdef _DEBUG
 	idStreamDB audit;
