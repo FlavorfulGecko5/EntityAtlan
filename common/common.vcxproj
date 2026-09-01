@@ -20,6 +20,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\archives\Blang.cpp" />
+    <ClCompile Include="src\archives\BuildManifest.cpp" />
     <ClCompile Include="src\archives\idImage.cpp" />
     <ClCompile Include="src\archives\idImage_Encoder.cpp" />
     <ClCompile Include="src\archives\MapResources.cpp" />
@@ -34,6 +35,9 @@
     <ClCompile Include="src\atlan\AtlanOodle.cpp" />
     <ClCompile Include="src\atlan\AtlanProfiling.cpp" />
     <ClCompile Include="src\crypt\aescbc\aescbc.cpp" />
+    <ClCompile Include="src\crypt\aesgcm\aes.cpp" />
+    <ClCompile Include="src\crypt\aesgcm\aesgcm.cpp" />
+    <ClCompile Include="src\crypt\aesgcm\gcm.cpp" />
     <ClCompile Include="src\entityslayer\EntityLogger.cpp" />
     <ClCompile Include="src\entityslayer\EntityNode.cpp" />
     <ClCompile Include="src\entityslayer\EntityParser.cpp" />
@@ -49,6 +53,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\archives\Blang.h" />
+    <ClInclude Include="src\archives\BuildManifest.h" />
     <ClInclude Include="src\archives\GameEnums.h" />
     <ClInclude Include="src\archives\idImage.h" />
     <ClInclude Include="src\archives\MapResources.h" />
@@ -64,6 +69,9 @@
     <ClInclude Include="src\atlan\AtlanOodle.h" />
     <ClInclude Include="src\atlan\AtlanProfiling.h" />
     <ClInclude Include="src\crypt\aescbc\aescbc.h" />
+    <ClInclude Include="src\crypt\aesgcm\aes.h" />
+    <ClInclude Include="src\crypt\aesgcm\aesgcm.h" />
+    <ClInclude Include="src\crypt\aesgcm\gcm.h" />
     <ClInclude Include="src\entityslayer\EntityLogger.h" />
     <ClInclude Include="src\entityslayer\EntityNode.h" />
     <ClInclude Include="src\entityslayer\EntityParser.h" />
