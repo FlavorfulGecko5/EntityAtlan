@@ -45,7 +45,6 @@ struct ModFile {
 	std::string assetPath;  // Path that will be used as the resource name
 	uint64_t defaulthash = -1;     // For resources types with a streamdb hash 
 	uint32_t resourceVersion; // ResourceEntry::version
-	bool isAtlanCompressed;   // Is this an Atlan Compressed file?
 };
 
 inline void ModFile_Free(ModFile& mfile) {
@@ -87,8 +86,8 @@ struct GlobalConfig_t {
 };
 
 namespace ModReader {
-	void ReadLooseModv2(ModDef& readto, const fspath modsfolder, const fspath& gamedir, int argflags, GlobalConfig_t& cfg);
-	void ReadZipMod(ModDef& readto, const fspath& zipPath, int argflags, GlobalConfig_t& cfg);
+	void ReadLooseModv2(ModDef& readto, const fspath modsfolder, const fspath& gamedir, GlobalConfig_t& cfg);
+	void ReadZipMod(ModDef& readto, const fspath& zipPath, GlobalConfig_t& cfg);
 
 	// Used for Just-In-Time loading of large zipped mod files
 	bool LoadModData(ModFile& modfile, JustInTimeBuffer_t& buffer);

@@ -83,6 +83,25 @@ class StringTable {
 	}
 };
 
+void BuildArchive_StringChunk(const std::vector<ModFile*>& modfiles, ResourceArchive& r) {
+	StringTable stable;
+
+	/*
+	* Build String Indices
+	*/
+	r.header.numStringIndices = static_cast<uint32_t>(modfiles.size() * 2);
+	r.stringIndex = new uint64_t[r.header.numStringIndices];
+
+	uint64_t* ptr = r.stringIndex;
+	for (const ModFile* f : modfiles) {
+		*ptr = stable.indexof(f->typestring);
+		*(ptr + 1) = stable.indexof(f->assetPath);
+		ptr += 2;
+	}
+
+	stable.finalize(r.stringChunk, r.header.stringTableSize);
+}
+
 #include <algorithm>
 
 // Data we'll need to share across several functions related to archive building
@@ -116,6 +135,37 @@ struct BuildArchiveStreams {
 		streamDataOffset += length + (16 - length % 16);
 	}
 };
+
+bool BuildArchive_HotReload(ResourceEntry& e, const ModFile& f, BuildArchiveStreams& out) {
+	atlog("Hot Reload Mode engaged for unzipped mapentities file");
+
+	size_t HotReloadPadding;
+	e.dataSize = 40000000;
+	if (e.dataSize >= f.dataLength) {
+		HotReloadPadding = e.dataSize - f.dataLength;
+	}
+	else {
+		atlog("FATAL ERROR: Hot Reload padding threshold exceeded. Please report this error.");
+		return false;
+	}
+
+	// This is mostly a copy of BuildArchiveStreams::WriteResource except we
+	// add extra null padding to the end of the file
+	e.uncompressedSize = e.dataSize;
+	e.compMode = 0;
+	e.dataOffset = out.resDataOffset;
+	out.resDataOffset += e.dataSize;
+	out.resDataOffset += 8 - out.resDataOffset % 8;
+	out.reswriter.seekp(e.dataOffset, std::ios_base::beg);
+	out.reswriter.write((char*)f.dataBuffer, f.dataLength);
+
+	char* paddingbuffer = new char[HotReloadPadding];
+	memset(paddingbuffer, 0, HotReloadPadding);
+	out.reswriter.write(paddingbuffer, HotReloadPadding);
+	delete[] paddingbuffer;
+
+	return true;
+}
 
 bool BuildArchive_Image(ResourceEntry& e, const ModFile& f, BuildArchiveStreams& out) {
 
@@ -238,25 +288,7 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 	h.numResources = static_cast<uint32_t>(modfiles.size());
 	h.stringTableOffset = h.resourceEntriesOffset + h.numResources * sizeof(ResourceEntry);
 	
-	
-	StringTable stable;
-
-	/*
-	* Build String Indices
-	*/
-	{
-		h.numStringIndices = static_cast<uint32_t>(modfiles.size() * 2);
-		archive.stringIndex = new uint64_t[h.numStringIndices];
-
-		uint64_t* ptr = archive.stringIndex;
-		for (const ModFile* f : modfiles) {
-			*ptr = stable.indexof(f->typestring);
-			*(ptr + 1) = stable.indexof(f->assetPath);
-			ptr += 2;
-		}
-	}
-
-	stable.finalize(archive.stringChunk, h.stringTableSize);
+	BuildArchive_StringChunk(modfiles, archive);
 
 	/*
 	* "Build" Dependencies - seems to be unnecessary. Dependencies only used by idStudio?
@@ -336,63 +368,35 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 			e.flags = 0; e.variation = 0;
 		}
 
-		// Isolate the Hot Reload code path to keep everything else simpler
-		if (f.typeenum == rt_mapentities && !f.isAtlanCompressed && f.parentMod->IsUnzipped) {
-			atlog("Hot Reload Mode engaged for unzipped mapentities file");
-
-			size_t HotReloadPadding;
-			e.dataSize = 40000000;
-			if (e.dataSize >= f.dataLength) {
-				HotReloadPadding = e.dataSize - f.dataLength;
-			}
-			else {
-				atlog("ERROR: Hot Reload padding threshold exceeded. Please report this error.");
-				e.dataSize = f.dataLength;
-				HotReloadPadding = 0;
-			}
-			e.uncompressedSize = e.dataSize;
-			e.compMode = 0;
-			e.dataOffset = outstreams.resDataOffset;
-			outstreams.resDataOffset += e.dataSize;
-			outstreams.resDataOffset += 8 - outstreams.resDataOffset % 8;
-			outstreams.reswriter.seekp(e.dataOffset, std::ios_base::beg);
-			outstreams.reswriter.write((char*)f.dataBuffer, f.dataLength);
-
-			char* paddingbuffer = new char[HotReloadPadding];
-			memset(paddingbuffer, 0, HotReloadPadding);
-			outstreams.reswriter.write(paddingbuffer, HotReloadPadding);
-			delete[] paddingbuffer;
-			continue;
+		bool buildResult = false;
+		bool IsAtlanCompressed = Oodle::IsAtlanCompFile((const char*)f.dataBuffer, f.dataLength);
+		if (f.typeenum == rt_mapentities && !IsAtlanCompressed && f.parentMod->IsUnzipped) {
+			buildResult = BuildArchive_HotReload(e, f, outstreams);
 		}
-
-		const char* BufferToWrite = nullptr;
-		if(f.isAtlanCompressed) {
+		else if (f.typeenum == rt_image) {
+			buildResult = BuildArchive_Image(e, f, outstreams);
+		}
+		else if (f.typeenum == rt_baseModel) {
+			buildResult = BuildArchive_BaseModel(e, f, outstreams);
+		}
+		else if(IsAtlanCompressed) {
 			const size_t ATCF_SIZE = Oodle::AtlanCompHeaderSize();
 			e.dataSize = f.dataLength - ATCF_SIZE;
 			e.uncompressedSize = Oodle::atcf_uncompressedSize((char*)f.dataBuffer);
 			e.compMode = 2;
-			BufferToWrite = (char*)f.dataBuffer + ATCF_SIZE;
-		}
-		else if(f.typeenum == rt_image) {
-			if (!BuildArchive_Image(e, f, outstreams)) {
-				return false;
-			}
-			continue;
-		}
-		else if (f.typeenum == rt_baseModel) {
-			if (!BuildArchive_BaseModel(e, f, outstreams)) {
-				return false;
-			}
-			continue;
+			outstreams.WriteResource((char*)f.dataBuffer + ATCF_SIZE, e);
+			buildResult = true;
 		}
 		else {
 			e.dataSize = f.dataLength;
 			e.uncompressedSize = e.dataSize;
 			e.compMode = 0;
-			BufferToWrite = (char*)f.dataBuffer;
+			outstreams.WriteResource((char*)f.dataBuffer, e);
+			buildResult = true;
 		}
 
-		outstreams.WriteResource(BufferToWrite, e);
+		if(!buildResult)
+			return false;
 	}
 
 	Audit_ResourceArchive(archive);
@@ -417,15 +421,11 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 	outstreams.reswriter.write(archive.stringChunk.dataBlock, blobSize);
 	for(uint64_t i = 0; i < archive.stringChunk.paddingCount; i++)
 		outstreams.reswriter.put('\0');
-
-	// Dependencies
-	outstreams.reswriter.write((char*)archive.dependencies, h.numDependencies * sizeof(ResourceDependency));
-	outstreams.reswriter.write((char*)archive.dependencyIndex, h.numDepIndices * sizeof(uint32_t));
 	outstreams.reswriter.write((char*)archive.stringIndex, h.numStringIndices * sizeof(uint64_t));
 
 	// IDCL
 	outstreams.reswriter.write("IDCL", 4);
-	for(int i = 0; i < idclsize - 4; i++)
+	for(int i = 0; i < idclsize - 4; i++) // Todo: can probably cut this
 		outstreams.reswriter.put('\0');
 
 	outstreams.reswriter.close();
@@ -636,7 +636,6 @@ bool Query_Archives(std::unordered_map<std::string, ModFile*>& FileMap, GlobalCo
 			f->parentMod = &ModDef_MapResources;
 			f->assetPath = iter.namestring;
 			f->realPath = "GENERATED";
-			f->isAtlanCompressed = false;
 			f->dataLength = finalbin.GetFilledSize();
 			f->dataBuffer = finalbin.Finalize();
 			f->ownsData = true;
@@ -844,10 +843,10 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 
 	int REALMOD_INCREMENTOR = 0;
 	for(const fspath& UnzippedFolder : UnzippedModFolders) {
-		ModReader::ReadLooseModv2(ModList.mods[REALMOD_INCREMENTOR++], UnzippedFolder, gamedir, argflags, globalconfig);
+		ModReader::ReadLooseModv2(ModList.mods[REALMOD_INCREMENTOR++], UnzippedFolder, gamedir, globalconfig);
 	}
 	for(const fspath& ZipPath : zipmodpaths) {
-		ModReader::ReadZipMod(ModList.mods[REALMOD_INCREMENTOR++], ZipPath, argflags, globalconfig);
+		ModReader::ReadZipMod(ModList.mods[REALMOD_INCREMENTOR++], ZipPath, globalconfig);
 	}
 	assert(REALMOD_INCREMENTOR == ModList.totalmods);
 
@@ -909,14 +908,12 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 	for (const auto& pair : priorityAssets) {
 		ModFile& file = *pair.second;
 
-		// Must check whether a file is Atlan Compressed
-		file.isAtlanCompressed = Oodle::IsAtlanCompFile((const char*)file.dataBuffer, file.dataLength);
-
 		// Handle serialized files
 		if (file.typeenum & rtc_serialized) {
 
 			// We assume atlan compressed files (created via the mod packager) are serialized
-			bool isSerialized = file.isAtlanCompressed || Reserializer::IsSerialized((char*)file.dataBuffer, file.dataLength, file.typeenum);
+			bool isAtlanCompressed = Oodle::IsAtlanCompFile((const char*)file.dataBuffer, file.dataLength);
+			bool isSerialized = isAtlanCompressed || Reserializer::IsSerialized((char*)file.dataBuffer, file.dataLength, file.typeenum);
 
 			if (!isSerialized)
 			{
@@ -963,10 +960,6 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 			slugoutput.data = nullptr;
 			slugoutput.length = 0;
 			slugoutput.capacity = 0;
-
-			// TODO: This is ugly. Really need to move this entire loop elsewhere
-			// into a data validation function
-			file.isAtlanCompressed = true;
 		}
 		#endif
 

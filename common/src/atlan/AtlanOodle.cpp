@@ -125,7 +125,7 @@ bool Oodle::IsAtlanCompFile(const char* input, size_t inputlength)
 	if(inputlength < AtlanCompHeaderSize())
 		return false;
 
-	if(memcmp(input, "ATCF", 4) != 0)
+	if(*(u32*)input != 'FCTA')
 		return false;
 
 	size_t compressedSize = *(size_t*)(input + 12);

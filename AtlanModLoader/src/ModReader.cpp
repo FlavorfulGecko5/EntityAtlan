@@ -154,13 +154,8 @@ bool ModReader_ValidateData(ModFile& modfile, bool AllowUnserialized) {
 }
 #endif
 
-void ModReader_ConfirmModFile(ModDef& moddef, ModFile& modfile, int argflags) {
-	if (argflags & argflag_verbose) {
-		atlog("OK: %s --> %s", modfile.realPath.c_str(), modfile.assetPath.c_str());
-	}
-	else {
-		atlog_file("OK: %s --> %s", modfile.realPath.c_str(), modfile.assetPath.c_str());
-	}
+void ModReader_ConfirmModFile(ModDef& moddef, ModFile& modfile) {
+	atlog_file("OK: %s --> %s", modfile.realPath.c_str(), modfile.assetPath.c_str());
 
 	/*
 	* Finish processing the file
@@ -265,7 +260,7 @@ void UnzippedImageEncodingThread(idUnzippedImageJobList* joblist) {
 	idImageEncodingContext::COMThreadRelease();
 }
 
-void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fspath& gamedir, int argflags, GlobalConfig_t& globalconfig)
+void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fspath& gamedir, GlobalConfig_t& globalconfig)
 {
 	using namespace std::filesystem;
 
@@ -357,7 +352,7 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 			filereader.read((char*)modfile.dataBuffer, modfile.dataLength);
 			filereader.close();
 		}
-		ModReader_ConfirmModFile(moddef, modfile, argflags);
+		ModReader_ConfirmModFile(moddef, modfile);
 	}
 
 	if(ImageJobs.jobs.size()) {
@@ -388,9 +383,9 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 	}
 }
 
-bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& readto, int argflags, GlobalConfig_t& globalconfig);
+bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& readto, GlobalConfig_t& globalconfig);
 
-void ModReader::ReadZipMod(ModDef& mod, const fspath& zipPath, int argflags, GlobalConfig_t& globalconfig)
+void ModReader::ReadZipMod(ModDef& mod, const fspath& zipPath, GlobalConfig_t& globalconfig)
 {
 	atlog("\n\nReading %ls\n---", zipPath.filename().c_str());
 
@@ -404,7 +399,7 @@ void ModReader::ReadZipMod(ModDef& mod, const fspath& zipPath, int argflags, Glo
 	}
 
 	mod.modName = zipPath.stem().string();
-	mod.ActiveZip = ReadZipMod_Internal(zptr, mod, argflags, globalconfig);
+	mod.ActiveZip = ReadZipMod_Internal(zptr, mod, globalconfig);
 	if (!mod.ActiveZip) {
 		mz_zip_reader_end(zptr);
 	}
@@ -412,7 +407,7 @@ void ModReader::ReadZipMod(ModDef& mod, const fspath& zipPath, int argflags, Glo
 
 // If return value is true, we should keep the zip file alive after reading
 // to enable just-in-time loading
-bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, int argflags, GlobalConfig_t& globalconfig)
+bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, GlobalConfig_t& globalconfig)
 {
 	bool KEEP_ZIP_ALIVE = false;
 
@@ -500,7 +495,7 @@ bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, int argflags, Global
 			modfile.dataLength = dataLength;
 		}
 
-		ModReader_ConfirmModFile(mod, modfile, argflags);
+		ModReader_ConfirmModFile(mod, modfile);
 	}
 
 	delete[] ZipNameBuffer;
