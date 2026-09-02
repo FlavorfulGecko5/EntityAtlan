@@ -571,6 +571,36 @@ bool Modify_PackageMapSpec(const fspath& pmspath, bool includeStreamDB, GlobalCo
 	return true;
 }
 
+#include "archives/BuildManifest.h"
+
+bool Modify_BuildManifest(const fspath& manifestpath) {
+	if(g_game != game_eternal)
+		return true;
+
+	// We can safely add entries that don't exist, so we don't need to check
+	// if we're actually building the streamdb
+	const std::string newentry = R"(
+		, "modarchives/common_mod.resources": {
+			"fileSize": 123,
+			"chunkSize": 999999999,
+			"hashes": [
+				"ffffffffffffffffffffffffffffffffffffffff"
+			]
+		},
+		"modarchives/common_mod.streamdb": {
+			"fileSize": 123,
+			"chunkSize": 999999999,
+			"hashes": [
+				"ffffffffffffffffffffffffffffffffffffffff"
+			]
+		}
+		} }		
+	)";
+
+	idcl::buildmanifest manifest;
+	return manifest.modify(manifestpath.c_str(), manifestpath.c_str(), newentry.data(), newentry.length(), false);
+}
+
 #include "archives/MapResources.h"
 
 bool Query_Archives(std::unordered_map<std::string, ModFile*>& FileMap, GlobalConfig_t& config, ModDef& ModDef_MapResources, const fspath& path_mapspec) {
@@ -685,6 +715,10 @@ bool IsModded_SoundMeta(const fspath& path) {
 	return memcmp(magic, "ATLANMOD", 8) == 0;
 }
 
+bool IsModded_BuildManifest(const fspath& path) {
+	return idcl::buildmanifest::ismodded(path.c_str());
+}
+
 /*
 * CREATE / RESTORE BACKUPS; CLEANUP PREVIOUS INJECTION FILES
 * If returned false, a fatal error was encountered and program should abort
@@ -695,6 +729,7 @@ bool CleanupLastLoad(const fspath gamedir)
 
 	fspath modsdir = gamedir / "mods";
 	fspath basedir = gamedir / "base";
+	fspath manifestpath = basedir / "build-manifest.bin";
 	fspath outdir = basedir / "modarchives";
 	fspath outarchivepath = outdir / "common_mod.resources";
 	fspath outstreamdbpath = outdir / "common_mod.streamdb";
@@ -706,12 +741,16 @@ bool CleanupLastLoad(const fspath gamedir)
 	std::error_code lastCode;
 	//atlog("Managing backups and cleaning up previous injection files.");
 
-	#define NUM_BACKUPS 3
-	const fspath backedupfiles[NUM_BACKUPS] = {pmspath, metapath, soundmetapath};
-	bool IsModded[NUM_BACKUPS] = { IsModded_MapSpec(pmspath), IsModded_Meta(metapath), IsModded_SoundMeta(soundmetapath)};
+	#define NUM_BACKUPS 4
+	const fspath backedupfiles[NUM_BACKUPS] = {pmspath, metapath, soundmetapath, manifestpath};
+	bool IsModded[NUM_BACKUPS] = { IsModded_MapSpec(pmspath), IsModded_Meta(metapath), IsModded_SoundMeta(soundmetapath), IsModded_BuildManifest(manifestpath)};
+	const u8 Games[NUM_BACKUPS] = {game_all, game_all, game_all, game_eternal};
 
 	// Handle backups
 	for(int i = 0; i < NUM_BACKUPS; i++) {
+		if(!(g_game & Games[i]))
+			continue;
+
 		const fspath& original = backedupfiles[i];
 		const fspath backup = original.string() + ".backup";
 
@@ -1001,6 +1040,11 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 		bool okay = BuildArchive(supermod, streamdbFileCount, outarchivepath, outstreamdbpath);
 		if (!okay) {
 			atlog("FATAL ERROR: Resource Mod Loading aborted due to the above error");
+			return false;
+		}
+		okay = Modify_BuildManifest(basedir / "build-manifest.bin");
+		if (!okay) {
+			atlog("FATAL ERROR: Failed to modify build-manifest");
 			return false;
 		}
 		okay = Modify_PackageMapSpec(pmspath, streamdbFileCount > 0, globalconfig);

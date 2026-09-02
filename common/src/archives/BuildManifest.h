@@ -26,5 +26,7 @@ namespace idcl {
 		void write(const wchar_t* writeto);
 		void writejson(const wchar_t* writeto);
 		bool modify(const wchar_t* readfrom, const wchar_t* writeto, const char* newdata, const size_t newlength, bool writeUnencrypted);
+
+		static bool ismodded(const wchar_t* filepath);
 	};
 }

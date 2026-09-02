@@ -86,6 +86,8 @@ struct charbuffer_t {
 	// guaranteed to be preserved
 	void EnsureCapacity(const size_t minimumCapacity);
 
+	// Swaps contents of this buffer with another
+	void Swap(charbuffer_t& other);
 };
 
 struct _iobuf;
@@ -110,6 +112,7 @@ struct FileReader {
 	bool read(char* buffer, size_t length);
 
 	bool seek(fileposition_t position);
+	bool seekend(fileposition_t position);
 	fileposition_t getposition() const;
 	
 	i64 getlength();

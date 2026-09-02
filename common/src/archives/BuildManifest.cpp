@@ -70,6 +70,9 @@ void idcl::buildmanifest::encrypt() {
 		TAG, sizeof(TAG),
 		(u8*)ADDITIONAL, strlen(ADDITIONAL)
 	);
+
+	// IMPORTANT: FF'ing the signature bytes is how we determine
+	// that the build-manifest is modded
 	memset(SIGNATURE, 0xFF, sizeof(SIGNATURE));
 }
 
@@ -123,5 +126,24 @@ bool idcl::buildmanifest::modify(const wchar_t* filepath, const wchar_t* writeto
 		write(writeto);
 	}
 
+	return true;
+}
+
+bool idcl::buildmanifest::ismodded(const wchar_t* filepath)
+{
+	uint64_t signature[8];
+	signature[0] = 0;
+
+	FileReader reader;
+	reader.open(filepath);
+	reader.seekend(-64);
+	reader.read((char*)signature, 64);
+	reader.close();
+
+	// A modded manifest will have it's signature FF'd
+	for (int i = 0; i < 8; i++) {
+		if (signature[i] != -1)
+			return false;
+	}
 	return true;
 }

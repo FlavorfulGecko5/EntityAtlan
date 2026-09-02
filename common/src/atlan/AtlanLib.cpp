@@ -37,6 +37,21 @@ void charbuffer_t::EnsureCapacity(const size_t requiredCapacity) {
 	}
 }
 
+void charbuffer_t::Swap(charbuffer_t& other)
+{
+	char* temp_buffer = this->data;
+	size_t temp_length = this->length;
+	size_t temp_capacity = this->capacity;
+
+	data = other.data;
+	length = other.length;
+	capacity = other.capacity;
+
+	other.data = temp_buffer;
+	other.length = temp_length;
+	other.capacity = temp_capacity;
+}
+
 
 
 /*
@@ -110,6 +125,17 @@ bool FileReader::read(char* buffer, size_t length) {
 
 bool FileReader::seek(fileposition_t position) {
 	int success = _fseeki64(fptr, position, SEEK_SET);
+
+	if(success == 0)
+		return true;
+
+	ErrorDetected();
+	return false;
+}
+
+bool FileReader::seekend(fileposition_t position)
+{
+	int success = _fseeki64(fptr, position, SEEK_END);
 
 	if(success == 0)
 		return true;
