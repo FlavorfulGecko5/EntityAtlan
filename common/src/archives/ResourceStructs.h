@@ -279,6 +279,16 @@ namespace idcl {
 
 	// Decompress a "compfile" resource
 	bool compfile_decompress(char* in_compdata, size_t in_complength, charbuffer_t& out_decomp);
+	bool compfile_isvalid(const char* data, size_t length);
+
+	// Reads the given file into memory and creates a compfile
+	// If the file is already a compfile, the original file data is returned
+	bool compfile_create(const wchar_t* filepath, charbuffer_t& out);
+
+	// Turns the given data into a compfile
+	// It is assumed that this data is not already a compfile
+	bool compfile_create(const char* data, size_t length, charbuffer_t& out);
+
 }
 
 #include <vector>

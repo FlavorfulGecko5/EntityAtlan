@@ -39,7 +39,7 @@ struct ModFile {
 	ResourceType typeenum;
 	bool ownsData = true; // If true, this ModFile has ownership of it's data buffer. If false, it does not and data could be staled
 	ModDef* parentMod = nullptr;
-	void* dataBuffer = nullptr;
+	char* dataBuffer = nullptr;
 	size_t dataLength = 0;
 	std::string realPath;   // The verbatim path from the zip file or mods folder
 	std::string assetPath;  // Path that will be used as the resource name

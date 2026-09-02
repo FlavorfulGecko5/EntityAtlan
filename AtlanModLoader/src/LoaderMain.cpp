@@ -1002,6 +1002,32 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 		}
 		#endif
 
+		else if (file.typeenum == rt_compfile) {
+			bool isCompFile = idcl::compfile_isvalid(file.dataBuffer, file.dataLength);
+
+			if (!isCompFile) {
+				if (!file.parentMod->IsUnzipped) {
+					atlog("ERROR: Zipped compfile is not compressed! Please use AtlanModPackager to compress compfiles before distributing them.\n"
+						"   Mod: %s - %s", file.parentMod->modName.c_str(), file.realPath.c_str());
+					continue;
+				}
+
+				charbuffer_t packagedfile;
+				if(!idcl::compfile_create(file.dataBuffer, file.dataLength, packagedfile)) {
+					atlog("FATAL ERROR: Failed to create compfile?");
+					return false;
+				}
+
+				// Transfer ownership of finalized comp_file to the ModFile
+				delete[] file.dataBuffer;
+				file.dataBuffer = packagedfile.data;
+				file.dataLength = packagedfile.length;
+				packagedfile.data = nullptr;
+				packagedfile.length = 0;
+				packagedfile.capacity = 0;
+			}
+		}
+
 		// If an asset requires a streamdb hash, add it to the lookup map
 		if (file.typeenum & rtc_query_dbhash) {
 			find_defaulthashes[pair.first] = &file;
@@ -1153,7 +1179,7 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 		g_archiveversion = 12;
 		g_game = game_eternal;
 
-		#if 1 // Turn this off when Eternal is supported
+		#if 0 // Turn this off when Eternal is supported
 		atlog("FATAL ERROR: Doom Eternal not supported");
 		return;
 		#endif

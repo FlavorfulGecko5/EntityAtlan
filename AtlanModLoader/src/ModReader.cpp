@@ -30,6 +30,7 @@ const std::unordered_map<std::string, resourcetypeinfo_t> ValidResourceTypes = {
 	{"slug_font",     {"slug_font",     rt_slug_font,     game_darkages, 14}},
 	{"baseModel",     {"baseModel",     rt_baseModel,     game_darkages, 62}},
 	{"strandsHair",   {"strandsHair",   rt_strandsHair,   game_darkages, 48}},
+	{"compfile",      {"compfile",      rt_compfile,      game_eternal, 1, 1}},
 
 	// Audio will be handled differently by the loader
 	{"audio", {"audio", rt_audio, game_darkages}}
@@ -248,7 +249,7 @@ void UnzippedImageEncodingThread(idUnzippedImageJobList* joblist) {
 
 		// Transfer ownership of output buffer to the mod file
 		ModFile& modfile = joblist->mod->modFiles[CurrentJob.ModFileIndex];
-		modfile.dataBuffer = ImageOutput.buffer;
+		modfile.dataBuffer = (char*)ImageOutput.buffer;
 		modfile.dataLength = ImageOutput.file_length;
 		modfile.ownsData = true;
 		ImageOutput.buffer = nullptr;
@@ -491,7 +492,7 @@ bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, GlobalConfig_t& glob
 				atlog("ERROR: Failed to extract file %s", modfile.realPath.c_str());
 				continue;
 			}
-			modfile.dataBuffer = dataBuffer;
+			modfile.dataBuffer = (char*)dataBuffer;
 			modfile.dataLength = dataLength;
 		}
 

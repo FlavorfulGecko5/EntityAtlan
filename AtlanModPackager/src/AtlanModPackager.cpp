@@ -6,6 +6,7 @@
 #include <mutex>
 #include <thread>
 #include <unordered_map>
+#include "archives/ResourceStructs.h"
 #include "archives/ResourceEnums.h"
 #include "archives/SlugFont.h"
 #include "atlan/AtlanLogger.h"
@@ -128,7 +129,8 @@ void PackagerMain(const char* DIR_GAME, fspath DIR_INPUT, fspath ZIP_OUTPUT)
 		{"mapentities",   rt_mapentities},
 		{"slug_font",     rt_slug_font},
 		{"baseModel",	  rt_baseModel},
-		{"strandsHair",   rt_strandsHair}
+		{"strandsHair",   rt_strandsHair},
+		{"compfile",      rt_compfile}
 	};
 
 	AtlanModConfig ModConfig;
@@ -281,6 +283,16 @@ void PackagerMain(const char* DIR_GAME, fspath DIR_INPUT, fspath ZIP_OUTPUT)
 			std::string temp = zippedName;
 			zippedName = "noload/";
 			zippedName += temp;
+		}
+		else if(RESTYPE == rt_compfile) {
+			charbuffer_t packagedcompfile;
+			if (!idcl::compfile_create(modfile.c_str(), packagedcompfile)) {
+				atlog("ERROR: Failed to create compfile");
+				continue;
+			}
+
+			mz_zip_writer_add_mem(zptr, zippedName.c_str(), packagedcompfile.data, packagedcompfile.length, MZ_DEFAULT_COMPRESSION);
+			continue;
 		}
 
 		#if 0

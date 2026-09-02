@@ -58,6 +58,48 @@ bool idcl::compfile_decompress(char* in_compdata, size_t in_complength, charbuff
 	return Oodle::DecompressBuffer(in_compdata + 16, size_comp, out_decomp.data, size_decomp);
 }
 
+bool idcl::compfile_isvalid(const char* data, size_t length) {
+	if(length <= 16)
+		return false;
+
+	u64 size_decomp = *(u64*)data;
+	u64 size_comp = *(u64*)(data + 8);
+	if(size_comp == -1)
+		return size_decomp == length - 16;
+
+	return size_comp == length - 16 && (u8)data[16] == 0x8C;
+}
+
+bool idcl::compfile_create(const wchar_t* filepath, charbuffer_t& out)
+{
+	charbuffer_t input;
+	if(!FileReader::ReadFile(filepath, input))
+		return false;
+
+	// Swap buffers
+	// By checking if it's already a compfile, we filter out weird edge cases
+	// where the user is loading an unzipped compfile
+	if (compfile_isvalid(input.data, input.length)) {
+		out.Swap(input);
+		return true;
+	}
+
+	return idcl::compfile_create(input.data, input.length, out);
+}
+
+bool idcl::compfile_create(const char* data, size_t length, charbuffer_t& out)
+{
+	out.EnsureCapacity(length + 64);
+	*(u64*)out.data = length;
+
+	if(!Oodle::CompressBuffer((char*)data, length, out.data + 16, out.length))
+		return false;
+	*(u64*)(out.data + 8) = out.length;
+	out.length += 16;
+
+	return compfile_isvalid(out.data, out.length);
+}
+
 ResourceEntryData_t Get_EntryData_Internal(const ResourceEntry& e, char* raw, char*& buffer, size_t& buffersize) {
 	switch (e.compMode)
 	{
