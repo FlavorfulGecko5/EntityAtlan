@@ -82,6 +82,8 @@ struct GlobalConfig_t {
 
 	std::unordered_map<std::string, mapres_t> mapresinfo; 
 
+	std::unordered_map <std::string, std::vector<ModFile*>> blanginfo;
+
 	std::vector<std::string> mapspec;
 };
 

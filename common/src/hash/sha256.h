@@ -32,4 +32,7 @@ void sha256_init(SHA256_CTX* ctx);
 void sha256_update(SHA256_CTX* ctx, const BYTE data[], size_t len);
 void sha256_final(SHA256_CTX* ctx, BYTE hash[]);
 
+// THIS IS CONFIGURED TO ONLY WORK WITH A 32-BYTE KEY
+bool hmac_sha256(char* key, size_t keylen, char* data, size_t datalen, char* output);
+
 #endif   // SHA256_H

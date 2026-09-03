@@ -602,15 +602,20 @@ bool Modify_BuildManifest(const fspath& manifestpath) {
 }
 
 #include "archives/MapResources.h"
+#include "archives/Blang.h"
 
 bool Query_Archives(std::unordered_map<std::string, ModFile*>& FileMap, GlobalConfig_t& config, ModDef& ModDef_MapResources, const fspath& path_mapspec) {
 
 	/*
-	* Step 1: Add all .mapresources files we need to the query map
+	* Step 1: Add all .mapresources and .blang files we need to the query map
 	*/
 	for(const auto& pair : config.mapresinfo) {
 		std::string filetype = "file";
 		// We're gonna do some real hacky stuff here
+		FileMap[filetype + pair.first] = nullptr;
+	}
+	for(const auto& pair : config.blanginfo) {
+		std::string filetype = "binaryFile";
 		FileMap[filetype + pair.first] = nullptr;
 	}
 
@@ -637,41 +642,94 @@ bool Query_Archives(std::unordered_map<std::string, ModFile*>& FileMap, GlobalCo
 			continue;
 		ModFile* f = mapiter->second;
 
-		// Nullptr --> a .mapresource file that we need
+		// Nullptr --> a .mapresource or .blang file that we need
+		// TODO: Split this into different functions
 		if(f == nullptr) {
 			ResourceEntryData_t EntryData = Get_EntryData(e, iter.archive.filehandle, EntryBuffers);
 
 			atlog("Modifying %s", iter.namestring);
 
-			MapResource CurrentMap;
+			if (strcmp(iter.typestring, "binaryFile") == 0) {
 
-			if (!CurrentMap.Parse(EntryData.buffer, EntryData.length)) {
-				atlog("ERROR: Failed to parse file");
-				return false;
+				const std::vector<ModFile*>& Langcsvs = config.blanginfo[iter.namestring];
+				
+				idcl::blangmodargs langargs;
+				langargs.blang = (char*)EntryData.buffer;
+				langargs.blanglength = EntryData.length;
+				langargs.blangname = iter.namestring;
+				langargs.numcsvs = Langcsvs.size();
+
+				char** p_csvs = new char*[langargs.numcsvs];
+				size_t* l_csvs = new size_t[langargs.numcsvs];
+
+				for(int i = 0; i < langargs.numcsvs; i++) {
+					p_csvs[i] = Langcsvs[i]->dataBuffer;
+					l_csvs[i] = Langcsvs[i]->dataLength;
+				}
+
+				langargs.csvs = p_csvs;
+				langargs.csvlengths = l_csvs;
+
+				charbuffer_t ModdedLang;
+				bool Success = idcl::blang_modify(langargs, ModdedLang);
+				delete[] p_csvs;
+				delete[] l_csvs;
+
+				// TODO FIXME: Must erase from map before this or it will find
+				// other copies of the file, probably same thing with mapresources?
+				if(!Success) {
+					atlog("ERROR: Failed to modify blang file");
+					return false;
+				}
+
+				ModDef_MapResources.modFiles.emplace_back();
+				f = &ModDef_MapResources.modFiles.back();
+				f->typestring = "binaryFile";
+				f->typeenum = rt_binaryFile;
+				f->parentMod = &ModDef_MapResources;
+				f->assetPath = iter.namestring;
+				f->realPath = "GENERATED";
+				f->ownsData = true;
+				f->resourceVersion = 1;
+
+				// Transfer ownership from buffer to modfile
+				f->dataLength = ModdedLang.length;
+				f->dataBuffer = ModdedLang.data;
+				ModdedLang.data = nullptr;
+				ModdedLang.length = 0;
+				ModdedLang.capacity = 0;
 			}
+			else {
+				MapResource CurrentMap;
 
-			GlobalConfig_t::mapres_t& editinfo = config.mapresinfo.find(iter.namestring)->second;
-			BinaryWriter finalbin;
+				if (!CurrentMap.Parse(EntryData.buffer, EntryData.length)) {
+					atlog("ERROR: Failed to parse file");
+					return false;
+				}
 
-			atlog("- New Entries: %zu, Load All: %hhu", editinfo.entries.size(), editinfo.LoadAll);
-			if (!CurrentMap.AddFiles(editinfo.entries.data(), editinfo.entries.size(), editinfo.LoadAll, finalbin)) {
-				atlog("ERROR: Failed to insert entries");
-				return false;
+				GlobalConfig_t::mapres_t& editinfo = config.mapresinfo.find(iter.namestring)->second;
+				BinaryWriter finalbin;
+
+				atlog("- New Entries: %zu, Load All: %hhu", editinfo.entries.size(), editinfo.LoadAll);
+				if (!CurrentMap.AddFiles(editinfo.entries.data(), editinfo.entries.size(), editinfo.LoadAll, finalbin)) {
+					atlog("ERROR: Failed to insert entries");
+					return false;
+				}
+
+				ModDef_MapResources.modFiles.emplace_back();
+				f = &ModDef_MapResources.modFiles.back();
+				f->typestring = "file";
+				f->typeenum = rt_file;
+				f->parentMod = &ModDef_MapResources;
+				f->assetPath = iter.namestring;
+				f->realPath = "GENERATED";
+				f->dataLength = finalbin.GetFilledSize();
+				f->dataBuffer = finalbin.Finalize();
+				f->ownsData = true;
+				if(g_game == game_darkages)
+					f->resourceVersion = 2;
+				else f->resourceVersion = 1;
 			}
-
-			ModDef_MapResources.modFiles.emplace_back();
-			f = &ModDef_MapResources.modFiles.back();
-			f->typestring = "file";
-			f->typeenum = rt_file;
-			f->parentMod = &ModDef_MapResources;
-			f->assetPath = iter.namestring;
-			f->realPath = "GENERATED";
-			f->dataLength = finalbin.GetFilledSize();
-			f->dataBuffer = finalbin.Finalize();
-			f->ownsData = true;
-			if(g_game == game_darkages)
-				f->resourceVersion = 2;
-			else f->resourceVersion = 1;
 		}
 		else {
 			f->defaulthash = e.defaultHash;
@@ -868,6 +926,7 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 
 	GlobalConfig_t globalconfig;
 	globalconfig.mapresinfo.reserve(4);
+	globalconfig.blanginfo.reserve(5);
 	ModDef GlobalMod;
 
 	struct modlist_t {
@@ -908,6 +967,14 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 		ModDef& current = ModList.mods[i];
 
 		for(ModFile& file : current.modFiles) {
+
+			// Special Case: Put string csvs into the global config data
+			// These must not get loaded as regular mod files
+			if (file.typeenum == rt_binaryFile) {
+				file.assetPath += ".blang";
+				globalconfig.blanginfo[file.assetPath].push_back(&file);
+				continue;
+			}
 
 			// Must do this to prevent false conflicts between files
 			// with the same path but different resource type

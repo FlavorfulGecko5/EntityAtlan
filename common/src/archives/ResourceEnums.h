@@ -26,7 +26,7 @@ enum ResourceTypeComboFlags : uint32_t
 {
 	rtc_logic_decl    = rt_logicClass | rt_logicEntity | rt_logicFX | rt_logicLibrary | rt_logicUIWidget,
 	rtc_serialized    = rt_entityDef  | rt_mapentities | rtc_logic_decl,
-	rtc_no_extension  = rt_entityDef  | rt_mapentities | rtc_logic_decl | rt_audio | rt_slug_font,
+	rtc_no_extension  = rt_entityDef  | rt_mapentities | rtc_logic_decl | rt_audio | rt_slug_font | rt_binaryFile,
 	rtc_last_number   = rt_audio,
 	rtc_query_dbhash  = rt_mapentities | rt_compfile,
 	rtc_assign_dbhash = rt_image | rt_baseModel,

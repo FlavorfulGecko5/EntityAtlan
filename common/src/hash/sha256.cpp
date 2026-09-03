@@ -156,3 +156,54 @@ void sha256_final(SHA256_CTX *ctx, BYTE hash[])
 		hash[i + 28] = (ctx->state[7] >> (24 - i * 8)) & 0x000000ff;
 	}
 }
+
+// HMAC SHA-256 implementation is a modified version of
+// https://github.com/h5p9sl/hmac_sha256
+
+typedef unsigned char uint8_t;
+
+void H(const void* x, const size_t xlen, const void* y, const size_t ylen, void* out, const size_t outlen) {
+	void* result;
+	size_t buflen = (xlen + ylen);
+
+	SHA256_CTX ctx;
+	sha256_init(&ctx);
+	sha256_update(&ctx, (BYTE*)x, xlen);
+	sha256_update(&ctx, (BYTE*)y, ylen);
+	sha256_final(&ctx, (BYTE*)out);
+}
+
+bool hmac_sha256(char* key, size_t keylen, char* data, size_t datalen, char* output) {
+	uint8_t k[64];
+	uint8_t k_ipad[64];
+	uint8_t k_opad[64];
+	uint8_t ihash[32];
+	uint8_t ohash[32];
+
+	size_t sz;
+	int i;
+
+	memset(k, 0, sizeof(k));
+	memset(k_ipad, 0x36, sizeof(k_ipad));
+	memset(k_opad, 0x5c, sizeof(k_opad));
+
+	// Assumption about blang key size
+	// Would need to digest it if > 64
+	if(keylen != 32)
+		return false;
+	memcpy(k, key, keylen);
+
+	for (i = 0; i < 64; i++) {
+		k_ipad[i] ^= k[i];
+		k_opad[i] ^= k[i];
+	}
+
+	// Perform HMAC algorithm: ( https://tools.ietf.org/html/rfc2104 )
+	//      `H(K XOR opad, H(K XOR ipad, data))`
+	H(k_ipad, sizeof(k_ipad), data, datalen, ihash, sizeof(ihash));
+	H(k_opad, sizeof(k_opad), ihash, sizeof(ihash), ohash, sizeof(ohash));
+
+	memcpy(output, ohash, 32);
+	return true;
+
+}

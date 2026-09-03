@@ -130,7 +130,8 @@ void PackagerMain(const char* DIR_GAME, fspath DIR_INPUT, fspath ZIP_OUTPUT)
 		{"slug_font",     rt_slug_font},
 		{"baseModel",	  rt_baseModel},
 		{"strandsHair",   rt_strandsHair},
-		{"compfile",      rt_compfile}
+		{"compfile",      rt_compfile},
+		{"binaryFile",    rt_binaryFile}
 	};
 
 	AtlanModConfig ModConfig;
