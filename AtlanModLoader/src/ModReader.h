@@ -29,9 +29,11 @@ struct ModDef {
 
 	~ModDef();
 
-	ModDef() {}
+	ModDef() = default;
 	ModDef(const ModDef& other) = delete;
+	ModDef(const ModDef&& other) = delete;
 	void operator=(const ModDef& other) = delete;
+	void operator=(const ModDef&& other) = delete;
 };
 
 struct ModFile {
@@ -85,6 +87,12 @@ struct GlobalConfig_t {
 	std::unordered_map <std::string, std::vector<ModFile*>> blanginfo;
 
 	std::vector<std::string> mapspec;
+
+	GlobalConfig_t() = default;
+	GlobalConfig_t(const GlobalConfig_t& other) = delete;
+	GlobalConfig_t(const GlobalConfig_t&& other) = delete;
+	GlobalConfig_t& operator=(const GlobalConfig_t& other) = delete;
+	GlobalConfig_t& operator=(const GlobalConfig_t&& other) = delete;
 };
 
 namespace ModReader {

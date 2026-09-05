@@ -604,6 +604,90 @@ bool Modify_BuildManifest(const fspath& manifestpath) {
 #include "archives/MapResources.h"
 #include "archives/Blang.h"
 
+bool Query_Archives_Blang(GlobalConfig_t& config, ModDef& GlobalMod, ResourceEntryData_t EntryData, const char* blangname) {
+	const std::vector<ModFile*>& Langcsvs = config.blanginfo[blangname];
+
+	idcl::blangmodargs langargs;
+	langargs.blang = (char*)EntryData.buffer;
+	langargs.blanglength = EntryData.length;
+	langargs.blangname = blangname;
+	langargs.numcsvs = (int)Langcsvs.size();
+
+	char** p_csvs = new char*[langargs.numcsvs];
+	size_t* l_csvs = new size_t[langargs.numcsvs];
+
+	for(int i = 0; i < langargs.numcsvs; i++) {
+		p_csvs[i] = Langcsvs[i]->dataBuffer;
+		l_csvs[i] = Langcsvs[i]->dataLength;
+	}
+
+	langargs.csvs = p_csvs;
+	langargs.csvlengths = l_csvs;
+
+	charbuffer_t ModdedLang;
+	bool Success = idcl::blang_modify(langargs, ModdedLang);
+	delete[] p_csvs;
+	delete[] l_csvs;
+
+	if(!Success) {
+		atlog("ERROR: Failed to modify blang file");
+		return false;
+	}
+
+	GlobalMod.modFiles.emplace_back();
+	ModFile* f = &GlobalMod.modFiles.back();
+	f->typestring = "binaryFile";
+	f->typeenum = rt_binaryFile;
+	f->parentMod = &GlobalMod;
+	f->assetPath = blangname;
+	f->realPath = "GENERATED";
+	f->ownsData = true;
+	f->resourceVersion = 1;
+
+	// Transfer ownership from buffer to modfile
+	f->dataLength = ModdedLang.length;
+	f->dataBuffer = ModdedLang.data;
+	ModdedLang.data = nullptr;
+	ModdedLang.length = 0;
+	ModdedLang.capacity = 0;
+
+	return true;
+}
+
+bool Query_Archives_MapResources(GlobalConfig_t& config, ModDef& ModDef_MapResources, ResourceEntryData_t EntryData, const char* filename) {
+	MapResource CurrentMap;
+
+	if (!CurrentMap.Parse(EntryData.buffer, EntryData.length)) {
+		atlog("ERROR: Failed to parse file");
+		return false;
+	}
+
+	GlobalConfig_t::mapres_t& editinfo = config.mapresinfo.find(filename)->second;
+	BinaryWriter finalbin;
+
+	atlog("- New Entries: %zu, Load All: %hhu", editinfo.entries.size(), editinfo.LoadAll);
+	if (!CurrentMap.AddFiles(editinfo.entries.data(), editinfo.entries.size(), editinfo.LoadAll, finalbin)) {
+		atlog("ERROR: Failed to insert entries");
+		return false;
+	}
+
+	ModDef_MapResources.modFiles.emplace_back();
+	ModFile* f = &ModDef_MapResources.modFiles.back();
+	f->typestring = "file";
+	f->typeenum = rt_file;
+	f->parentMod = &ModDef_MapResources;
+	f->assetPath = filename;
+	f->realPath = "GENERATED";
+	f->dataLength = finalbin.GetFilledSize();
+	f->dataBuffer = finalbin.Finalize();
+	f->ownsData = true;
+	if (g_game == game_darkages)
+		f->resourceVersion = 2;
+	else f->resourceVersion = 1;
+
+	return true;
+}
+
 bool Query_Archives(std::unordered_map<std::string, ModFile*>& FileMap, GlobalConfig_t& config, ModDef& ModDef_MapResources, const fspath& path_mapspec) {
 
 	/*
@@ -629,11 +713,14 @@ bool Query_Archives(std::unordered_map<std::string, ModFile*>& FileMap, GlobalCo
 	/*
 	* Step 2: Query for Data
 	*/
+
 	std::string lookupstring;
 	idcl::ArchiveIterator iter(path_mapspec, false);
 	ResourceEntryBuffers_t EntryBuffers;
 	for (const ResourceEntry& e : iter) {
 
+		// TODO: We can probably simplify the lookup string format since
+		// all files we need to query for have unique names (.mapentities, .blang, .mapresources)
 		lookupstring = iter.typestring;
 		lookupstring.append(iter.namestring);
 
@@ -643,93 +730,22 @@ bool Query_Archives(std::unordered_map<std::string, ModFile*>& FileMap, GlobalCo
 		ModFile* f = mapiter->second;
 
 		// Nullptr --> a .mapresource or .blang file that we need
-		// TODO: Split this into different functions
 		if(f == nullptr) {
 			ResourceEntryData_t EntryData = Get_EntryData(e, iter.archive.filehandle, EntryBuffers);
 
 			atlog("Modifying %s", iter.namestring);
 
+			bool result = false;
 			if (strcmp(iter.typestring, "binaryFile") == 0) {
-
-				const std::vector<ModFile*>& Langcsvs = config.blanginfo[iter.namestring];
-				
-				idcl::blangmodargs langargs;
-				langargs.blang = (char*)EntryData.buffer;
-				langargs.blanglength = EntryData.length;
-				langargs.blangname = iter.namestring;
-				langargs.numcsvs = Langcsvs.size();
-
-				char** p_csvs = new char*[langargs.numcsvs];
-				size_t* l_csvs = new size_t[langargs.numcsvs];
-
-				for(int i = 0; i < langargs.numcsvs; i++) {
-					p_csvs[i] = Langcsvs[i]->dataBuffer;
-					l_csvs[i] = Langcsvs[i]->dataLength;
-				}
-
-				langargs.csvs = p_csvs;
-				langargs.csvlengths = l_csvs;
-
-				charbuffer_t ModdedLang;
-				bool Success = idcl::blang_modify(langargs, ModdedLang);
-				delete[] p_csvs;
-				delete[] l_csvs;
-
-				// TODO FIXME: Must erase from map before this or it will find
-				// other copies of the file, probably same thing with mapresources?
-				if(!Success) {
-					atlog("ERROR: Failed to modify blang file");
-					return false;
-				}
-
-				ModDef_MapResources.modFiles.emplace_back();
-				f = &ModDef_MapResources.modFiles.back();
-				f->typestring = "binaryFile";
-				f->typeenum = rt_binaryFile;
-				f->parentMod = &ModDef_MapResources;
-				f->assetPath = iter.namestring;
-				f->realPath = "GENERATED";
-				f->ownsData = true;
-				f->resourceVersion = 1;
-
-				// Transfer ownership from buffer to modfile
-				f->dataLength = ModdedLang.length;
-				f->dataBuffer = ModdedLang.data;
-				ModdedLang.data = nullptr;
-				ModdedLang.length = 0;
-				ModdedLang.capacity = 0;
+				result = Query_Archives_Blang(config, ModDef_MapResources, EntryData, iter.namestring);
 			}
 			else {
-				MapResource CurrentMap;
-
-				if (!CurrentMap.Parse(EntryData.buffer, EntryData.length)) {
-					atlog("ERROR: Failed to parse file");
-					return false;
-				}
-
-				GlobalConfig_t::mapres_t& editinfo = config.mapresinfo.find(iter.namestring)->second;
-				BinaryWriter finalbin;
-
-				atlog("- New Entries: %zu, Load All: %hhu", editinfo.entries.size(), editinfo.LoadAll);
-				if (!CurrentMap.AddFiles(editinfo.entries.data(), editinfo.entries.size(), editinfo.LoadAll, finalbin)) {
-					atlog("ERROR: Failed to insert entries");
-					return false;
-				}
-
-				ModDef_MapResources.modFiles.emplace_back();
-				f = &ModDef_MapResources.modFiles.back();
-				f->typestring = "file";
-				f->typeenum = rt_file;
-				f->parentMod = &ModDef_MapResources;
-				f->assetPath = iter.namestring;
-				f->realPath = "GENERATED";
-				f->dataLength = finalbin.GetFilledSize();
-				f->dataBuffer = finalbin.Finalize();
-				f->ownsData = true;
-				if(g_game == game_darkages)
-					f->resourceVersion = 2;
-				else f->resourceVersion = 1;
+				result = Query_Archives_MapResources(config, ModDef_MapResources, EntryData, iter.namestring);
 			}
+
+			// It would be wise to abort mod loading here rather than let partially broken mods get through
+			if(!result)
+				return false;
 		}
 		else {
 			f->defaulthash = e.defaultHash;
@@ -738,7 +754,7 @@ bool Query_Archives(std::unordered_map<std::string, ModFile*>& FileMap, GlobalCo
 
 		FileMap.erase(mapiter);
 		if (FileMap.empty()) {
-			atlog("All hashes found");
+			atlog("Found all required files");
 			break;
 		}
 	}
@@ -1177,7 +1193,8 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 	
 	// Do not end in a / or there may be problems when running system commands 
 	// (it won't translate string literal slashes to the appropriate slash like it does when using the / operator)
-	fspath gamedirectory = "."; 
+	fspath gamedirectory = ".";
+	bool allowEternal = false;
 
 	/*
 	* Parse Command Line Arguments
@@ -1198,6 +1215,11 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 		else if (arg == "--nolaunch") {
 			atlog("ARGS: Game will not launch after loading mods");
 			argflags |= argflag_nolaunch;
+		}
+
+		else if (arg == "--eternal") {
+			atlog("ARGS: Experimental Doom Eternal support enabled");
+			allowEternal = true;
 		}
 
 		#if 0
@@ -1246,10 +1268,11 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 		g_archiveversion = 12;
 		g_game = game_eternal;
 
-		#if 0 // Turn this off when Eternal is supported
-		atlog("FATAL ERROR: Doom Eternal not supported");
-		return;
-		#endif
+		// Turn this off when Eternal is supported
+		if (!allowEternal) {
+			atlog("FATAL ERROR: Doom Eternal not supported");
+			return;
+		}
 	}
 	else {
 		atlog("FATAL ERROR: Could not locate valid game executable");
