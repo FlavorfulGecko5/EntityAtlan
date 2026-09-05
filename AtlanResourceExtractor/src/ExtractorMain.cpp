@@ -354,6 +354,10 @@ void AudioExtractor(const configdata_t& config)
 	}
 	
 	atlog("Audio Extractor complete");
+	if (ExtractedSamples.size() == 0) {
+		atlog("WARNING: No audio files were extracted.\n"
+		"   In your config, remember to remove the '//' in front of the audio types you want to extract");
+	}
 
 	std::ofstream dupelogwriter(audiodir / "duplicate_log.txt", std::ios_base::binary);
 	dupelogwriter << sampleMap.GetDuplicateLog();

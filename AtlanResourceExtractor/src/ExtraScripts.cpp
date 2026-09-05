@@ -93,6 +93,85 @@ void Script_DumpResourceTypes(const fspath& gamedir, const fspath& outputdir)
 	outwriter.close();
 }
 
+void Script_AggregateEntryVars(const fspath& gamedir, const fspath& outputdir) {
+	atlog("Running Script: Aggregate Resource Entry Variables");
+
+	struct aggregate_t {
+		std::set<u32> versions;
+		std::set<u32> offversions;
+		std::set<u32> flags;
+		std::set<u32> offflags;
+		std::set<u16> variations;
+		std::set<u16> offvariations;
+		bool hasDefaultHash = false;
+	};
+
+	std::unordered_map<std::string, aggregate_t> Map;
+	Map.reserve(35);
+
+	idcl::ArchiveIterator iter(gamedir / "base/packagemapspec.json", true);
+	iter.allowUnmasked = false;
+	iter.allowDisabled = true;
+
+	for (const ResourceEntry& e : iter) {
+		aggregate_t& agg = Map[iter.typestring];
+
+		if (iter.isEnabled) {
+			agg.versions.insert(e.version);
+			agg.flags.insert(e.flags);
+			agg.variations.insert(e.variation);
+		}
+		else {
+			agg.offversions.insert(e.version);
+			agg.offflags.insert(e.flags);
+			agg.offvariations.insert(e.variation);
+		}
+
+		if(e.dataCheckSum != e.defaultHash)
+			agg.hasDefaultHash = true;
+	}
+	
+	std::set<std::string> SortedTypes;
+	for(const auto& pair : Map)
+		SortedTypes.insert(pair.first);
+
+	std::ofstream outwriter(outputdir / "AggregateEntryInfo.txt");
+	outwriter << "Aggregate information for all resource types (container mask active)\n";
+
+	for (const std::string& Type : SortedTypes) {
+		outwriter << "\n" << Type;
+		const aggregate_t& agg = Map[Type];
+
+		outwriter << "\n   Enabled Versions: ";
+		for(u32 v : agg.versions)
+			outwriter << std::to_string(v) << ", ";
+		
+		outwriter << "\n   Enabled Flags: ";
+		for(u32 f : agg.flags)
+			outwriter << std::to_string(f) << ", ";
+
+		outwriter << "\n   Enabled Variations: ";
+		for(u16 v : agg.variations)
+			outwriter << std::to_string(v) << ", ";
+
+		if(agg.hasDefaultHash)
+			outwriter << "\n   StreamDB Entries";
+
+		outwriter << "\n   Disabled Versions: ";
+		for (u32 v : agg.offversions)
+			outwriter << std::to_string(v) << ", ";
+
+		outwriter << "\n   Disabled Flags: ";
+		for (u32 f : agg.offflags)
+			outwriter << std::to_string(f) << ", ";
+
+		outwriter << "\n   Disabled Variations: ";
+		for (u16 v : agg.offvariations)
+			outwriter << std::to_string(v) << ", ";
+	}
+
+}
+
 void RunExtraScripts(fspath gamedir, fspath outputdir)
 {
 	atlog("Running Extra Scripts");
@@ -102,4 +181,6 @@ void RunExtraScripts(fspath gamedir, fspath outputdir)
 		std::filesystem::create_directory(outputdir);
 
 	Script_DumpResourceTypes(gamedir, outputdir);
+
+	Script_AggregateEntryVars(gamedir, outputdir);
 }
