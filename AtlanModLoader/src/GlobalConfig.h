@@ -2,7 +2,7 @@
 
 #include "archives/GameEnums.h"
 
-#define MOD_LOADER_VERSION 8
+#define MOD_LOADER_VERSION 9
 
 enum ArgFlags {
 	argflag_resetvanilla = 1 << 0,

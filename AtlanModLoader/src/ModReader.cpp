@@ -28,8 +28,8 @@ const std::unordered_map<std::string, resourcetypeinfo_t> ValidResourceTypes = {
 	{"mapentities",   {"mapentities",   rt_mapentities,   game_darkages, 86}},
 	{"image",         {"image",         rt_image,         game_darkages, 26}},
 	{"slug_font",     {"slug_font",     rt_slug_font,     game_darkages, 14}},
-	{"baseModel",     {"baseModel",     rt_baseModel,     game_darkages, 62}},
-	{"strandsHair",   {"strandsHair",   rt_strandsHair,   game_darkages, 48}},
+	{"baseModel",     {"baseModel",     rt_baseModel,     game_none, 62}},
+	{"strandsHair",   {"strandsHair",   rt_strandsHair,   game_none, 48}},
 	{"compfile",      {"compfile",      rt_compfile,      game_eternal, 1, 1}},
 	{"binaryFile",    {"binaryFile",    rt_binaryFile,    game_eternal, 1, 1}},
 
