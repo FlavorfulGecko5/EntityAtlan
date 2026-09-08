@@ -149,7 +149,7 @@ uint64_t mix33(uint64_t num) {
 	return num ^ (num >> 33);
 }
 
-uint64_t HashLib::streamdb_miphash(uint64_t defaultHash, uint64_t mipId, uint64_t zero)
+uint64_t HashLib::darkage_miphash(uint64_t defaultHash, uint64_t mipId, uint64_t zero)
 {
 	const uint64_t C1 = 0xFF51AFD7ED558CCDULL;
 	const uint64_t C2 = 0xC4CEB9FE1A85EC53ULL;

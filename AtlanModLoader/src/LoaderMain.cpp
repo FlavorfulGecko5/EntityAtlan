@@ -187,12 +187,19 @@ bool BuildArchive_Image(ResourceEntry& e, const ModFile& f, BuildArchiveStreams&
 	BufferToWrite = imgdef.binaryblob;
 	out.WriteResource(BufferToWrite, e);
 
+	// Luckily....the mip count is in the early portion of the header that won't have alignment problems
+	// The Atlan Image Header format was not designed with Eternal's miphash algorithm in mind
+	const u32 HACK_header_mipcount = ((ImageHeader*)imgdef.binaryblob)->mipCount;
+
 	// Write the StreamDB Data
 	BufferToWrite += imgdef.entry_length;
 	for (uint64_t mipindex = 0; mipindex < imgdef.streamdbmips; mipindex++) {
 		idStreamDB::entry_t streamdb_entry;
 
-		streamdb_entry.id = HashLib::streamdb_miphash(f.defaulthash, imgdef.streamdbmips - mipindex - 1, 0);
+		if(g_game == game_darkages)
+			streamdb_entry.id = HashLib::darkage_miphash(f.defaulthash, imgdef.streamdbmips - mipindex - 1, 0);
+		else streamdb_entry.id = e.defaultHash << 4 | (HACK_header_mipcount - mipindex);
+
 		streamdb_entry.length = imgdef.mipinfos[mipindex].compressedSize;
 		streamdb_entry.offset16 = (u32)(out.streamDataOffset / 16);
 		out.streamEntries.push_back(streamdb_entry);
@@ -226,13 +233,14 @@ bool BuildArchive_BaseModel(ResourceEntry& e, const ModFile& f, BuildArchiveStre
 	out.WriteResource(BufferToWrite, e);
 
 	// StreamDB
-	// md6 geometry: one compressed blob per LOD, keyed by streamdb_miphash(defaultHash, 4 - lod, 0)
+	// md6 geometry: one compressed blob per LOD, keyed by darkage_miphash(defaultHash, 4 - lod, 0)
+	// TODO: If support for this is brought to Eternal, will need to swap hash algorithms
 	const Md6ModStreamInfo* streams = (const Md6ModStreamInfo*)((char*)f.dataBuffer + sizeof(Md6ModWrapperHeader));
 	const char* streamPtr = BufferToWrite + wh->defSize; // BufferToWrite points at the def
 
 	for (uint32_t i = 0; i < wh->numStreams; i++) {
 		idStreamDB::entry_t streamdb_entry;
-		streamdb_entry.id = HashLib::streamdb_miphash(f.defaulthash, 4 - streams[i].lod, 0);
+		streamdb_entry.id = HashLib::darkage_miphash(f.defaulthash, 4 - streams[i].lod, 0);
 		streamdb_entry.length = streams[i].compressedSize;
 		streamdb_entry.offset16 = (u32)(out.streamDataOffset / 16);
 		out.streamEntries.push_back(streamdb_entry);

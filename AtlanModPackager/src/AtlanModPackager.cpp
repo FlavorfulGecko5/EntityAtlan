@@ -218,7 +218,7 @@ void PackagerMain(const char* DIR_GAME, fspath DIR_INPUT, fspath ZIP_OUTPUT)
 		}
 		const ResourceType RESTYPE = TYPEITER->second;
 
-		if(RESTYPE == rt_image) {
+		if(RESTYPE == rt_image && idImageEncodingContext::CanEncode(modfile.c_str())) {
 
 			// Extract encoding info from end of filename if it exists
 			std::string EncodingInfo;

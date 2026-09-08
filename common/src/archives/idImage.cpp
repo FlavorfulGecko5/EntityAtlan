@@ -11,13 +11,15 @@ bool ImageHeader::Read(const char* data, const size_t length)
 	if (length < 40)
 		return false;
 	memcpy(this, data, 40);
+	check(magic[0] == 'B' && magic[1] == 'I' && magic[2] == 'M');
+
 	BinaryReader reader(data + 40, length - 40);
 
-	checkread(padding1);
+	checkread(isEnvironmentMap);
 	checkread(*reinterpret_cast<int*>(&textureFormat));
-	checkread(always8);
-	checkread(padding2);
-	checkread(padding3);
+	checkread(engineVersion);
+	checkread(nullpadding);
+	checkread(atlaspadding);
 	checkread(streamed);
 	checkread(singleStream);
 	checkread(noMips);
@@ -31,6 +33,22 @@ bool ImageHeader::Read(const char* data, const size_t length)
 		HEADER_LENGTH = 63;
 	}
 	checkread(streamDBMipCount);
+
+	if(textureType == TT_CUBIC)
+		mipCount *= 6;
+
+	// Separate the minimum mip from the streamdbMipCount
+	if(textureType == TT_2D) {
+		minimumMip = (streamDBMipCount & ~0xF) >> 4;
+		streamDBMipCount &= 0xF;
+		check(minimumMip <= 6);
+	}
+	else {
+		// Supposedly need to use 0xFFFF as the mask for non-2D textures
+		// However, it appears to not be necessary
+		minimumMip = 0;
+		check(streamDBMipCount <= 0xFF);
+	}
 
 	return true;
 }
@@ -49,9 +67,6 @@ bool idImage::Read(const char* data, size_t length, bool FullyValidate)
 	/*
 	* Step 2: Read the mip infos
 	*/
-
-	if(header.textureType == TT_CUBIC)
-		header.mipCount *= 6;
 
 	const size_t mipinfosize = header.mipCount * sizeof(ImageMipInfo);
 	if (reader.GetRemaining() < mipinfosize) {
@@ -74,21 +89,21 @@ bool idImage::Read(const char* data, size_t length, bool FullyValidate)
 			check(reader.ReadBytes(dummy, mipinfos[i].decompressedSize));
 		}
 		check(reader.ReachedEOF());
-		check(header.version >= 23 && header.version <= 26);
+		check(header.version <= 26 && header.version >= 17); // Technically versions 19, 20 and 22 have never been encountered
 
-		// Largest texture sizes are 2^13 == 4096 hence 13 mips
+		// Doom Eternal has some 8K textures: hence sizes are 2^14 = 8192 = 14 mips
 		if (header.textureType == TT_CUBIC) {
-			check(header.mipCount / 6 < 14);
+			check(header.mipCount / 6 <= 14);
 		}
 		else {
-			check(header.mipCount < 14);
+			check(header.mipCount <= 14);
 		}
 
-		check(header.unkFloat1 == 0.0);
-		check(header.padding1 == 0);
-		check(header.always8 == 8);
-		check(header.padding2 == 0);
-		check(header.padding3 == 0);
+		check(header.unkFlags == 0 || header.unkFlags == 64); // One image in Doom Eternal has a value of 64
+		check(header.isEnvironmentMap == 0);
+		check(header.engineVersion == header.version < 23 ? 7 : 8);
+		check(header.nullpadding == 0);
+		check(header.atlaspadding == 0);
 
 		check(header.streamDBMipCount <= header.mipCount);
 		if (header.streamDBMipCount < header.mipCount) {
@@ -154,30 +169,36 @@ void ImageMipInfo::tostring(std::string& addto) const
 
 void ImageHeader::tostring(std::string& addto) const
 {
-	addto.append("\tmagic = ");
-	addto.push_back(magic[0]); addto.push_back(magic[1]); addto.push_back(magic[2]); addto.append("\n");
+	//addto.append("\tmagic = ");
+	//addto.push_back(magic[0]); addto.push_back(magic[1]); addto.push_back(magic[2]); addto.append("\n");
 
 	addprop(version)
 
-	addto.append("\ttextureType = ");
+	addto.append("\ttype = ");
 	addto.append(textureType_tostring(textureType));
 
-	addto.append("\n\ttextureMaterialKind = ");
+	addto.append("\n\tmtlkind = ");
 	addto.append(textureMaterialKind_tostring(textureMaterialKind));
 	addto.append("\n");
 
 	addprop(pixelWidth) addprop(pixelHeight) addprop(depth)
-	addprop(mipCount) addprop(unkFloat1) addprop(albedoSpecularBias)
+	addprop(mipCount) 
+	if(unkFlags)
+		addprop(unkFlags) 
+	addprop(albedoSpecularBias)
 	addprop(albedoSpecularScale)
-	addprop(padding1)
+	if(isEnvironmentMap)
+		addprop(isEnvironmentMap)
 
-	addto.append("\ttextureFormat = ");
+	addto.append("\tformat = ");
 	addto.append(textureFormat_tostring(textureFormat));
 	addto.append("\n");
 
-	addprop(always8);
-	addprop(padding2);
-	addprop(padding3);
+	addprop(engineVersion);
+	if(nullpadding)
+		addprop(nullpadding);
+	if(atlaspadding)
+		addprop(atlaspadding);
 	addprop(streamed);
 	addprop(singleStream);
 	addprop(noMips);
@@ -187,29 +208,32 @@ void ImageHeader::tostring(std::string& addto) const
 		addprop(prefiltermips);
 
 	addprop(streamDBMipCount);
+	if(minimumMip)
+		addprop(minimumMip);
 }
 
-void ImageHeader::DefaultInitialize() {
+void ImageHeader::DefaultInitialize(gamebit_t gameid) {
 	magic[0] = 'B'; magic[1] = 'I'; magic[2] = 'M';
-	version = 26;
+	version = gameid == game_darkages ? 26 : 21;
 	textureType = TT_2D;
 	textureMaterialKind = TMK_NONE;
 	pixelWidth = 0; pixelHeight = 0;
 	depth = 0;
 	mipCount = 0;
-	unkFloat1 = 0;
+	unkFlags = 0;
 	albedoSpecularBias = 0;
 	albedoSpecularScale = 1;
-	padding1 = 0;
+	isEnvironmentMap = 0;
 	textureFormat = FMT_NONE;
-	always8 = 8;
-	padding2 = 0; padding3 = 0;
+	engineVersion = version < 23 ? 7 : 8;
+	nullpadding = 0; atlaspadding = 0;
 	streamed = 1;
 	singleStream = 0;
 	noMips = 0;
 	fftBloom = 0;
 	prefiltermips = 0;
 	streamDBMipCount = 0;
+	minimumMip = 0;
 	CalcHeaderSize();
 }
 

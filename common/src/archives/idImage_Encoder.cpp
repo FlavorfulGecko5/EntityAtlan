@@ -29,9 +29,28 @@ void idImageEncodingContext::COMThreadRelease() {
 	CoUninitialize();
 }
 
+bool idImageEncodingContext::CanEncode(const wchar_t* filepath)
+{
+	char magic[4] = {0};
+	FileReader reader;
+	reader.open(filepath);
+	reader.read(magic, 4);
+
+	// Check for png magic bytes
+	return *(int*)magic == 'GNP\x89';
+}
+
 bool idImageEncodingContext::InitializeContext(const std::string& gamedir, int in_CompressionLevel, const std::string* in_AssetPaths, size_t num_AssetPaths) {
 
 	m_CompressionLevel = in_CompressionLevel;
+	if(std::filesystem::exists( fspath(gamedir) / "DOOMTheDarkAges.exe"))
+		m_gameid = game_darkages;
+	else if(std::filesystem::exists(fspath(gamedir) / "DOOMEternalx64vk.exe"))
+		m_gameid = game_eternal;
+	else {
+		atlog("FATAL ERROR: Image encoder could not find a valid game executable");
+		return false;
+	}
 		
 	/*
 	* Step 2: Intialize device
@@ -136,9 +155,9 @@ DXGI_FORMAT idFormat_To_DXGI(const textureFormat_t idFormat) {
 	}
 }
 
-bool BuildOriginalImageHeader(const std::string& AssetPath, const std::string& EncodingInfo, ImageHeader& header, std::string& OutputLog)
+bool BuildOriginalImageHeader(const std::string& AssetPath, const std::string& EncodingInfo, ImageHeader& header, std::string& OutputLog, gamebit_t gameid)
 {
-	header.DefaultInitialize();
+	header.DefaultInitialize(gameid);
 
 	if (EncodingInfo.length()) {
 
@@ -203,7 +222,7 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, size_t Jo
 		idImageEncodingQuery& query = m_querylist[JobIndex];
 		if (!query.found) {
 			
-			if (BuildOriginalImageHeader(AssetPath, EncodingInfo, header, OutputLog)) {
+			if (BuildOriginalImageHeader(AssetPath, EncodingInfo, header, OutputLog, m_gameid)) {
 				OutputLog.append("   Non-Vanilla Image Recognized ( ");
 				OutputLog.append(textureFormat_tostring(header.textureFormat));
 				OutputLog.append(", ");
@@ -225,7 +244,7 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, size_t Jo
 	* Step 2: Ensure this image type is supported
 	*/
 
-	if (header.version < 23 || header.version > 26) {
+	if (header.version > 26 || header.version < 17) {
 		OutputLog.append("   ERROR: Unsupported Image File Version\n");
 		return false;
 	}
@@ -379,13 +398,13 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, size_t Jo
 		<< header.textureType 
 		<< header.textureMaterialKind
 		<< header.pixelWidth << header.pixelHeight << header.depth
-		<< header.mipCount << header.unkFloat1
-		<< header.albedoSpecularBias << header.albedoSpecularScale << header.padding1
-		<< header.textureFormat << header.always8 << header.padding2 << header.padding3
+		<< header.mipCount << header.unkFlags
+		<< header.albedoSpecularBias << header.albedoSpecularScale << header.isEnvironmentMap
+		<< header.textureFormat << header.engineVersion << header.nullpadding << header.atlaspadding
 		<< header.streamed << header.singleStream << header.noMips << header.fftBloom;
 	if(header.version > 23)
 		writer << header.prefiltermips;
-	writer << header.streamDBMipCount;
+	writer << (header.streamDBMipCount | (header.minimumMip << 4)); // This assumes a 2D texture type
 
 	// Reserve space for the mipinfo array. We'll copy it in later
 	// once we've fully populated all fields
@@ -462,7 +481,7 @@ bool idAtlanImage::Read(const uint8_t* data, size_t length) {
 	check(version == 2);
 
 	check(reader.ReadLE(bimversion));
-	check(bimversion >= 23 && bimversion <= 26);
+	check(bimversion <= 26 && bimversion >= 17);
 
 	check(reader.ReadLE(singlestream));
 	check(reader.ReadLE(streamdbmips));

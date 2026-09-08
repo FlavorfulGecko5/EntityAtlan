@@ -2,6 +2,7 @@
 
 #include <string>
 #include <unordered_map>
+#include "GameEnums.h"
 
 #define DEBUG_COLLECT_EXTENSIONPROPS 0
 #if DEBUG_COLLECT_EXTENSIONPROPS
@@ -39,11 +40,11 @@ enum textureMaterialKind_t {
     TMK_PARTICLE        = 14,
     TMK_DECALHEIGHTMAP  = 15,
     TMK_AO              = 16,
-    TMK_UNUSED_3        = 17,
+    TMK_UNUSED_3        = 17, // Eternal: TMK_LIGHTMAP: Shouldn't be necessary to support
     TMK_UI              = 18,
     TMK_FONT            = 19,
     TMK_LEGACY_FLASH_UI = 20,
-    TMK_UNUSED_4        = 21,
+    TMK_UNUSED_4        = 21, // Eternal: TMK_LIGHTMAP_DIRECTIONAL: Shouldn't be necessary to support
     TMK_BLENDMASK       = 22,
     TMK_PAINTEDDATAGRID = 23,
     TMK_COUNT           = 24,
@@ -145,14 +146,14 @@ struct ImageHeader {
     u32 pixelHeight;
     u32 depth; // For 3D images (i.e. 128x128x128)
     u32 mipCount; // For cubics you need to multiply the raw value by 6 after reading it
-    f32 unkFloat1; // Always 0
+    u32 unkFlags; // Always 0 - except for one single image in Doom Eternal. Probably textureOptions_t
     f32 albedoSpecularBias;
     f32 albedoSpecularScale;
-    u8  padding1;
+    u8  isEnvironmentMap; // Always 0
     textureFormat_t textureFormat;
-    u32 always8;
-    u32 padding2;
-    u16 padding3;
+    u32 engineVersion; // Eternal: Always 7, Dark Ages: Always 8
+    u32 nullpadding; // Always 0
+    u16 atlaspadding;
     u8  streamed; // If true, there are mips stored in the streamdb files
     u8  singleStream; // If true, all streamdb mips are placed in one streamdb entry. Only true for lightprobes in the vanilla files
     u8  noMips;
@@ -167,6 +168,9 @@ struct ImageHeader {
     // (This is not read/written to the file, it's here for convenience because of optional flags)
     u32 HEADER_LENGTH; 
 
+    // Packed into second nibble of streamDBMipCount. 2D Textures Only
+    u32 minimumMip;
+
     bool Read(const char* data, const size_t length);
 
     void tostring(std::string& addto) const;
@@ -176,7 +180,7 @@ struct ImageHeader {
         return HEADER_LENGTH;
     }
 
-    void DefaultInitialize();
+    void DefaultInitialize(gamebit_t gameid);
 };
 
 struct ImageMipInfo {
@@ -236,6 +240,7 @@ struct idImageEncodingContext {
     ID3D11DeviceContext* m_context = nullptr;
     D3D_FEATURE_LEVEL    m_featurelevel;
     idImageEncodingQuery* m_querylist = nullptr;
+    gamebit_t m_gameid = game_none;
     
     bool InitializeContext(const std::string& gamedir, int in_CompressionLevel, const std::string* in_AssetPaths, size_t num_AssetPaths);
     bool EncodeImage(const std::string& AssetPath, size_t JobIndex, const std::string& EncodingInfo, const wchar_t* FilePath, idImageEncodingResults& results, std::string& OutputLog) const;
@@ -248,6 +253,11 @@ struct idImageEncodingContext {
     // Wrapper for WinAPI CoInitializeEx
     static bool COMThreadInit();
     static void COMThreadRelease();
+
+    // Returns true if the file is an encodable image
+    // Checking this will allow unzipped mods to have pre-encoded
+    // images in them, so they don't have to always get re-encoded
+    static bool CanEncode(const wchar_t* filepath);
 };
 
 /*

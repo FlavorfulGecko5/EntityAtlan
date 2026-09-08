@@ -26,7 +26,7 @@ const std::unordered_map<std::string, resourcetypeinfo_t> ValidResourceTypes = {
 	{"logicLibrary",  {"logicLibrary",  rt_logicLibrary,  game_darkages, 4}},
 	{"logicUIWidget", {"logicUIWidget", rt_logicUIWidget, game_darkages, 4}},
 	{"mapentities",   {"mapentities",   rt_mapentities,   game_darkages, 86}},
-	{"image",         {"image",         rt_image,         game_darkages, 26}},
+	{"image",         {"image",         rt_image,         game_all, 26, 21}},
 	{"slug_font",     {"slug_font",     rt_slug_font,     game_darkages, 14}},
 	{"baseModel",     {"baseModel",     rt_baseModel,     game_none, 62}},
 	{"strandsHair",   {"strandsHair",   rt_strandsHair,   game_none, 48}},
@@ -324,12 +324,7 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 			continue;
 		}
 
-		// For simplicity, assume any unzipped image file is unencoded
-		// (This beats reading the image file, checking if it's an Atlan Image,
-		//    and then having the encoder re-read it when it's inevitably not an Atlan Image.
-		//	  Don't want to bother developing an Encode-From-Memory pipeline
-		//    just for this edge case that shouldn't reasonably happen)
-		if (modfile.typeenum == rt_image) {
+		if (modfile.typeenum == rt_image && idImageEncodingContext::CanEncode(FilePath.c_str())) {
 			
 			ImageJobs.jobs.emplace_back();
 			
