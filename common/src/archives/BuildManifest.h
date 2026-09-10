@@ -25,8 +25,18 @@ namespace idcl {
 		void encrypt();
 		void write(const wchar_t* writeto);
 		void writejson(const wchar_t* writeto);
-		bool modify(const wchar_t* readfrom, const wchar_t* writeto, const char* newdata, const size_t newlength, bool writeUnencrypted);
+		bool modify_deprecated(const wchar_t* readfrom, const wchar_t* writeto, const char* newdata, const size_t newlength, bool writeUnencrypted);
 
 		static bool ismodded(const wchar_t* filepath);
+
+		struct modargs_t {
+			const wchar_t* gamedir;
+		};
+
+		static bool modfromcache(modargs_t args);
+
+		// RewriteBin: If true, re-encrypt and overwrite the original binary
+		// with a modded file signature
+		static bool buildsimplemanifest(const wchar_t* binpath, bool RewriteBin);
 	};
 }

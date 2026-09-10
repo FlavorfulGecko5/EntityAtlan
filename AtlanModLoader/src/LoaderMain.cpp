@@ -581,32 +581,12 @@ bool Modify_PackageMapSpec(const fspath& pmspath, bool includeStreamDB, GlobalCo
 
 #include "archives/BuildManifest.h"
 
-bool Modify_BuildManifest(const fspath& manifestpath) {
+bool Modify_BuildManifest(const fspath& gamedir) {
 	if(g_game != game_eternal)
 		return true;
 
-	// We can safely add entries that don't exist, so we don't need to check
-	// if we're actually building the streamdb
-	const std::string newentry = R"(
-		, "modarchives/common_mod.resources": {
-			"fileSize": 123,
-			"chunkSize": 999999999,
-			"hashes": [
-				"ffffffffffffffffffffffffffffffffffffffff"
-			]
-		},
-		"modarchives/common_mod.streamdb": {
-			"fileSize": 123,
-			"chunkSize": 999999999,
-			"hashes": [
-				"ffffffffffffffffffffffffffffffffffffffff"
-			]
-		}
-		} }		
-	)";
-
-	idcl::buildmanifest manifest;
-	return manifest.modify(manifestpath.c_str(), manifestpath.c_str(), newentry.data(), newentry.length(), false);
+	idcl::buildmanifest::modargs_t args = {gamedir.c_str()};
+	return idcl::buildmanifest::modfromcache(args);
 }
 
 #include "archives/MapResources.h"
@@ -809,6 +789,7 @@ bool CleanupLastLoad(const fspath gamedir)
 {
 	using namespace std::filesystem;
 
+	std::error_code lastCode;
 	fspath modsdir = gamedir / "mods";
 	fspath basedir = gamedir / "base";
 	fspath manifestpath = basedir / "build-manifest.bin";
@@ -820,42 +801,57 @@ bool CleanupLastLoad(const fspath gamedir)
 	fspath soundmetapath = basedir / "sound/soundbanks/pc/soundmetadata.bin";
 	fspath modsndpath =    basedir / "sound/soundbanks/pc/ATLANMOD.snd";
 
-	std::error_code lastCode;
-	//atlog("Managing backups and cleaning up previous injection files.");
-
 	#define NUM_BACKUPS 4
-	const fspath backedupfiles[NUM_BACKUPS] = {pmspath, metapath, soundmetapath, manifestpath};
-	bool IsModded[NUM_BACKUPS] = { IsModded_MapSpec(pmspath), IsModded_Meta(metapath), IsModded_SoundMeta(soundmetapath), IsModded_BuildManifest(manifestpath)};
-	const u8 Games[NUM_BACKUPS] = {game_all, game_all, game_all, game_eternal};
+	struct backup_t {
+		fspath path;
+		bool (*IsModded)(const fspath& path);
+		gamebit_t games;
+	};
+	const backup_t backupsList[NUM_BACKUPS] = {
+		{pmspath,       &IsModded_MapSpec,   game_all},
+		{metapath,      &IsModded_Meta,      game_all},
+		{soundmetapath, &IsModded_SoundMeta, game_all},
+		{manifestpath,  &IsModded_BuildManifest, game_eternal}
+	};
 
-	// Handle backups
 	for(int i = 0; i < NUM_BACKUPS; i++) {
-		if(!(g_game & Games[i]))
+		const backup_t& BUP = backupsList[i];
+		if(!(g_game & BUP.games))
 			continue;
 
-		const fspath& original = backedupfiles[i];
+		const fspath& original = BUP.path;
 		const fspath backup = original.string() + ".backup";
 
 		// Ensure the original file exists
 		if (!exists(original)) {
-			atlog("ERROR: Could not find %ls", absolute(original).c_str());
+			atlog("FATAL ERROR: Could not find %ls", original.filename().c_str());
 			return false;
 		}
 
-		// If the backup doesn't exist, assume this is a first time setup
-		// and copy it no matter what
-		if (!exists(backup)) {
-			copy_file(original, backup, copy_options::none, lastCode);
+		// Backups being modded is probably a bad thing and should be prevented
+		if (BUP.IsModded(original)) {
+			if(!exists(backup)) {
+				atlog("FATAL ERROR: %ls is modded and no backup exists. Please verify your game files", original.filename().c_str());
+				return false;
+			}
+			copy_file(backup, original, copy_options::overwrite_existing, lastCode);
 		}
 		else {
-			// If the file is vanilla, override the existing backup
-			// (Do this to ensure backups are kept accurate across game updates)
-			if (!IsModded[i]) {
-				copy_file(original, backup, copy_options::overwrite_existing, lastCode);
+
+			// EDGE CASE:
+			// If the build-manifest is vanilla, we want to dump the simplified version
+			// However, we only want to do this once per game update, not every time we load mods.
+			// Therefore, when we encounter a vanilla manifest, we write the simplified version,
+			// then mark the backup file as modded so we don't keep re-generating the simplified json
+			// The result: After first run, build-manifest.bin will always be seen as modded 
+			// until an update is downloaded or game files are verified.
+			if (original == manifestpath) {
+				if (!idcl::buildmanifest::buildsimplemanifest(manifestpath.c_str(), true)) {
+					atlog("FATAL ERROR: Failed to create simplified build manifest");
+					return false;
+				}
 			}
-			else {
-				copy_file(backup, original, copy_options::overwrite_existing, lastCode);
-			}
+			copy_file(original, backup, copy_options::overwrite_existing, lastCode);
 		}
 	}
 
@@ -866,30 +862,12 @@ bool CleanupLastLoad(const fspath gamedir)
 		create_directory(outdir, lastCode);
 
 	// Delete archives created from previous injections
-
-	#if 0
-	std::vector<fspath> filesToDelete;
-	filesToDelete.reserve(10);
-	for (const directory_entry& dirEntry : directory_iterator(outdir)) {
-		if(dirEntry.is_directory())
-			continue;
-
-		if(dirEntry.path().extension() == ".resources") {
-			filesToDelete.push_back(dirEntry.path());
-		}
-	}
-	for (const fspath& fp : filesToDelete) {
-		remove(fp, lastCode);
-	}
-	#else
 	if (exists(outarchivepath)) {
 		remove(outarchivepath, lastCode);
 	}
 	if (exists(outstreamdbpath)) {
 		remove(outstreamdbpath, lastCode);
 	}
-	#endif
-
 	if (exists(modsndpath)) {
 		remove(modsndpath, lastCode);
 	}
@@ -1159,17 +1137,23 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 			atlog("FATAL ERROR: Resource Mod Loading aborted due to the above error");
 			return false;
 		}
-		okay = Modify_BuildManifest(basedir / "build-manifest.bin");
-		if (!okay) {
-			atlog("FATAL ERROR: Failed to modify build-manifest");
-			return false;
-		}
 		okay = Modify_PackageMapSpec(pmspath, streamdbFileCount > 0, globalconfig);
 		if (!okay) {
 			atlog("FATAL ERROR: Mod Loading aborted due to above error with packagemapspec");
 			return false;
 		}
 		RebuildContainerMask(metapath, outarchivepath);
+
+		// IMPORTANT: This MUST go after everything else, otherwise incorrect file sizes
+		// will be used when updating packagemapspec.json and meta.resources build-manifest entries
+		// Need to do a Cleanup if this fails because users will be left with a modded mapspec
+		// and an unmodded build-manifest, which will cause a startup crash and Steam file verification
+		okay = Modify_BuildManifest(gamedir);
+		if (!okay) {
+			atlog("FATAL ERROR: Failed to modify build-manifest");
+			CleanupLastLoad(gamedir);
+			return false;
+		}
 	}
 
 	if (audiosupermod.size() > 0) {
@@ -1182,7 +1166,7 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 	if (supermod.size() == 0 && audiosupermod.size() == 0) {
 		atlog("\n\nNo mods will be loaded. All previously loaded mods are removed.");
 	}
-
+	
 	return true;
 }
 
