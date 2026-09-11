@@ -32,6 +32,7 @@ const std::unordered_map<std::string, resourcetypeinfo_t> ValidResourceTypes = {
 	{"strandsHair",   {"strandsHair",   rt_strandsHair,   game_none, 48}},
 	{"compfile",      {"compfile",      rt_compfile,      game_eternal, 1, 1}},
 	{"binaryFile",    {"binaryFile",    rt_binaryFile,    game_eternal, 1, 1}},
+	{"cswf",          {"cswf",          rt_cswf,          game_eternal, 9, 9}},
 
 	// Audio will be handled differently by the loader
 	{"audio", {"audio", rt_audio, game_darkages}}

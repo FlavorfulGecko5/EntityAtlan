@@ -875,6 +875,93 @@ bool CleanupLastLoad(const fspath gamedir)
 	return true;
 }
 
+struct modlist_t {
+	ModDef* mods = nullptr;
+	int totalmods = 0;
+
+	~modlist_t() { delete[] mods; }
+};
+
+typedef std::unordered_map<std::string, ModFile*> modfilemap_t;
+
+/*
+* Check for mod conflicts - eliminating any duplicate assets
+* Also enables online safety when necessary
+*/
+void Injector_CheckConflicts(const modlist_t& ModList, GlobalConfig_t& globalconfig, modfilemap_t& priorityAssets, ModDef& OnlineSafetyMod) {
+
+	extern int IsNotOnlineSafe(const ModFile & modfile);
+
+	const bool EnforceOnlineSafety = g_game == game_eternal;
+	int UnsafeFiles = 0;
+
+	atlog("\n\nChecking for Conflicts:\n----------");
+	for (int i = 0; i < ModList.totalmods; i++) {
+		ModDef& current = ModList.mods[i];
+
+		for (ModFile& file : current.modFiles) {
+
+			// Special Case: Put string csvs into the global config data
+			// These must not get loaded as regular mod files
+			if (file.typeenum == rt_binaryFile) {
+				file.assetPath += ".blang";
+				globalconfig.blanginfo[file.assetPath].push_back(&file);
+				continue;
+			}
+
+			if (EnforceOnlineSafety) {
+				UnsafeFiles += IsNotOnlineSafe(file);
+			}
+
+			// Must do this to prevent false conflicts between files
+			// with the same path but different resource type
+			std::string lookupstring(file.typestring);
+			lookupstring.append(file.assetPath);
+
+			auto iter = priorityAssets.find(lookupstring);
+			if (iter == priorityAssets.end()) {
+				priorityAssets.emplace(lookupstring, &file);
+			}
+			else {
+				bool replaceMapping = current.loadPriority < iter->second->parentMod->loadPriority;
+
+				atlog("CONFLICT FOUND: %s"
+					"\n(A): %s - %s"
+					"\n(B): %s - %s"
+					"\nWinner: (%c)"
+					"\n---",
+					file.assetPath.c_str(), current.modName.c_str(), file.realPath.c_str(),
+					iter->second->parentMod->modName.c_str(), iter->second->realPath.c_str(),
+					replaceMapping ? 'A' : 'B');
+
+				if (replaceMapping) {
+					iter->second = &file;
+				}
+			}
+		}
+	}
+
+	if (EnforceOnlineSafety && UnsafeFiles) {
+		atlog("Online Safety Activated");
+		extern bool BuildOnlineSafetyMod(ModDef& mod);
+
+		BuildOnlineSafetyMod(OnlineSafetyMod);
+		check_debug(OnlineSafetyMod.modFiles.size());
+
+		ModFile* cswf = &OnlineSafetyMod.modFiles[0];
+
+		std::string lookupstring = "cswf";
+		lookupstring += cswf->assetPath;
+
+		priorityAssets[lookupstring] = cswf;
+
+		for (size_t i = 1; i < OnlineSafetyMod.modFiles.size(); i++) {
+			ModFile* f = &OnlineSafetyMod.modFiles[i];
+			globalconfig.blanginfo[f->assetPath].push_back(f);
+		}
+	}
+}
+
 bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 	fspath modsdir = gamedir / "mods";
 	fspath basedir = gamedir / "base";
@@ -930,13 +1017,8 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 	globalconfig.mapresinfo.reserve(4);
 	globalconfig.blanginfo.reserve(5);
 	ModDef GlobalMod;
-
-	struct modlist_t {
-		ModDef* mods = nullptr;
-		int totalmods = 0;
-
-		~modlist_t() { delete[] mods;}
-	} ModList;
+	ModDef OnlineSafetyMod;
+	modlist_t ModList;
 
 	ModList.totalmods = static_cast<int>(zipmodpaths.size() + UnzippedModFolders.size());
 	ModList.mods = new ModDef[ModList.totalmods];
@@ -960,51 +1042,8 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 	std::unordered_map<std::string, ModFile*> find_defaulthashes;
 	std::unordered_map<std::string, ModFile*> priorityAssets;
 
-	/*
-	* Check for mod conflicts - eliminating any duplicate assets
-	*/
+	Injector_CheckConflicts(ModList, globalconfig, priorityAssets, OnlineSafetyMod);
 
-	atlog("\n\nChecking for Conflicts:\n----------");
-	for(int i = 0; i < ModList.totalmods; i++) {
-		ModDef& current = ModList.mods[i];
-
-		for(ModFile& file : current.modFiles) {
-
-			// Special Case: Put string csvs into the global config data
-			// These must not get loaded as regular mod files
-			if (file.typeenum == rt_binaryFile) {
-				file.assetPath += ".blang";
-				globalconfig.blanginfo[file.assetPath].push_back(&file);
-				continue;
-			}
-
-			// Must do this to prevent false conflicts between files
-			// with the same path but different resource type
-			std::string lookupstring(file.typestring);
-			lookupstring.append(file.assetPath);
-
-			auto iter = priorityAssets.find(lookupstring);
-			if(iter == priorityAssets.end()) {
-				priorityAssets.emplace(lookupstring, &file);
-			} 
-			else {
-				bool replaceMapping = current.loadPriority < iter->second->parentMod->loadPriority;
-
-				atlog("CONFLICT FOUND: %s"
-					  "\n(A): %s - %s"
-					  "\n(B): %s - %s"
-					  "\nWinner: (%c)"
-					  "\n---", 
-					  file.assetPath.c_str(), current.modName.c_str(), file.realPath.c_str(),
-					  iter->second->parentMod->modName.c_str(), iter->second->realPath.c_str(),
-					  replaceMapping ? 'A' : 'B');
-
-				if(replaceMapping) {
-					iter->second = &file;
-				}
-			}
-		}
-	}
 
 	/*
 	* Second pass to further analyze the prioritized files

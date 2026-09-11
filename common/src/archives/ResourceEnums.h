@@ -19,7 +19,8 @@ enum ResourceType : uint32_t
 	rt_compfile        = 1 << 12,
 	rt_binaryFile      = 1 << 13,
 	rt_baseModel       = 1 << 14,
-	rt_strandsHair     = 1 << 15
+	rt_strandsHair     = 1 << 15,
+	rt_cswf            = 1 << 16
 };
 
 enum ResourceTypeComboFlags : uint32_t 

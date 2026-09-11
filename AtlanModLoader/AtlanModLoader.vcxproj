@@ -159,6 +159,8 @@
     <ClCompile Include="src\GlobalConfig.cpp" />
     <ClCompile Include="src\LoaderMain.cpp" />
     <ClCompile Include="src\ModReader.cpp" />
+    <ClCompile Include="src\OnlineSafety.cpp" />
+    <ClCompile Include="src\OnlineSafetyGlobals.cpp" />
     <ClCompile Include="src\SoundBuilder.cpp" />
   </ItemGroup>
   <ItemGroup>

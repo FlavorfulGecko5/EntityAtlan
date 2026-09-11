@@ -10,12 +10,12 @@ namespace idcl {
 	bool blang_tojson(const char* data, size_t datalength, std::string& out_json);
 	bool blang_totxt(const char* data, size_t datalength, std::string& out_txt);
 
-	bool blang_encrypt(char* data, size_t datalength, const char* filename, charbuffer_t& out_buffer);
+	//bool blang_encrypt(char* data, size_t datalength, const char* filename, charbuffer_t& out_buffer);
 
 	// This overload assumes the buffer's data already has the format of 
 	// [salt][iv][unencrypted blang][hmac]
 	// The hmac will be calculated
-	bool blang_encrypt(charbuffer_t& unencrypted, const char* filename);
+	bool blang_encrypt(char* out_data, size_t out_length, const char* filename);
 
 
 	struct blangmodargs {

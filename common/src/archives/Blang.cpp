@@ -50,14 +50,14 @@ bool idcl::blang_decrypt(char* data, size_t datalength, const char* filename, ch
 	return true;
 }
 
-bool idcl::blang_encrypt(charbuffer_t& output, const char* filename)
+bool idcl::blang_encrypt(char* outdata, size_t outlength, const char* filename)
 {
 	char KEYDERIVE[] = "swapTeam\n";
 	char SHA_KEY[32];
 	{
 		SHA256_CTX sha;
 		sha256_init(&sha);
-		sha256_update(&sha, (BYTE*)output.data, 12); // Salt
+		sha256_update(&sha, (BYTE*)outdata, 12); // Salt
 		sha256_update(&sha, (BYTE*)KEYDERIVE, 10); // null char intentionally included
 		sha256_update(&sha, (BYTE*)filename, strlen(filename));
 		sha256_update(&sha, (BYTE*)nullptr, 0);
@@ -65,9 +65,9 @@ bool idcl::blang_encrypt(charbuffer_t& output, const char* filename)
 	}
 
 	AES_ctx aes;
-	AES_init_ctx_iv(&aes, (u8*)SHA_KEY, (u8*)output.data + 12); // IV offset
-	AES_CBC_encrypt_buffer(&aes, (u8*)output.data + 28, output.length - 32); // +28, -32 so we don't encrypt salt/iv/hmac
-	hmac_sha256(SHA_KEY, sizeof(SHA_KEY), output.data, output.length - sizeof(SHA_KEY), output.data + output.length - 32);
+	AES_init_ctx_iv(&aes, (u8*)SHA_KEY, (u8*)outdata + 12); // IV offset
+	AES_CBC_encrypt_buffer(&aes, (u8*)outdata + 28, outlength - 32 - 28); // +28, -32 so we don't encrypt salt/iv/hmac
+	hmac_sha256(SHA_KEY, sizeof(SHA_KEY), outdata, outlength - sizeof(SHA_KEY), outdata + outlength - 32);
 
 
 	// TODO: Can't actually run this because it will decrypt our final blang text
@@ -430,26 +430,22 @@ bool idcl::blang_modify(blangmodargs args, charbuffer_t& output)
 		writer.WriteBytes(entry.feature.data(), entry.feature.length());
 	}
 	// Add EOF padding according to patterns observed in the vanilla blang
-	// THIS ACTUALLY MATTERS!!! AND THE BYTE VALUE MUST BE 3!!!
+	// THIS ACTUALLY MATTERS!!! AND THE BYTE VALUE MUST MATCH THE PADDING COUNT
 	size_t remcalc = writer.GetFilledSize() - 28;
-	if (remcalc % 16 == 0) {
-		for(int i = 0; i < 16; i++)
-			writer <<(u8)3;
-	}
-	else {
-		u64 rem = 16 - remcalc % 16;
-		for(int i = 0; i < rem; i++)
-			writer << (u8)3;
-	}
+	size_t paddinglength = 16 - remcalc % 16;
+	for(int i = 0; i < paddinglength; i++)
+		writer << (u8)(paddinglength);
 	for(int i = 0; i < 4; i++) // Reserve space for the HMAC
 		writer << (u64)0;
 
-	/* Transfer ownership from writer to buffer */
-	delete[] output.data;
+	/* Encrypt Modified Blang */
+	if(!blang_encrypt(writer.GetEditableBuffer(), writer.GetFilledSize(), args.blangname))
+		return false;
+
+	/* Transfer ownership from writer to output data */
 	output.capacity = writer.GetFilledSize();
 	output.length = writer.GetFilledSize();
 	output.data = writer.Finalize();
 
-	/* Encrypt Modified Blang */
-	return blang_encrypt(output, args.blangname);
+	return true;
 }
