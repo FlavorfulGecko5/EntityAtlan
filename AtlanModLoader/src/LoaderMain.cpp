@@ -1199,7 +1199,7 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 		atlog("Constructing audio archives");
 
 		fspath soundsdir = basedir / "sound" / "soundbanks" / "pc";
-		ModBuilder::BuildAudioArchives(soundsdir, audiosupermod);
+		ModBuilder::BuildAudioArchives(soundsdir, audiosupermod, g_game);
 	}
 
 	if (supermod.size() == 0 && audiosupermod.size() == 0) {

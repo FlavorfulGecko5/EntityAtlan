@@ -104,5 +104,5 @@ namespace ModReader {
 }
 
 namespace ModBuilder {
-	void BuildAudioArchives(const fspath soundsfolder, const std::vector<ModFile*>& samplefiles);
+	void BuildAudioArchives(const fspath soundsfolder, const std::vector<ModFile*>& samplefiles, gamebit_t gameid);
 }

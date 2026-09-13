@@ -114,7 +114,7 @@ void BuildSoundMetadata(const fspath soundsfolder, const uint32_t numSamples)
 	outwriter.close();
 }
 
-void ModBuilder::BuildAudioArchives(const fspath soundsfolder, const std::vector<ModFile*>& samplefiles)
+void ModBuilder::BuildAudioArchives(const fspath soundsfolder, const std::vector<ModFile*>& samplefiles, gamebit_t gameid)
 {
 	const uint32_t samplecount = static_cast<uint32_t>(samplefiles.size());
 
@@ -142,17 +142,35 @@ void ModBuilder::BuildAudioArchives(const fspath soundsfolder, const std::vector
 			#endif
 		}
 
-		const char* samplebuffer = (char*)sample->dataBuffer;
+		const char* samplebuffer = sample->dataBuffer;
 		const size_t samplelen = sample->dataLength;
 
+		if (samplelen < 4) {
+			atlog("FATAL ERROR: Bad audio sample size");
+			return;
+		}
+		if (*(u32*)samplebuffer != 'FFIR') {
+			atlog("FATAL ERROR: Audio sample must be a .wem\n"
+			"If these are .opus files from a legacy DOOM Eternal mod, please convert them to a PCM-encoded .wem");
+			return;
+		}
+
+		// TODO: We can probably remove both the farmhash and the meta chunk writing
+		// The meta chunk seems to only be used when samples are opus files
 		eptr->farmhash = HashLib::FarmHash64(samplebuffer, samplelen); // TODO: Test if necessary
 		eptr->encodedSize = (uint32_t)samplelen;
 		eptr->decodedSize = (uint32_t)samplelen;
 		eptr->metaoffset  = (uint32_t)(headerchunk.GetPosition() - 0x0C);
-		eptr->metaunion.da_metasize = (uint32_t)GetSampleMetaSize(samplebuffer, samplelen);
 
-		// TODO: Test if necessary
-		headerchunk.WriteBytes(samplebuffer, eptr->metaunion.da_metasize);
+		if (gameid == game_darkages) {
+			eptr->metaunion.da_metasize = (uint32_t)GetSampleMetaSize(samplebuffer, samplelen);
+			headerchunk.WriteBytes(samplebuffer, eptr->metaunion.da_metasize);
+		}
+		else {
+			eptr->metaunion.de.encoding = 3;
+			eptr->metaunion.de.metasize = (u16)GetSampleMetaSize(samplebuffer, samplelen);
+			headerchunk.WriteBytes(samplebuffer, eptr->metaunion.de.metasize);
+		}
 
 		*eptr++;
 	}
