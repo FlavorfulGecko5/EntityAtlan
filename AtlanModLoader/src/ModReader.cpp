@@ -41,10 +41,19 @@ const std::unordered_map<std::string, resourcetypeinfo_t> ValidResourceTypes = {
 /*
 * Check if version requirement is met. If it isn't, we should skip reading this mod
 */
-bool ModReader_HasRequiredVersion(ModDef& moddef, const AtlanModConfig& cfg) {
+bool ModReader_HasRequiredVersion(ModDef& moddef, const AtlanModConfig& cfg, GlobalConfig_t& globalconfig) {
 	if (MOD_LOADER_VERSION < cfg.requiredVersion) {
 		atlog("ERROR: Mod requires Mod Loader Version %d or greater. (Your version is %d)", cfg.requiredVersion, MOD_LOADER_VERSION);
 		return false;
+	}
+	if(cfg.elevated) {
+		if(globalconfig.elevatedmod != nullptr) {
+			atlog("ERROR: Cannot load two Elevated Gameplay mods at the same time! Please remove one of them!"
+				"\nActive Elevated Mod: %s", globalconfig.elevatedmod->modName.c_str());
+			return false;
+		}
+		atlog("Elevated Gameplay Enabled");
+		globalconfig.elevatedmod = &moddef;
 	}
 	return true;
 }
@@ -308,7 +317,7 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 	}
 
 	moddef.loadPriority = -999;
-	if (!ModReader_HasRequiredVersion(moddef, cfg)) {
+	if (!ModReader_HasRequiredVersion(moddef, cfg, globalconfig)) {
 		return;
 	}
 
@@ -433,7 +442,7 @@ bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, GlobalConfig_t& glob
 	}
 
 	mod.loadPriority = cfg.loadPriority;
-	if (!ModReader_HasRequiredVersion(mod, cfg)) {
+	if (!ModReader_HasRequiredVersion(mod, cfg, globalconfig)) {
 		return false;
 	}
 

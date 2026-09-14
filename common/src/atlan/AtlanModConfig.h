@@ -18,6 +18,9 @@ struct AtlanModConfig {
 		}
 	};
 
+	// If set, no other mod may have gameplay-affecting files loaded
+	bool elevated = false;
+
 	int requiredVersion = 1;
 	int loadPriority = 0;
 	std::unordered_map<std::string, std::string> alias;
@@ -44,4 +47,11 @@ struct AtlanModConfig {
 
 	private:
 	bool TryRead_Internal(EntNode& root);
+
+	public:
+	AtlanModConfig() = default;
+	AtlanModConfig(const AtlanModConfig& other) = delete;
+	AtlanModConfig(const AtlanModConfig&& other) = delete;
+	AtlanModConfig& operator=(const AtlanModConfig& other) = delete;
+	AtlanModConfig& operator=(const AtlanModConfig&& other) = delete;
 };

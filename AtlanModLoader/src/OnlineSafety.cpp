@@ -1,22 +1,91 @@
 #include "ModReader.h"
 #include <set>
 
-int IsNotOnlineSafe(const ModFile& modfile) {
-	
-	switch (modfile.typeenum) {
-		case rt_image: 
-		case rt_audio: 
-		case rt_cswf: 
-		return 0;
+const std::set<std::string> ONLINE_SAFE_DECLTYPES = {
+	"advancedscreenviewshake", 
+	"audiolog", "audiologstory", 
+	"automap", "automapplayerprofile", "automapproperties", "automapsoundprofile",
+	"campaign"
+	"env", 
+	"font", "fontfx", 
+	"fx", 
+	"gameitem", 
+	"globalfonttable", 
+	"gorebehavior",
+	"gorecontainer",
+	"gorewounds", 
+	"handsbobcycle", 
+	//"highlightlos", 
+	//"highlights", 
+	"hitconfirmationsoundsinfo", 
+	"hud", 
+	"hudelement",
+	"lightrig", 
+	"lodgroup", 
+	"material2", 
+	//"md6def", 
+	"modelasset", 
+	"particle", 
+	"particlestage", 
+	"renderlayerdefinition", 
+	"renderparm",
+	"renderparmmeta", 
+	"renderprogflag", 
+	"ribbon2", 
+	"rumble", 
+	"soundevent", "soundpack", "soundrtpc", "soundstate", "soundswitch",
+	"speaker", 
+	"staticimage", 
+	"swfresources", 
+	"uianchor", 
+	"uicolor", 
+	"weaponreticle", 
+	"weaponreticleswfinfo", 
+	//"/entitydef/light/", 
+	//"/entitydef/fx",
+	"impacteffect", 
+	"uiweapon", 
+	"globalinitialwarehouse", 
+	"globalshell", 
+	"warehouseitem", 
+	"warehouseofflinecontainer", 
+	"tooltip", 
+	"livetile",
+	"tutorialevent", 
+};
 
-		case rt_compfile:
-		if(modfile.assetPath._Starts_with("maps/game/pvp/"))
-			return 1;
-		break;
+bool IsOnlineSafe(const ModFile& modfile, const bool Strict) {
+
+	const ResourceType rt = modfile.typeenum;
+
+	if(rt & (rt_image | rt_audio | rt_cswf))
+		return true;
+
+	// Edge Case: Technically only pvp entities files should be unsafe
+	// However, elevated gameplay mods would demand all entities files
+	// in other mods be designated unsafe
+	if(rt == rt_compfile) {
+		return !(Strict || modfile.assetPath._Starts_with("maps/game/pvp"));
 	}
 
-	// Todo: Flesh out, add more elaborate decl type checking
-	return 1;
+	if(rt != rt_rs_streamfile)
+		return false;
+
+	// Some rs_streamfiles don't start with this
+	// Seems to just be megatexture materials and vertexpaints
+	if(!modfile.assetPath._Starts_with("generated/decls/"))
+		return true;
+
+	const char* startPtr = modfile.assetPath.data() + 16; // Length of "generated/decls/"
+	const char* ptr = startPtr;
+	while(*ptr) {
+		if(*ptr == '/')
+			break;
+		ptr++;
+	}
+	std::string declType(startPtr, ptr - startPtr);
+
+	return ONLINE_SAFE_DECLTYPES.count(declType);
 }
 
 // Format: Blang path, csv, Blang path, csv, etc.

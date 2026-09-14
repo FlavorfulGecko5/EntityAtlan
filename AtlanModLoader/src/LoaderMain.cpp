@@ -890,14 +890,16 @@ typedef std::unordered_map<std::string, ModFile*> modfilemap_t;
 */
 void Injector_CheckConflicts(const modlist_t& ModList, GlobalConfig_t& globalconfig, modfilemap_t& priorityAssets, ModDef& OnlineSafetyMod) {
 
-	extern int IsNotOnlineSafe(const ModFile & modfile);
+	extern bool IsOnlineSafe(const ModFile & modfile, const bool Strict);
 
 	const bool EnforceOnlineSafety = g_game == game_eternal;
-	int UnsafeFiles = 0;
+	bool HasUnsafeFiles = false;
+	const ModDef* const ElevatedMod = globalconfig.elevatedmod;
 
 	atlog("\n\nChecking for Conflicts:\n----------");
 	for (int i = 0; i < ModList.totalmods; i++) {
 		ModDef& current = ModList.mods[i];
+		const bool IsElevated = &current == ElevatedMod;
 
 		for (ModFile& file : current.modFiles) {
 
@@ -909,8 +911,12 @@ void Injector_CheckConflicts(const modlist_t& ModList, GlobalConfig_t& globalcon
 				continue;
 			}
 
-			if (EnforceOnlineSafety) {
-				UnsafeFiles += IsNotOnlineSafe(file);
+			if (EnforceOnlineSafety && !IsOnlineSafe(file, ElevatedMod != nullptr)) {
+				if(ElevatedMod && !IsElevated) {
+					atlog("ELEVATED GAMEPLAY CONFLICT: Cannot Load %s - %s" , current.modName.c_str(), file.realPath.c_str());
+					continue;
+				}
+				HasUnsafeFiles = true;
 			}
 
 			// Must do this to prevent false conflicts between files
@@ -941,7 +947,7 @@ void Injector_CheckConflicts(const modlist_t& ModList, GlobalConfig_t& globalcon
 		}
 	}
 
-	if (EnforceOnlineSafety && UnsafeFiles) {
+	if (EnforceOnlineSafety && HasUnsafeFiles) {
 		atlog("Online Safety Activated");
 		extern bool BuildOnlineSafetyMod(ModDef& mod);
 

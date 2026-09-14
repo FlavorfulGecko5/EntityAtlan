@@ -88,6 +88,8 @@ struct GlobalConfig_t {
 
 	std::vector<std::string> mapspec;
 
+	ModDef* elevatedmod = nullptr;
+
 	GlobalConfig_t() = default;
 	GlobalConfig_t(const GlobalConfig_t& other) = delete;
 	GlobalConfig_t(const GlobalConfig_t&& other) = delete;

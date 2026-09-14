@@ -107,6 +107,7 @@ bool AtlanModConfig::TryRead_Internal(EntNode& root) {
     {
         atlog("WARNING: " CFG_LOADPRIORITY  " not found. Using default value");
     }
+    elevated = &modInfo["elevated_gameplay"] != EntNode::SEARCH_404;
 
     /*
     * Read optional filepath aliases
