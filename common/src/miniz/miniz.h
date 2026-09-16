@@ -1050,7 +1050,7 @@ typedef enum {
     MZ_ZIP_TOTAL_ERRORS
 } mz_zip_error;
 
-typedef struct
+struct mz_zip_archive
 {
     mz_uint64 m_archive_size;
     mz_uint64 m_central_directory_file_ofs;
@@ -1075,7 +1075,7 @@ typedef struct
 
     mz_zip_internal_state *m_pState;
 
-} mz_zip_archive;
+};
 
 typedef struct
 {

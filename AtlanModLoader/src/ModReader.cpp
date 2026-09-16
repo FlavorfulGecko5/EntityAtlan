@@ -41,9 +41,13 @@ const std::unordered_map<std::string, resourcetypeinfo_t> ValidResourceTypes = {
 /*
 * Check if version requirement is met. If it isn't, we should skip reading this mod
 */
-bool ModReader_HasRequiredVersion(ModDef& moddef, const AtlanModConfig& cfg, GlobalConfig_t& globalconfig) {
+bool ModReader_CanLoadMod(ModDef& moddef, const AtlanModConfig& cfg, GlobalConfig_t& globalconfig) {
 	if (MOD_LOADER_VERSION < cfg.requiredVersion) {
 		atlog("ERROR: Mod requires Mod Loader Version %d or greater. (Your version is %d)", cfg.requiredVersion, MOD_LOADER_VERSION);
+		return false;
+	}
+	if (!(g_game & cfg.gameid)) {
+		atlog("ERROR: Mod is for a different game");
 		return false;
 	}
 	if(cfg.elevated) {
@@ -277,10 +281,7 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 	using namespace std::filesystem;
 
 	const size_t modsfolder_length = modsfolder.string().length();
-	std::vector<fspath> ModFilePaths;
 	AtlanModConfig cfg;
-
-	ModFilePaths.reserve(20);
 
 	moddef.modName = "[Unzipped] ";
 	moddef.modName.append(modsfolder.stem().string());
@@ -289,38 +290,16 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 
 	atlog("\n\nReading %s\n---", moddef.modName.c_str());
 
-	// TODO: This loop is mostly copied from the mod packager. Could we create a shared function for it?
-	for (const directory_entry& entry : recursive_directory_iterator(modsfolder)) {
-		if(entry.is_directory())
-			continue;
-
-		const fspath entrypath = entry.path();
-		const fspath extension = entrypath.extension();
-		if(extension == L".zip" || extension == L".ZIP")
-			continue;
-
-		if (entrypath.filename() == CFG_NAME) {
-
-			// Edge Case: Mod config is in a subfolder - ignore it
-			if (entrypath.parent_path() != modsfolder) {
-				atlog("Ignoring " CFG_NAME " inside a subfolder");
-				continue;
-			}
-
-			atlog("Found " CFG_NAME);
-			cfg.TryRead(entrypath.string());
-			ModReader_ExtractConfigData(cfg, globalconfig);
-			continue;
-		}
-
-		ModFilePaths.push_back(entrypath);
-	}
-
-	moddef.loadPriority = -999;
-	if (!ModReader_HasRequiredVersion(moddef, cfg, globalconfig)) {
+	// Since we're now doing assetsinfo, it's probably a good idea to
+	// return if there's a config parsing error
+	if(!cfg.TryRead_FromDir(modsfolder))
 		return;
-	}
+	if(!ModReader_CanLoadMod(moddef, cfg, globalconfig))
+		return;
+	ModReader_ExtractConfigData(cfg, globalconfig);
+	moddef.loadPriority = -999;
 
+	std::vector<fspath> ModFilePaths = cfg.GetModFiles(modsfolder);
 	atlog("Found %llu Unzipped Mod Files", ModFilePaths.size());
 
 	idUnzippedImageJobList ImageJobs;
@@ -422,34 +401,19 @@ bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, GlobalConfig_t& glob
 	* Read config files if they exist
 	*/
 	AtlanModConfig cfg;
-	{
-		char* dataBuffer = nullptr;
-		size_t dataLength = 0;
-
-		/*
-		* Extract file from zip
-		*/
-		dataBuffer = (char*)mz_zip_reader_extract_file_to_heap(zptr, CFG_NAME, &dataLength, 0);
-		if (!dataBuffer) {
-			atlog("WARNING: Could not find " CFG_NAME);
-		}
-		else {
-			atlog("Found " CFG_NAME);
-			cfg.TryRead(dataBuffer, dataLength);
-			ModReader_ExtractConfigData(cfg, globalconfig);
-			delete[] dataBuffer;
-		}
-	}
-
+	if(!cfg.TryRead_FromZip(zptr))
+		return false;
 	mod.loadPriority = cfg.loadPriority;
-	if (!ModReader_HasRequiredVersion(mod, cfg, globalconfig)) {
+	if (!ModReader_CanLoadMod(mod, cfg, globalconfig)) {
 		return false;
 	}
+	ModReader_ExtractConfigData(cfg, globalconfig);
 
 	/*
 	* Read all mod files
 	*/
 	uint32_t fileCount = mz_zip_reader_get_num_files(zptr);
+	mod.modFiles.reserve(fileCount);
 	size_t nameBufferMax = 512;
 	char* ZipNameBuffer = new char[nameBufferMax];
 	for (uint32_t i = 0; i < fileCount; i++) {
@@ -476,7 +440,7 @@ bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, GlobalConfig_t& glob
 		/*
 		* If this is a pre-parsed config file, skip it
 		*/
-		if(modfile.realPath == CFG_NAME)
+		if(modfile.realPath == CFG_NAME || modfile.realPath == CFG_NAME_V2)
 			continue;
 
 		if (!ModReader_ValidatePath(modfile, cfg)) {

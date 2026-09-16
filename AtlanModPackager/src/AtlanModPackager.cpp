@@ -136,8 +136,6 @@ void PackagerMain(const char* DIR_GAME, fspath DIR_INPUT, fspath ZIP_OUTPUT)
 	};
 
 	AtlanModConfig ModConfig;
-
-	std::vector<fspath> filepaths;
 	const fspath modsfolder = absolute(DIR_INPUT);
 	const size_t modsfolder_length = modsfolder.string().size();
 
@@ -158,51 +156,18 @@ void PackagerMain(const char* DIR_GAME, fspath DIR_INPUT, fspath ZIP_OUTPUT)
 	mz_zip_zero_struct(zptr);
 	mz_zip_writer_init_heap(zptr, 0, 0);
 
-	/* Gather all mod filepaths */
-	for (const directory_entry& entry : recursive_directory_iterator(modsfolder))
-	{
-		if(entry.is_directory())
-			continue;
-
-		const fspath entrypath = entry.path();
-		const fspath extension = entrypath.extension();
-		if(extension == L".zip" || extension == L".ZIP")
-			continue;
-
-		if(entrypath.filename() == CFG_NAME) {
-
-			// Edge Case: Mod config is in a subfolder - ignore it
-			if(entrypath.parent_path() != modsfolder) {
-				atlog("Ignoring " CFG_NAME " inside a subfolder");
-				continue;
-			}
-
-			atlog("Found " CFG_NAME);
-			if(!ModConfig.TryRead(entrypath.string()))
-				return;
-
-			// Need to add this to the zip now or else the config will be filtered out later
-			bool result = mz_zip_writer_add_file(zptr, CFG_NAME, entrypath.string().c_str(), 
-				"", 0, MZ_DEFAULT_COMPRESSION);
-			if (!result) {
-				atlog("ERROR: Failed to add " CFG_NAME " to zip file");
-				return;
-			}
-			continue;
-		}
-
-		filepaths.push_back(entrypath);
-		//atlog("%ls", entry.path().c_str());
-	}
+	if(!ModConfig.TryRead_FromDir(modsfolder, zptr))
+		return;
+	std::vector<fspath> filepaths = ModConfig.GetModFiles(modsfolder);
 
 	idImageJobList ImageJobs;
-	ImageJobs.jobs.reserve(filepaths.size());
+	ImageJobs.jobs.reserve(128);
 
 	int IgnoredFiles = 0;
 	std::string IgnoreLog;
 
 	/* iterate through all the files */
-	for(const fspath& modfile : filepaths) 
+	for(const fspath& modfile : filepaths)
 	{
 		std::string zippedName = modfile.string().substr(modsfolder_length + 1);
 		std::string typestring, AssetName;
