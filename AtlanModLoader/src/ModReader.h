@@ -4,6 +4,7 @@
 #include "archives/ResourceEnums.h"
 #include "archives/idImage.h"
 #include "miniz/miniz.h"
+#include "atlan/AtlanLib.h"
 
 struct ModDef;
 struct ModFile;
@@ -19,9 +20,15 @@ struct resourcetypeinfo_t {
 	std::string_view namestart;
 };
 
+enum ModType : uint8_t {
+	mt_default = 0,
+	mt_folder = 1,
+	mt_zipfile = 2
+};
+
 struct ModDef {
 	int loadPriority = 0;
-	bool IsUnzipped = false; // Is this the global unzipped mod?
+	ModType modtype = mt_default; // Is this the global unzipped mod?
 	bool ActiveZip = false; // If true, zip archive is alive
 	std::string modName;
 	std::vector<ModFile> modFiles;
@@ -47,6 +54,8 @@ struct ModFile {
 	std::string assetPath;  // Path that will be used as the resource name
 	uint64_t defaulthash = -1;     // For resources types with a streamdb hash 
 	uint32_t resourceVersion; // ResourceEntry::version
+
+	int containerIndex = -1; // Index of this file in it's mod container (a zip index or pk5 index)
 };
 
 inline void ModFile_Free(ModFile& mfile) {
@@ -59,20 +68,10 @@ inline ModDef::~ModDef() {
 	for (ModFile& f : modFiles) {
 		ModFile_Free(f);
 	}
-	if (ActiveZip) {
+	if (modtype == mt_zipfile && ActiveZip) {
 		mz_zip_reader_end(&zipfile);
 	}
 }
-
-struct JustInTimeBuffer_t {
-	char* buffer = nullptr;
-	size_t filelength = 0;
-	size_t maxcapacity = 0;
-
-	~JustInTimeBuffer_t() {
-		delete[] buffer;
-	}
-};
 
 // Data aggregated from all mod config files
 struct GlobalConfig_t {
@@ -102,7 +101,7 @@ namespace ModReader {
 	void ReadZipMod(ModDef& readto, const fspath& zipPath, GlobalConfig_t& cfg);
 
 	// Used for Just-In-Time loading of large zipped mod files
-	bool LoadModData(ModFile& modfile, JustInTimeBuffer_t& buffer);
+	bool LoadModData(ModFile& modfile, charbuffer_t& buffer);
 }
 
 namespace ModBuilder {

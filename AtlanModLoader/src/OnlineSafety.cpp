@@ -95,7 +95,6 @@ extern unsigned char ONLINE_SAFETY_SWF[];
 extern const size_t ONLINE_SAFETY_SWF_SIZE;
 
 bool BuildOnlineSafetyMod(ModDef& mod) {
-	mod.IsUnzipped = true;
 	mod.ActiveZip = false;
 	mod.modName = "GENERATED_ONLINE_SAFETY";
 

@@ -285,7 +285,7 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 
 	moddef.modName = "[Unzipped] ";
 	moddef.modName.append(modsfolder.stem().string());
-	moddef.IsUnzipped = true;
+	moddef.modtype = mt_folder;
 	moddef.ActiveZip = false;
 
 	atlog("\n\nReading %s\n---", moddef.modName.c_str());
@@ -384,6 +384,7 @@ void ModReader::ReadZipMod(ModDef& mod, const fspath& zipPath, GlobalConfig_t& g
 		return;
 	}
 
+	mod.modtype = mt_zipfile;
 	mod.modName = zipPath.stem().string();
 	mod.ActiveZip = ReadZipMod_Internal(zptr, mod, globalconfig);
 	if (!mod.ActiveZip) {
@@ -414,8 +415,10 @@ bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, GlobalConfig_t& glob
 	*/
 	uint32_t fileCount = mz_zip_reader_get_num_files(zptr);
 	mod.modFiles.reserve(fileCount);
-	size_t nameBufferMax = 512;
-	char* ZipNameBuffer = new char[nameBufferMax];
+	
+	charbuffer_t namebuffer;
+	namebuffer.EnsureCapacity(512);
+
 	for (uint32_t i = 0; i < fileCount; i++) {
 		if(mz_zip_reader_is_file_a_directory(zptr, i))
 			continue;
@@ -425,17 +428,10 @@ bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, GlobalConfig_t& glob
 		/*
 		* Get the file name
 		*/
-		{
-			uint32_t nameLength = mz_zip_reader_get_filename(zptr, i, nullptr, 0);
-			if (nameLength > nameBufferMax) {
-				delete[] ZipNameBuffer;
-				ZipNameBuffer = new char[nameLength];
-				nameBufferMax = nameLength;
-			}
-			mz_zip_reader_get_filename(zptr, i, ZipNameBuffer, nameLength);
-			nameLength--; // The null char is included in the name length...(but data length is correct and without a nullchar)
-			modfile.realPath = std::string(ZipNameBuffer, nameLength);
-		}
+		uint32_t nameLength = mz_zip_reader_get_filename(zptr, i, nullptr, 0);
+		namebuffer.EnsureCapacity(nameLength);
+		mz_zip_reader_get_filename(zptr, i, namebuffer.data, nameLength);
+		modfile.realPath = std::string(namebuffer.data, nameLength - 1); // Length includes null char
 
 		/*
 		* If this is a pre-parsed config file, skip it
@@ -453,6 +449,7 @@ bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, GlobalConfig_t& glob
 
 		if (modfile.typeenum & rtc_deferload) {
 			KEEP_ZIP_ALIVE = true;
+			modfile.containerIndex = i;
 		}
 		else {
 			void* dataBuffer = nullptr;
@@ -468,12 +465,10 @@ bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, GlobalConfig_t& glob
 
 		ModReader_ConfirmModFile(mod, modfile);
 	}
-
-	delete[] ZipNameBuffer;
 	return KEEP_ZIP_ALIVE;
 }
 
-bool ModReader::LoadModData(ModFile& modfile, JustInTimeBuffer_t& buffer) {
+bool ModReader::LoadModData(ModFile& modfile, charbuffer_t& buffer) {
 	if(modfile.dataBuffer)
 		return true;
 
@@ -481,30 +476,23 @@ bool ModReader::LoadModData(ModFile& modfile, JustInTimeBuffer_t& buffer) {
 		return false;
 	mz_zip_archive* zptr = &modfile.parentMod->zipfile;
 	
-	// todo should store index in modfile
-	int zipindex = mz_zip_reader_locate_file(zptr, modfile.realPath.c_str(), nullptr, 0);
-	if(zipindex == -1)
+	if(modfile.containerIndex < 0)
 		return false;
 
 	mz_zip_archive_file_stat fstats;
-	if(!mz_zip_reader_file_stat(zptr, zipindex, &fstats))
+	if(!mz_zip_reader_file_stat(zptr, modfile.containerIndex, &fstats))
 		return false;
 
 
-	if (buffer.maxcapacity < fstats.m_uncomp_size) {
-		delete[] buffer.buffer;
+	buffer.EnsureCapacity(fstats.m_uncomp_size + 2048);
+	buffer.length = fstats.m_uncomp_size;
 
-		buffer.maxcapacity = fstats.m_uncomp_size + 2048;
-		buffer.buffer = new char[buffer.maxcapacity];
-	}
-	buffer.filelength = fstats.m_uncomp_size;
-
-	if(!mz_zip_reader_extract_to_mem_no_alloc(zptr, zipindex, buffer.buffer, buffer.maxcapacity, 0, NULL, 0))
+	if(!mz_zip_reader_extract_to_mem_no_alloc(zptr, modfile.containerIndex, buffer.data, buffer.capacity, 0, NULL, 0))
 		return false;
 
 	modfile.ownsData = false;
-	modfile.dataBuffer = buffer.buffer;
-	modfile.dataLength = buffer.filelength;
+	modfile.dataBuffer = buffer.data;
+	modfile.dataLength = buffer.length;
 
 	return true;
 }

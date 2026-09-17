@@ -257,7 +257,7 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 	// Buffer for doing just-in-time reading of large mod files
 	// This way we're not loading every mod file into memory simultaneously
 	// before loading it
-	JustInTimeBuffer_t JIT;
+	charbuffer_t JIT;
 
 	BuildArchiveStreams outstreams;
 
@@ -378,7 +378,7 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 
 		bool buildResult = false;
 		bool IsAtlanCompressed = Oodle::IsAtlanCompFile((const char*)f.dataBuffer, f.dataLength);
-		if (f.typeenum == rt_mapentities && !IsAtlanCompressed && f.parentMod->IsUnzipped) {
+		if (f.typeenum == rt_mapentities && !IsAtlanCompressed && f.parentMod->modtype == mt_folder) {
 			buildResult = BuildArchive_HotReload(e, f, outstreams);
 		}
 		else if (f.typeenum == rt_image) {
@@ -968,75 +968,70 @@ void Injector_CheckConflicts(const modlist_t& ModList, GlobalConfig_t& globalcon
 	}
 }
 
+void Injector_ReadMods(const fspath& gamedir, modlist_t& ModList, GlobalConfig_t& globalconfig) {
+	const fspath modsdir = gamedir / "mods";
+	std::vector<fspath> UnzippedModFolders;
+	std::vector<fspath> zipmodpaths;
+	UnzippedModFolders.reserve(8);
+	zipmodpaths.reserve(8);
+
+	/*
+	* GATHER MOD FILE PATHS
+	*/
+	using namespace std::filesystem;
+
+	// Build list of zip mod files
+	for (const directory_entry& dirEntry : directory_iterator(modsdir)) {
+		if (dirEntry.is_directory()) {
+
+			// Interpret each folder in the mods folder as it's own unzipped mod
+			// For easy debugging: Ignore folders whose first character is a $
+			if(*dirEntry.path().stem().c_str() != L'$') {
+				UnzippedModFolders.push_back(dirEntry.path());
+			}
+			continue;
+		}
+
+		if(dirEntry.path().extension() == ".zip")
+			zipmodpaths.push_back(dirEntry.path());
+	}
+
+	atlog("\nMod Zips: %zu Unzipped Mod Folders: %zu", zipmodpaths.size(), UnzippedModFolders.size());
+
+	ModList.totalmods = static_cast<int>(zipmodpaths.size() + UnzippedModFolders.size());
+	ModList.mods = new ModDef[ModList.totalmods];
+
+	ModDef* nextmod = ModList.mods;
+	for (const fspath& UnzippedFolder : UnzippedModFolders) {
+		ModReader::ReadLooseModv2(*nextmod++, UnzippedFolder, gamedir, globalconfig);
+	}
+	for (const fspath& ZipPath : zipmodpaths) {
+		ModReader::ReadZipMod(*nextmod++, ZipPath, globalconfig);
+	}
+	check_debug(nextmod == ModList.mods + ModList.totalmods);
+}
+
 bool InjectorLoadMods(const fspath gamedir, const int argflags) {
-	fspath modsdir = gamedir / "mods";
 	fspath basedir = gamedir / "base";
 	fspath outdir = basedir / "modarchives";
 	fspath outarchivepath = outdir / "common_mod.resources";
 	fspath outstreamdbpath = outdir / "common_mod.streamdb";
 	fspath pmspath = basedir / "packagemapspec.json";
 	fspath metapath = basedir / "meta.resources";
-
-	std::vector<fspath> UnzippedModFolders;
-	std::vector<fspath> zipmodpaths;
-	UnzippedModFolders.reserve(20);
-	zipmodpaths.reserve(5);
-
-	if(argflags & argflag_resetvanilla) {
-		atlog("Uninstalled all mods");
-		return true;
-	}
-
-	/*
-	* GATHER MOD FILE PATHS
-	*/
-	{
-		using namespace std::filesystem;
-
-		// Build list of zip mod files
-		for (const directory_entry& dirEntry : directory_iterator(modsdir)) {
-			if (dirEntry.is_directory()) {
-				
-				// Interpret each folder in the mods folder as it's own unzipped mod
-				// For easy debugging: Ignore folders whose first character is a $
-				if(*dirEntry.path().stem().c_str() != L'$') {
-					UnzippedModFolders.push_back(dirEntry.path());
-				}
-				continue;
-			}
-
-			if(dirEntry.path().extension() == ".zip")
-				zipmodpaths.push_back(dirEntry.path());
-		}
-
-		atlog("\nMod Zips: %zu Unzipped Mod Folders: %zu", zipmodpaths.size(), UnzippedModFolders.size());
-	}
 	
 
 	/*
 	* READ MOD DATA
 	*/
 
-	atlog("\n\nReading Mods:\n----------");
-
 	GlobalConfig_t globalconfig;
-	globalconfig.mapresinfo.reserve(4);
-	globalconfig.blanginfo.reserve(5);
 	ModDef GlobalMod;
 	ModDef OnlineSafetyMod;
 	modlist_t ModList;
 
-	ModList.totalmods = static_cast<int>(zipmodpaths.size() + UnzippedModFolders.size());
-	ModList.mods = new ModDef[ModList.totalmods];
-
-	int REALMOD_INCREMENTOR = 0;
-	for(const fspath& UnzippedFolder : UnzippedModFolders) {
-		ModReader::ReadLooseModv2(ModList.mods[REALMOD_INCREMENTOR++], UnzippedFolder, gamedir, globalconfig);
-	}
-	for(const fspath& ZipPath : zipmodpaths) {
-		ModReader::ReadZipMod(ModList.mods[REALMOD_INCREMENTOR++], ZipPath, globalconfig);
-	}
-	assert(REALMOD_INCREMENTOR == ModList.totalmods);
+	globalconfig.mapresinfo.reserve(4);
+	globalconfig.blanginfo.reserve(16);
+	Injector_ReadMods(gamedir, ModList, globalconfig);
 
 	/*
 	* Build the supermod - the list of mod files we will actually load into the archive
@@ -1070,29 +1065,25 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 
 			if (!isSerialized)
 			{
-
 				// For fast iteration, we permit unzipped mod files to be unserialized and serialize them here
-				if(file.parentMod->IsUnzipped) 	{
-					atlog("Serializing %s", file.realPath.c_str());
-
-					BinaryWriter writer(static_cast<size_t>(file.dataLength * 0.75));
-
-					Reserializer::Serialize((char*)file.dataBuffer, file.dataLength, writer, file.typeenum);
-
-					size_t newsize = writer.GetFilledSize();
-					char* newbuffer = writer.Finalize();
-
-					delete[] file.dataBuffer;
-					file.dataBuffer = newbuffer;
-					file.dataLength = newsize;
-				}
-
-				// Filter out zipped mod files that aren't serialized
-				else {
+				if (file.parentMod->modtype != mt_folder) {
 					atlog("ERROR: Zipped file is not serialized! Please use AtlanModPackager to serialize your mod files before distributing them.\n"
-						  "   Mod: %s - %s", file.parentMod->modName.c_str(), file.realPath.c_str());
+						"   Mod: %s - %s", file.parentMod->modName.c_str(), file.realPath.c_str());
 					continue;
 				}
+
+				atlog("Serializing %s", file.realPath.c_str());
+
+				BinaryWriter writer(static_cast<size_t>(file.dataLength * 0.75));
+
+				Reserializer::Serialize((char*)file.dataBuffer, file.dataLength, writer, file.typeenum);
+
+				size_t newsize = writer.GetFilledSize();
+				char* newbuffer = writer.Finalize();
+
+				delete[] file.dataBuffer;
+				file.dataBuffer = newbuffer;
+				file.dataLength = newsize;
 			}
 		}
 
@@ -1120,7 +1111,7 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 			bool isCompFile = idcl::compfile_isvalid(file.dataBuffer, file.dataLength);
 
 			if (!isCompFile) {
-				if (!file.parentMod->IsUnzipped) {
+				if (file.parentMod->modtype != mt_folder) {
 					atlog("ERROR: Zipped compfile is not compressed! Please use AtlanModPackager to compress compfiles before distributing them.\n"
 						"   Mod: %s - %s", file.parentMod->modName.c_str(), file.realPath.c_str());
 					continue;
