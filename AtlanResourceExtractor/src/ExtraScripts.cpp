@@ -172,6 +172,55 @@ void Script_AggregateEntryVars(const fspath& gamedir, const fspath& outputdir) {
 
 }
 
+void Script_DumpManifests(const fspath& gamedir, const fspath& outputdir) {
+	atlog("Running Script: Dump Archive Manifests");
+
+	const fspath manifestdir = outputdir / "manifests";
+
+	std::string out_allheaders;
+	std::string out_manifest;
+
+	if(!std::filesystem::exists(manifestdir))
+		std::filesystem::create_directory(manifestdir);
+
+	idcl::ArchiveIterator iter(gamedir / "base/packagemapspec.json", true);
+	iter.allowDisabled = true;
+	iter.allowUnmasked = true;
+
+	for (const ResourceEntry& e : iter) {
+		out_manifest.clear();
+
+		idcl::String_ResourceArchive(iter.archive, out_manifest, iter.archivebitmask);
+		out_allheaders.push_back('"');
+		out_allheaders.append(iter.CurrentArchive().stem().string());
+		out_allheaders.append("\" ");
+		idcl::String_ResourceHeader(iter.archive.header, iter.archive.metaheader, out_allheaders, iter.archivebitmask);
+
+
+		// Doom Eternal base campaign hub and dlc hub maps have same name
+		// which forces us to do this
+		std::string ManifestPath = manifestdir.string();
+		if (iter.CurrentArchive().string().find("dlc/hub/") != -1) {
+			ManifestPath += "/dlc_";
+		}
+		else {
+			ManifestPath += "/";
+		}
+		ManifestPath.append(iter.CurrentArchive().stem().string());
+		ManifestPath.append(".txt");
+
+		std::ofstream outwriter(ManifestPath, std::ios_base::binary);
+		outwriter << out_manifest;
+		outwriter.close();
+		
+		iter.SkipArchive();
+	}
+
+	std::ofstream headerdump(outputdir / "ArchiveHeaders.txt");
+	headerdump << out_allheaders;
+	headerdump.close();
+}
+
 void RunExtraScripts(fspath gamedir, fspath outputdir)
 {
 	atlog("Running Extra Scripts");
@@ -183,4 +232,6 @@ void RunExtraScripts(fspath gamedir, fspath outputdir)
 	Script_DumpResourceTypes(gamedir, outputdir);
 
 	Script_AggregateEntryVars(gamedir, outputdir);
+
+	Script_DumpManifests(gamedir, outputdir);
 }

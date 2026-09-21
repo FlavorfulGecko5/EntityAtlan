@@ -128,6 +128,20 @@ bool BinaryReader::ReadBig(uint32_t& readto) {
 	return true;
 }
 
+bool BinaryReader::ReadBig(uint64_t& readto)
+{
+	if (next + sizeof(readto) > endptr) {
+		BinaryReader::ErrorDetected();
+		return false;
+	}
+
+	uint64_t temp = *reinterpret_cast<const uint64_t*>(next);
+	readto = _byteswap_uint64(temp);
+	next += sizeof(uint64_t);
+
+	return true;
+}
+
 template<typename TYPE>
 BinaryReader& BinaryReader::__BinaryReader_RShift_Internal(TYPE& readto) {
 	if (next + sizeof(TYPE) > endptr) {

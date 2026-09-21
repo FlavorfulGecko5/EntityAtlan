@@ -237,6 +237,67 @@ bool Read_ResourceArchive_Internal(ResourceArchive& r, int flags) {
 	return true;
 }
 
+// TODO: Need to refine this function. Should refactor how buffers are stored in the archive
+bool idcl::ReadResource_PK5(ResourceArchive& r, const char* const Data, const size_t Length)
+{
+	const char* next = Data;
+	r.header = *(ResourceHeader*)next;
+	next += sizeof(ResourceHeader);
+
+	check(r.header.version == 12);
+	r.metaheader = *(ResourceMetaHeader*)(next);
+	next += sizeof(ResourceMetaHeader);
+
+	// Read the Resource Entries
+	INITBUFFER(ResourceEntry, r.entries, r.header.numResources, r.capacity_resources)
+	next = Data + r.header.resourceEntriesOffset;
+	memcpy(r.entries, next, r.header.numResources * sizeof(ResourceEntry));
+
+	// Read the String Chunk
+	next = Data + r.header.stringTableOffset;
+	r.stringChunk.numStrings = *(uint64_t*)next;
+	next += sizeof(uint64_t);
+
+	size_t stringBlockSize = r.header.stringTableSize - r.stringChunk.numStrings * sizeof(uint64_t) - sizeof(uint64_t);
+
+	INITBUFFER(uint64_t, r.stringChunk.offsets, r.stringChunk.numStrings, r.capacity_stringoffsets);
+	INITBUFFER(char, r.stringChunk.dataBlock, stringBlockSize, r.capacity_stringblob);
+
+	memcpy(r.stringChunk.offsets, next, r.stringChunk.numStrings * sizeof(uint64_t));
+	next += r.stringChunk.numStrings * sizeof(uint64_t);
+	memcpy(r.stringChunk.dataBlock, next, stringBlockSize);
+	next += stringBlockSize;
+
+	// Count the number of padding bytes
+	while (r.stringChunk.dataBlock[--stringBlockSize] == '\0') {
+		r.stringChunk.paddingCount++;
+	}
+	r.stringChunk.paddingCount--; // We overcount by 1 due to the end string
+
+
+	// Initialize Dependency Data
+	//INITBUFFER(ResourceDependency, r.dependencies, r.header.numDependencies, r.capacity_dependencies);
+	//INITBUFFER(uint32_t, r.dependencyIndex, r.header.numDepIndices, r.capacity_depindex);
+	INITBUFFER(uint64_t, r.stringIndex, r.header.numStringIndices, r.capacity_stringindex);
+
+	// Read Dependency Data
+	// There can be a varying number of null bytes after the final string (or none at all)
+	// Hence we have to jump to the dependency offset and can't just read from where we stopped.
+	next = Data + r.header.resourceDepsOffset;
+	next += r.header.numDependencies * sizeof(ResourceDependency) + r.header.numDepIndices * sizeof(uint32_t);
+
+	// in-between the dependencies and dependency indices
+	if (r.metaheader.unknown) {
+		next += 16 * r.header.numDependencies;
+	}
+
+	//opener.read((char*)r.dependencies, r.header.numDependencies * sizeof(ResourceDependency));
+	//opener.read((char*)r.dependencyIndex, r.header.numDepIndices * sizeof(uint32_t));
+	memcpy(r.stringIndex, next, r.header.numStringIndices * sizeof(uint64_t));
+
+	return true;
+}
+
 bool idcl::ReadResource(ResourceArchive& r, const wchar_t* pathString, int flags, bool KeepAlive)
 {
 	check(r.filehandle.open(pathString));
@@ -434,7 +495,9 @@ void idclMaskFile::Read(const fspath gamedir)
 	// Read the container mask blob into memory
 	{
 		ResourceArchive meta;
-		const fspath metapath = gamedir / "base" / "meta.resources";
+		const fspath metapath = gamedir / "base/meta.resources";
+		if(!std::filesystem::exists(metapath))
+			return;
 		idcl::ReadResource(meta, metapath.c_str(), RF_ReadEverything, false);
 		assert(meta.header.numResources == 1);
 
@@ -519,6 +582,11 @@ const fspath& idcl::ArchiveIterator::CurrentArchive()
 	return archivepaths[nextarchiveIndex - 1];
 }
 
+void idcl::ArchiveIterator::SkipArchive()
+{
+	archivemax = nullptr;
+}
+
 idcl::ArchiveIterator::ArchiveIterator(const fspath& path_mapspec, bool p_UseContainerMask) {
 
 	archivepaths = PackageMapSpec::GetArchiveList(path_mapspec, false);
@@ -574,7 +642,7 @@ ResourceEntry* idcl::ArchiveIterator::next(ResourceEntry* current) {
 		Get_EntryStrings(archive, *current, typestring, namestring);
 
 		if (archivebitmask.size) {
-			isEnabled = archivebitmask.IsLoaded(current - archive.entries);
+			isEnabled = archivebitmask.IsLoaded(static_cast<uint32_t>(current - archive.entries));
 			if (!isEnabled && !allowDisabled) {
 				continue;
 			}
@@ -601,4 +669,314 @@ idcl::ArchiveIterator::iter_t idcl::ArchiveIterator::begin() {
 
 idcl::ArchiveIterator::iter_t idcl::ArchiveIterator::end() {
 	return {this, nullptr};
+}
+
+#define ts(NAME) {writeto.append(#NAME " = "); writeto.append(std::to_string(h.NAME)); writeto.append(";\n");}
+
+void idcl::String_ResourceHeader(const ResourceHeader& h, const ResourceMetaHeader& meta, std::string& writeto, idclMaskFile::entry mask) {
+	writeto.append("header {\n");
+		 
+	writeto.append("magic = \"");
+	writeto.push_back(h.magic[0]);
+	writeto.push_back(h.magic[1]);
+	writeto.push_back(h.magic[2]);
+	writeto.push_back(h.magic[3]);
+	writeto.append("\";\n");
+
+	ts(version);
+	ts(flags);
+	ts(numSegments);
+	ts(segmentSize);
+	ts(metadataHash);
+	ts(numResources);
+	ts(numDependencies);
+	ts(numDepIndices);
+	ts(numStringIndices);
+	ts(numSpecialHashes);
+	ts(numMetaEntries);
+	ts(stringTableSize);
+	ts(metaEntriesSize);
+
+	ts(stringTableOffset);
+	ts(metaEntriesOffset);
+	ts(resourceEntriesOffset);
+	ts(resourceDepsOffset);
+	ts(resourceSpecialHashOffset);
+
+	ts(dataOffset);
+
+	if (h.version < 13) {
+		writeto.append("unknown = "); writeto.append(std::to_string(meta.unknown)); writeto.append(";\n");
+		writeto.append("metaOffset = "); writeto.append(std::to_string(meta.metaOffset)); writeto.append(";\n");
+	}
+
+	if (mask.size) {
+
+		size_t extraslots = (h.numResources % 64) ? (64 - h.numResources % 64) : 0;
+
+		// Lazy approach that assumes all extra slots have the same value
+		bool useableExtras = extraslots ? mask.IsLoaded(h.numResources) : false;
+
+		writeto.append("container_mask {\nhash = "); writeto.append(std::to_string(mask.hash)); 
+		writeto.append(";\nextra_slots = "); writeto.append(std::to_string(extraslots));
+		writeto.append(";\nextra_slots_are_enabled = "); writeto.append(useableExtras ? "1" : "0");
+		writeto.append(";\n}\n");
+	}
+	else {
+		writeto.append("NO_CONTAINER_MASK\n");
+	}
+	writeto.append("}\n");
+}
+
+void idcl::String_StringChunk(const StringChunk& s, std::string& writeto)
+{
+	writeto.append("strings {\n");
+
+	for (uint64_t i = 0; i < s.numStrings; i++) {
+		writeto.push_back('"');
+		writeto.append(s.dataBlock + s.offsets[i]);
+		writeto.append("\"\n");
+	}
+	writeto.append("}\n");
+	writeto.append("stringChunkPadding = ");
+	writeto.append(std::to_string(s.paddingCount));
+	writeto.append("\n");
+}
+
+void idcl::String_ResourceArchive(const ResourceArchive& r, std::string& writeto, idclMaskFile::entry mask) {
+	String_ResourceHeader(r.header, r.metaheader, writeto, mask);
+	String_StringChunk(r.stringChunk, writeto);
+
+	writeto.append("files {\n");
+
+	for (uint64_t i = 0; i < r.header.numResources; i++) {
+		ResourceEntry& h = r.entries[i];
+
+		const char* typeString = nullptr, * nameString = nullptr;
+		Get_EntryStrings(r, h, typeString, nameString);
+
+		writeto.push_back('"');
+		writeto.append(typeString);
+		writeto.push_back('/');
+		writeto.append(nameString);
+		writeto.append("\" ");
+
+		if (mask.size) {
+			writeto.append(mask.IsLoaded((u32)i) ? "1 {\n" : "0 {\n");
+		}
+		else {
+			writeto.append("{\n");
+		}
+
+		//ts(resourceTypeString);
+		//ts(nameString);
+		//ts(descString);
+
+		if(h.numDependencies) ts(depIndices);
+		if(h.strings != i * 2) ts(strings);
+		if(h.specialHashes) ts(specialHashes);
+		if(h.metaEntries) ts(metaEntries);
+
+		ts(dataOffset);
+		ts(dataSize);
+		if(h.dataSize != h.uncompressedSize) ts(uncompressedSize);
+		//ts(dataCheckSum);
+		//ts(generationTimeStamp);
+		if(h.defaultHash != h.dataCheckSum) ts(defaultHash);
+
+		ts(version);
+		if(h.flags) ts(flags);
+		if(h.compMode) ts(compMode);
+
+		if(h.reserved0) ts(reserved0);
+		if(h.variation) ts(variation);
+		if(h.reserved2) ts(reserved2);
+		if(h.reservedForVariations) ts(reservedForVariations);
+
+		if(h.numStrings != 2) ts(numStrings);
+		if(h.numSources) ts(numSources);
+		if(h.numDependencies) ts(numDependencies);
+		if(h.numSpecialHashes) ts(numSpecialHashes);
+		if(h.numMetaEntries) ts(numMetaEntries);
+
+		if(!h.numDependencies) {
+			writeto.append("}\n");
+			continue;
+		}
+
+		writeto.append("dependencies {\n");
+
+		uint32_t* depPtr = r.dependencyIndex + h.depIndices;
+		for (uint64_t depIndex = 0; depIndex < h.numDependencies; depIndex++) {
+			const ResourceDependency& d = r.dependencies[depPtr[depIndex]];
+
+			const char* dType = r.stringChunk.dataBlock + r.stringChunk.offsets[d.type];
+			const char* dName = r.stringChunk.dataBlock + r.stringChunk.offsets[d.name];
+
+			writeto.append("\"#"); // A # makes it easier to cntrl+f only for entry strings
+			writeto.append(dType);
+			writeto.push_back('/');
+			writeto.append(dName);
+
+			#if 1
+			writeto.append("\"\n");
+			#else
+			writeTo.append("\" {\n");
+
+			writeTo.append("\ndepType = "); writeTo.append(std::to_string(d.depType));
+			writeTo.append("\ndepSubType = "); writeTo.append(std::to_string(d.depSubType));
+			//writeTo.append("\ntimestampOrHash = "); writeTo.append(std::to_string(d.hashOrTimestamp));
+			writeTo.append("\nfirstInt = "); writeTo.append(std::to_string(d.firstInt));
+			writeTo.append("\nsecondInt = "); writeTo.append(std::to_string(d.secondInt));
+
+			writeTo.append("\n}\n");
+			#endif
+		}
+
+		writeto.append("}\n}\n");
+	}
+
+
+	writeto.append("}\n");
+}
+
+ResourceEntryData_t idPackage::GetEntryData(const idPackageEntry& entry, ResourceEntryBuffers_t& buffers)
+{
+	handle.seek(entry.offset);
+
+	if (buffers.decomp_length < entry.uncompressedSize) {
+		buffers.decomp_length = entry.uncompressedSize;
+		delete[] buffers.decomp_buffer;
+		buffers.decomp_buffer = new char[entry.uncompressedSize];
+	}
+
+	if (entry.compressionMode) {
+		if(entry.compressionMode != 11)
+			return {EntryDataCode::UNKNOWN_COMPRESSION};
+
+		if (buffers.raw_length < entry.compressedSize) {
+			buffers.raw_length = entry.compressedSize;
+			delete[] buffers.raw_buffer;
+			buffers.raw_buffer = new char[entry.compressedSize];
+		}
+
+		handle.read(buffers.raw_buffer, entry.compressedSize);
+
+		bool result = Oodle::DecompressBuffer(buffers.raw_buffer, entry.compressedSize, 
+			buffers.decomp_buffer, entry.uncompressedSize);
+		if(!result)
+			return {EntryDataCode::OODLE_ERROR};
+	}
+	else {
+		handle.read(buffers.decomp_buffer, entry.uncompressedSize);
+	}
+
+	return {EntryDataCode::OK, buffers.decomp_buffer, entry.uncompressedSize };
+
+}
+
+// TODO: More error checking
+bool idPackage::Read(const wchar_t* filepath)
+{
+	if(!handle.open(filepath))
+		return false;
+
+	handle.read((char*)&header.magic, sizeof(header.magic));
+	if(header.magic != 0x03D0C0CA)
+		return false;
+
+	handle.read((char*) &header.indexOffset, 16);
+	header.indexOffset = _byteswap_uint64(header.indexOffset);
+	header.indexSize = _byteswap_uint64(header.indexSize);
+
+	handle.seek(header.indexOffset);
+
+	charbuffer_t rawentries;
+	rawentries.data = new char[header.indexSize];
+	handle.read(rawentries.data, header.indexSize);
+
+	BinaryReader reader(rawentries.data, header.indexSize);
+	reader.ReadBig(numentries);
+
+	check(numentries < 1000);
+
+	delete[] entries;
+	entries = new idPackageEntry[numentries];
+
+	for (u32 i = 0; i < numentries; i++) {
+
+		idPackageEntry& e = entries[i];
+
+		const char* bytes;
+		u32 stringlength;
+		reader >> stringlength;
+		reader.ReadBytes(bytes, stringlength);
+
+		e.name = std::string(bytes, stringlength);
+		reader.ReadBig(e.offset);
+		reader.ReadBig(e.uncompressedSize);
+		reader.ReadBig(e.compressedSize);
+		reader.ReadBig(e.compressionMode);
+		reader >> e.timestamp;
+	}
+
+	return reader.ReachedEOF();
+}
+
+std::string idPackage::ListEntries()
+{
+	std::string list;
+	list.reserve(numentries * 128);
+
+	ResourceEntryBuffers_t entrybuffers;
+	ResourceArchive subarc;
+
+	for (u32 i = 0; i < numentries; i++) {
+		list.push_back('"');
+		list.append(entries[i].name);
+		list.append("\" ");
+		list.append(entries[i].compressionMode ? "1\n" : "0\n");
+
+		ResourceEntryData_t data = GetEntryData(entries[i], entrybuffers);
+		check_debug(data.returncode == EntryDataCode::OK);
+
+		if(data.length < 4)
+			continue;
+		if(*(u32*)data.buffer != 'LCDI')
+			continue;
+		
+		bool result = idcl::ReadResource_PK5(subarc, data.buffer, data.length);
+		check_debug(result);
+
+		if (subarc.header.numMetaEntries) {
+			int meta = 0;
+		}
+		
+		for (u32 RESINDEX = 0; RESINDEX < subarc.header.numResources; RESINDEX++) {
+
+			const ResourceEntry& e = subarc.entries[RESINDEX];
+
+			if (e.compMode) {
+				int debug_compmode = 0;
+			}
+
+			const char* typestring, *namestring;
+			Get_EntryStrings(subarc, e, typestring, namestring);
+
+			list.append("   - \"");
+			list.append(typestring);
+			list.push_back(':');
+			list.append(namestring);
+			list.append("\"\n");
+
+			if (e.numSources) {
+				int sources = 0;
+			}
+
+			if (strcmp(typestring, "compfile") == 0) {
+				int derpy = 0;
+			}
+		}
+	}
+	return list;
 }

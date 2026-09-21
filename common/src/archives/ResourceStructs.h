@@ -178,6 +178,7 @@ enum ResourceFlags {
 namespace idcl {
 	bool ReadResource(ResourceArchive& r, const wchar_t* pathString, int flags, bool KeepAlive);
 	bool ReadResource(ResourceArchive& r, const char* pathString, int flags, bool KeepAlive);
+	bool ReadResource_PK5(ResourceArchive& r, const char* const Data, const size_t Length);
 }
 
 
@@ -294,6 +295,10 @@ namespace idcl {
 #include <vector>
 namespace idcl {
 	
+	// Iterator over all resource archives in a game
+	// Can optionally specify whether to use a container mask
+	// If no valid container mask can be found (as is the case when reading idStudio level mods)
+	// then it operates as if container mask usage wasn't enabled
 	struct ArchiveIterator {
 		std::vector<fspath> archivepaths;
 		size_t nextarchiveIndex = 0;
@@ -304,17 +309,20 @@ namespace idcl {
 		ResourceArchive archive;
 		const ResourceEntry* archivemax;
 
-		const char* typestring, *namestring; // Strings of the current resource entry
-		bool isEnabled; // Whether the current file is enabled/disabled by the container mask.
-		                // Only check this if allowDisabled = true
+		const char* typestring, *namestring; // RUNTIME: Strings of the current resource entry
+		bool isEnabled;						 // RUNTIME: Whether the current file is enabled by the container mask. Only applicable if allowDisabled = true. Always true if no container mask
+		bool newarchiveloaded = false;       // RUNTIME: Gets set to true once another archive is loaded
 
 
-		const char* typefilter = nullptr; // Optional filter string for resource types
-		bool allowUnmasked = false;       // If false, skip archives with no container mask
-		bool allowDisabled = false;       // If false, skip entries disabled by the container mask
-		bool newarchiveloaded = false;    // Toggleable flag that gets set to true once another archive is loaded
+		const char* typefilter = nullptr; // CONFIG: Optional filter string for resource types
+		bool allowUnmasked = false;       // CONFIG: If false, skip archives with no container mask. Only applicable if using a valid container mask
+		bool allowDisabled = false;       // CONFIG If false, skip entries disabled by the container mask. Only applicable if using a valid container mask
 
-		const fspath& CurrentArchive(); // Returns the name of the archive currently being iterated through
+		// RUNTIME: Returns the name of the archive currently being iterated through
+		const fspath& CurrentArchive();
+		
+		// RUNTIME: Skip the current archive and cause the next one to be loaded in the following loop cycle
+		void SkipArchive(); 
 
 		struct iter_t {
 			ArchiveIterator* controller;
@@ -340,3 +348,48 @@ namespace idcl {
 		ResourceEntry* nextarchive();
 	};
 }
+
+namespace idcl {
+	void String_ResourceHeader(const ResourceHeader& h, const ResourceMetaHeader& meta, std::string& writeto, idclMaskFile::entry mask);
+	void String_StringChunk(const StringChunk& s, std::string& writeto);
+	void String_ResourceArchive(const ResourceArchive& r, std::string& writeto, idclMaskFile::entry mask);
+}
+
+struct idPackageHeader {
+	uint32_t magic;
+	uint64_t indexOffset; // Big Endian
+	uint64_t indexSize; // Big Endian
+};
+
+struct idPackageEntry {
+	std::string name;
+	uint64_t offset;
+	uint32_t uncompressedSize;
+	uint32_t compressedSize;
+	uint32_t compressionMode; // 11 is Kraken
+	uint32_t timestamp;
+};
+
+// pk5 files
+struct idPackage {
+	
+	idPackageHeader header;
+	idPackageEntry* entries = nullptr;
+	uint32_t numentries = 0;
+	FileReader handle;
+
+	~idPackage() {
+		delete[] entries;
+	}
+
+	ResourceEntryData_t GetEntryData(const idPackageEntry& entry, ResourceEntryBuffers_t& buffers);
+	bool Read(const wchar_t* filepath);
+
+	std::string ListEntries();
+
+	idPackage() = default;
+	idPackage(const idPackage& other) = delete;
+	idPackage(const idPackage&& other) = delete;
+	idPackage& operator=(const idPackage& other) = delete;
+	idPackage& operator=(const idPackage&& other) = delete;
+};
