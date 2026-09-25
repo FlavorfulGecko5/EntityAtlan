@@ -210,6 +210,32 @@ bool BuildOriginalImageHeader(const std::string& AssetPath, const std::string& E
 	}
 }
 
+void ImageWriter_StartImage(BinaryWriter& writer, ImageHeader& header) {
+	// Write the Atlan Image header
+	writer.WriteBytes("ATIM", 4);
+	writer << decltype(idAtlanImage::version)(2)
+		<< decltype(idAtlanImage::bimversion)(header.version)
+		<< decltype(idAtlanImage::singlestream)(0)
+		<< decltype(idAtlanImage::streamdbmips)(header.streamDBMipCount)
+		<< decltype(idAtlanImage::prefetch_farmhash)(0)
+		<< (uint64_t)(header.HeaderLength());
+
+	// Write the resources entry
+	writer.pushSizeStack();
+	writer.WriteBytes(header.magic, sizeof(header.magic));
+	writer << header.version
+		<< header.textureType
+		<< header.textureMaterialKind
+		<< header.pixelWidth << header.pixelHeight << header.depth
+		<< header.mipCount << header.unkFlags
+		<< header.albedoSpecularBias << header.albedoSpecularScale << header.isEnvironmentMap
+		<< header.textureFormat << header.engineVersion << header.nullpadding << header.atlaspadding
+		<< header.streamed << header.singleStream << header.noMips << header.fftBloom;
+	if (header.version > 23)
+		writer << header.prefiltermips;
+	writer << (header.streamDBMipCount | (header.minimumMip << 4)); // This assumes a 2D texture type
+}
+
 bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, size_t JobIndex, const std::string& EncodingInfo, const wchar_t* FilePath, idImageEncodingResults& FINAL_IMAGE, std::string& OutputLog) const
 {
 	/*
@@ -355,7 +381,7 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, size_t Jo
 		DirectX::ComputePitch(dxgiFormat, mipImage->width, mipImage->height, rowpitch, slicepitch);
 		m.decompressedSize = (u32)slicepitch;
 
-		if (m.mipPixelWidth <= 32 && m.mipPixelHeight <= 32) {
+		if (m.IsSmall()) {
 			m.flagIsCompressed = 0;
 			m.compressedSize = m.decompressedSize;
 		}
@@ -382,29 +408,7 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, size_t Jo
 	FINAL_IMAGE.file_length = 0;
 	writer.EnsureMaxCapacity(image.GetPixelsSize() + 5000);
 
-	// Write the Atlan Image header
-	writer.WriteBytes("ATIM", 4);
-	writer << decltype(idAtlanImage::version)(2) 
-		<< decltype(idAtlanImage::bimversion)(header.version)
-		<< decltype(idAtlanImage::singlestream)(0)
-		<< decltype(idAtlanImage::streamdbmips)(header.streamDBMipCount)
-		<< decltype(idAtlanImage::prefetch_farmhash)(0)
-		<< (uint64_t)(header.CalcHeaderSize());
-	
-	// Write the resources entry
-	writer.pushSizeStack();
-	writer.WriteBytes(header.magic, sizeof(header.magic));
-	writer << header.version 
-		<< header.textureType 
-		<< header.textureMaterialKind
-		<< header.pixelWidth << header.pixelHeight << header.depth
-		<< header.mipCount << header.unkFlags
-		<< header.albedoSpecularBias << header.albedoSpecularScale << header.isEnvironmentMap
-		<< header.textureFormat << header.engineVersion << header.nullpadding << header.atlaspadding
-		<< header.streamed << header.singleStream << header.noMips << header.fftBloom;
-	if(header.version > 23)
-		writer << header.prefiltermips;
-	writer << (header.streamDBMipCount | (header.minimumMip << 4)); // This assumes a 2D texture type
+	ImageWriter_StartImage(writer, header);
 
 	// Reserve space for the mipinfo array. We'll copy it in later
 	// once we've fully populated all fields
@@ -412,7 +416,7 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, size_t Jo
 	writer.AddBytes(header.mipCount * sizeof(ImageMipInfo));
 
 	// Write the resource entry mips, completing that part of the file
-	u32 cumulativeSum = 32 * header.mipCount + 64;
+	u32 cumulativeSum = header.CumulativeSumInitial();
 	for(uint32_t i = header.streamDBMipCount; i < header.mipCount; i++) {
 		writer.WriteBytes((char*)image.GetImage(i, 0, 0)->pixels, mipdata[i].compressedSize);
 		mipdata[i].cumulativeSizeStreamDB = cumulativeSum;
@@ -457,6 +461,138 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, size_t Jo
 		OutputLog.append("   ERROR: Image failed final validation\n");
 
 	//printf("\r");
+	return true;
+}
+
+bool idImageEncodingContext::ConvertLegacy(char* OLD, const size_t OLDSIZE, idImageEncodingResults& FINAL_IMAGE)
+{
+	/* Decompress the Divinity Image */
+	if (OLDSIZE < 16) {
+		atlog("   ERROR: Bad image size?");
+		return false;
+	}
+
+	charbuffer_t rawbim;
+	u64 decompsize;
+	if (memcmp(OLD, "DIVINITY", 8) == 0) {
+		decompsize = ((const u64*)OLD)[1];
+		check(decompsize < 0x4000000); // Sanity check
+		rawbim.EnsureCapacity(decompsize);
+		check(Oodle::DecompressBuffer(OLD + 16, OLDSIZE - 16, rawbim.data, decompsize));
+	}
+	else if (memcmp(OLD, "BIM", 3) == 0) { // Some older texture mods don't use DIVINITY format
+		decompsize = OLDSIZE;
+		rawbim.EnsureCapacity(OLDSIZE);
+		memcpy(rawbim.data, OLD, OLDSIZE);
+	}
+	else {
+		atlog("   ERROR: Unknown image format");
+		return false;
+	}
+
+	/* Fixup the image data */
+
+	idImage img;
+	check(img.Read(rawbim.data, decompsize, false));
+
+	const char* const PTR_MIPDATA = rawbim.data + img.header.HeaderMipLength();
+
+	if (img.header.textureType != TT_2D) {
+		atlog("   ERROR: Cannot convert non-2D legacy images");
+		return false;
+	}
+
+	// The image header is mostly valid, we just need to determine what mips should be put in the streamdb
+	for (u32 i = 0; i < img.header.mipCount; i++) {
+		
+		ImageMipInfo& m = img.mipinfos[i];
+
+		if (m.IsSmall()) {
+			m.flagIsCompressed = 0;
+			m.compressedSize = m.decompressedSize;
+		}
+		else {
+			m.flagIsCompressed = 1;
+			img.header.streamDBMipCount++;
+		}
+	}
+	img.header.streamed = img.header.streamDBMipCount > 0;
+	img.header.singleStream = 0;
+
+	// Monitor: We probably shouldn't touch the albedo specular bias / scale. Goal should be
+	// to keep the images precisely the same as with Eternal Mod Loader
+
+	/* 
+	* Write the Image 
+	* A lot of this is copied from the standard image encoding pipeline
+	*/
+
+	BinaryWriter writer;
+	writer.EnsureMaxCapacity(decompsize);
+
+	ImageWriter_StartImage(writer, img.header);
+
+	// Reserve space for the mipinfo array. We'll copy it in later
+	// once we've fully populated all fields
+	const size_t POSITION_MIPINFO = writer.GetPosition();
+	writer.AddBytes(img.header.mipCount * sizeof(ImageMipInfo));
+
+	// Write the resource entry mips, completing that part of the file
+	u32 cumulativeSum = img.header.CumulativeSumInitial();
+	u32 mipindex;
+	const char* NEXT_MIP = PTR_MIPDATA; // Need to get past the streamdb mips
+	for (mipindex = 0; mipindex < img.header.streamDBMipCount; mipindex++) {
+		NEXT_MIP += img.mipinfos[mipindex].decompressedSize;
+	}
+	for (mipindex = img.header.streamDBMipCount; mipindex < img.header.mipCount; mipindex++) {
+		img.mipinfos[mipindex].cumulativeSizeStreamDB = cumulativeSum;
+
+		u32 compsize = img.mipinfos[mipindex].compressedSize;
+
+		cumulativeSum += compsize;
+		writer.WriteBytes(NEXT_MIP, compsize);
+		NEXT_MIP += compsize;
+	}
+	writer.popSizeStack();
+
+	check_debug(NEXT_MIP == rawbim.data + decompsize);
+
+	// Compress and write the streamdb mips
+	NEXT_MIP = PTR_MIPDATA;
+	cumulativeSum = 0;
+	for (mipindex = 0; mipindex < img.header.streamDBMipCount; mipindex++) {
+		ImageMipInfo& m = img.mipinfos[mipindex];
+
+		// Some jank to avoid needing to copy the compressed data into the writer
+		// from a separate buffer
+		writer.EnsureAvailable(m.decompressedSize);
+		char* writeTo = writer.GetEditableNext();
+
+		int OodleResult = Oodle::CompressBuffer((char*)NEXT_MIP, m.decompressedSize, writeTo, 4);
+		if (OodleResult == 0) {
+			atlog("   ERROR: Failed to Oodle compress mip level %d", mipindex);
+			return false;
+		}
+		m.compressedSize = (u32)OodleResult;
+		m.cumulativeSizeStreamDB = cumulativeSum;
+		cumulativeSum += m.compressedSize;
+		writer.AddBytes(m.compressedSize);
+		NEXT_MIP += m.decompressedSize;
+	}
+
+	delete[] FINAL_IMAGE.buffer;
+	FINAL_IMAGE.file_length = writer.GetFilledSize();
+	FINAL_IMAGE.buffer_max = writer.GetMaxCapacity();
+	FINAL_IMAGE.buffer = (uint8_t*)writer.Finalize();
+
+	// Copy in the completed mipinfo
+	uint8_t* mipinfo_location = FINAL_IMAGE.buffer + POSITION_MIPINFO;
+	memcpy(mipinfo_location, img.mipinfos, img.header.mipCount * sizeof(ImageMipInfo));
+
+	if (!idAtlanImage::Validate(FINAL_IMAGE.buffer, FINAL_IMAGE.file_length)) {
+		atlog("   ERROR: Image failed final validation");
+		return false;
+	}
 	return true;
 }
 

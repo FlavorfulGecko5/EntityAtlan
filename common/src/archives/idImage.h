@@ -164,10 +164,6 @@ struct ImageHeader {
     // Mips [header.streamDBMipCount, header.mipCount) are stored in the .resources entry 
     u32 streamDBMipCount;
 
-    // Length of the header read from the file
-    // (This is not read/written to the file, it's here for convenience because of optional flags)
-    u32 HEADER_LENGTH; 
-
     // Packed into second nibble of streamDBMipCount. 2D Textures Only
     u32 minimumMip;
 
@@ -175,9 +171,23 @@ struct ImageHeader {
 
     void tostring(std::string& addto) const;
 
-    size_t CalcHeaderSize() {
-        HEADER_LENGTH = version > 23 ? 64 : 63;
-        return HEADER_LENGTH;
+    // Length of the header binary read from / written to the file
+    u32 HeaderLength() const {
+        return version > 23 ? 64 : 63;
+    }
+
+    // Combined length of the image header + the mipinfos array
+    // 36 == sizeof(ImageMipInfo)
+    u32 HeaderMipLength() const {
+        return 36 * mipCount + HeaderLength();
+    }
+
+    // The cumulativeSizeStreamDB value of the first
+    // non-streamdb mip. Unlike the value for the first streamdb mip,
+    // it's non-zero and follows this pattern. If this value is not
+    // used correctly, non-streamdb mips will break
+    u32 CumulativeSumInitial() const {
+        return 32 * mipCount + HeaderLength();
     }
 
     void DefaultInitialize(gamebit_t gameid);
@@ -193,6 +203,12 @@ struct ImageMipInfo {
     u32 flagIsCompressed; // Mips stored in .resources are never compressed
     u32 compressedSize;
     u32 cumulativeSizeStreamDB;
+
+    // Threshold for 2D textures for determining which mips are placed in the streamdb
+    // and which are inlined into the .resources entry
+    bool IsSmall() const {
+        return mipPixelWidth <= 32 && mipPixelHeight <= 32;
+    }
 
     void tostring(std::string& addto) const;
 };
@@ -258,6 +274,9 @@ struct idImageEncodingContext {
     // Checking this will allow unzipped mods to have pre-encoded
     // images in them, so they don't have to always get re-encoded
     static bool CanEncode(const wchar_t* filepath);
+
+    // Converts a legacy Eternal Mod Loader image file into an Atlan image file
+    static bool ConvertLegacy(char* OLD, const size_t OLDSIZE, idImageEncodingResults& results);
 };
 
 /*

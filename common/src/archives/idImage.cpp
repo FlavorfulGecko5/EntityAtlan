@@ -26,11 +26,9 @@ bool ImageHeader::Read(const char* data, const size_t length)
 	checkread(fftBloom);
 	if (version >= 24) {
 		checkread(prefiltermips);
-		HEADER_LENGTH = 64;
 	}
 	else {
 		prefiltermips = 0;
-		HEADER_LENGTH = 63;
 	}
 	checkread(streamDBMipCount);
 
@@ -62,7 +60,7 @@ bool idImage::Read(const char* data, size_t length, bool FullyValidate)
 	if(header.Read(data, length) == false)
 		return false;
 
-	BinaryReader reader(data + header.HEADER_LENGTH, length - header.HEADER_LENGTH);
+	BinaryReader reader(data + header.HeaderLength(), length - header.HeaderLength());
 
 	/*
 	* Step 2: Read the mip infos
@@ -108,18 +106,17 @@ bool idImage::Read(const char* data, size_t length, bool FullyValidate)
 		check(header.streamDBMipCount <= header.mipCount);
 		if (header.streamDBMipCount < header.mipCount) {
 			uint32_t left = mipinfos[header.streamDBMipCount].cumulativeSizeStreamDB;
-			uint32_t right = 32 * header.mipCount + 64;
+			uint32_t right = header.CumulativeSumInitial();
 
-			// Only one image in the entire game passes the right-side check
-			check(left == right || left == right - 1);
+			check(left == right);
 		}
 
 		if (header.textureType == TT_2D && header.textureMaterialKind != TMK_NONE) {
 			for (uint32_t i = 0; i < header.streamDBMipCount; i++) {
-				check(mipinfos[i].mipPixelWidth > 32 || mipinfos[i].mipPixelHeight > 32);
+				check(!mipinfos[i].IsSmall());
 			}
 			for (uint32_t i = header.streamDBMipCount; i < header.mipCount; i++) {
-				check(mipinfos[i].mipPixelWidth <= 32 && mipinfos[i].mipPixelHeight <= 32);
+				check(mipinfos[i].IsSmall());
 			}
 		}
 
@@ -234,7 +231,6 @@ void ImageHeader::DefaultInitialize(gamebit_t gameid) {
 	prefiltermips = 0;
 	streamDBMipCount = 0;
 	minimumMip = 0;
-	CalcHeaderSize();
 }
 
 #if DEBUG_COLLECT_EXTENSIONPROPS
