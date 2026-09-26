@@ -49,14 +49,28 @@ MapSpec_t::MapSpec_t(const fspath& p_mapspecpath)
 	good = true;
 }
 
-bool MapSpec_t::Modify(const std::string* list_newfiles, const size_t num_newfiles, const std::string* list_imports, const size_t num_imports)
+bool MapSpec_t::Modify(const AddOn* list_newfiles, const size_t num_newfiles, const std::string* list_imports, const size_t num_imports)
 {
-	// Add New Files
 	for (int64_t i = num_newfiles - 1; i > -1; i--) {
-		// FOR NOW: We assume that new files are being added to the common map.
-		listrefs[0].push_back((int)listfiles.size());
-		
-		listfiles.push_back(list_newfiles[i]);
+		const AddOn* a = list_newfiles + i;
+
+		// Find map index
+		// If it's a new map, add it to the end of the maps list
+		size_t mapindex = -1;
+		for (size_t k = 0; k < listmaps.size(); k++) {
+			if (listmaps[k] == a->mapname) {
+				mapindex = k;
+				break;
+			}
+		}
+		if (mapindex == -1) {
+			mapindex = listmaps.size();
+			listmaps.push_back(a->mapname);
+			listrefs.emplace_back();
+		}
+
+		listrefs[mapindex].push_back((int)listfiles.size());
+		listfiles.push_back(a->newfile);
 	}
 
 	// Do Imports

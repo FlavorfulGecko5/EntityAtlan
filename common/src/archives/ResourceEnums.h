@@ -20,7 +20,9 @@ enum ResourceType : uint32_t
 	rt_binaryFile      = 1 << 13,
 	rt_baseModel       = 1 << 14,
 	rt_strandsHair     = 1 << 15,
-	rt_cswf            = 1 << 16
+	rt_cswf            = 1 << 16,
+
+	rt_generic_atdb    = 1 << 17, // Any resource type that uses the Atlan StreamDB file format
 };
 
 enum ResourceTypeComboFlags : uint32_t 
@@ -29,7 +31,7 @@ enum ResourceTypeComboFlags : uint32_t
 	rtc_serialized    = rt_entityDef  | rt_mapentities | rtc_logic_decl,
 	rtc_no_extension  = rt_entityDef  | rt_mapentities | rtc_logic_decl | rt_audio | rt_slug_font | rt_binaryFile,
 	rtc_last_number   = rt_audio,
-	rtc_query_dbhash  = rt_mapentities | rt_compfile,
-	rtc_assign_dbhash = rt_image | rt_baseModel,
-	rtc_deferload     = rt_image | rt_baseModel | rt_strandsHair
+	rtc_query_dbhash  = rt_mapentities, // compfiles have a streamdb hash but apparently don't use it (or at least, .entities don't)
+	rtc_assign_dbhash = rt_image | rt_baseModel | rt_generic_atdb,
+	rtc_deferload     = rt_image | rt_baseModel | rt_strandsHair | rt_generic_atdb
 };

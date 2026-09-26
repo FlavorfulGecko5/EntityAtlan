@@ -167,6 +167,41 @@ bool BuildArchive_HotReload(ResourceEntry& e, const ModFile& f, BuildArchiveStre
 	return true;
 }
 
+#include "atlan/AtlanDB.h"
+
+bool BuildArchive_DBFile(ResourceEntry& e, const ModFile& f, BuildArchiveStreams& out) {
+	AtlanDBFile dbfile;
+	if (!dbfile.ReadFrom(f.dataBuffer, f.dataLength)) {
+		atlog("FATAL ERROR: Resource is not a valid Atlan StreamDB File"
+			"\n Mod: %s - %s", f.parentMod->modName.c_str(), f.realPath.c_str());
+		return false;
+	}
+
+	e.version = dbfile.resourceVersion;
+	e.dataSize = dbfile.resourceSize;
+	e.uncompressedSize = dbfile.resourceSize_uncompressed;
+	e.compMode = e.dataSize == e.uncompressedSize ? 0 : 2;
+	out.WriteResource(dbfile.resourceEntry, e);
+
+	for (uint64_t i = 0; i < dbfile.numEntries; i++) {
+		const AtlanDBFile::entry& e = dbfile.entries[i];
+
+		idStreamDB::entry_t streamdb_entry;
+
+		if(g_game == game_darkages)
+			streamdb_entry.id = HashLib::darkage_miphash(f.defaulthash, e.da_hashparm1, e.da_hashparm2);
+		else streamdb_entry.id = f.defaulthash << 4 | e.en_hashparm;
+
+		streamdb_entry.length = e.size;
+		streamdb_entry.offset16 = (u32)(out.streamDataOffset / 16);
+		out.streamEntries.push_back(streamdb_entry);
+
+		out.WriteStreamDB(f.dataBuffer + e.offset, streamdb_entry.length);
+	}
+
+	return true;
+}
+
 bool BuildArchive_Image(ResourceEntry& e, const ModFile& f, BuildArchiveStreams& out) {
 
 	idAtlanImage imgdef;
@@ -384,6 +419,9 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 		else if (f.typeenum == rt_image) {
 			buildResult = BuildArchive_Image(e, f, outstreams);
 		}
+		else if(f.typeenum == rt_generic_atdb) {
+			buildResult = BuildArchive_DBFile(e, f, outstreams);
+		}
 		else if (f.typeenum == rt_baseModel) {
 			buildResult = BuildArchive_BaseModel(e, f, outstreams);
 		}
@@ -566,9 +604,9 @@ bool Modify_PackageMapSpec(const fspath& pmspath, bool includeStreamDB, GlobalCo
 	if(!mapspec.good)
 		return false;
 
-	std::string newfiles[] = {
-		"modarchives/common_mod.resources",
-		"modarchives/common_mod.streamdb"
+	MapSpec_t::AddOn newfiles[] = {
+		{"modarchives/common_mod.resources", "common"},
+		{"modarchives/common_mod.streamdb", "common"}
 	};
 
 	bool result = mapspec.Modify(newfiles, includeStreamDB ? 2 : 1, config.mapspec.data(), config.mapspec.size());
@@ -992,7 +1030,7 @@ void Injector_ReadMods(const fspath& gamedir, modlist_t& ModList, GlobalConfig_t
 			continue;
 		}
 
-		if(dirEntry.path().extension() == ".zip")
+		if(dirEntry.path().extension() == L".zip")
 			zipmodpaths.push_back(dirEntry.path());
 	}
 
@@ -1342,7 +1380,13 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 	const fspath absdir = std::filesystem::absolute(gamedirectory);
 	if(std::filesystem::exists(gamedirectory / "steam_api64.dll")) {
 		atlog("Launching Game with Steam");
-		std::system("start \"\" \"steam://run/3017860//\"");
+
+		if (g_game == game_darkages) {
+			std::system("start \"\" \"steam://run/3017860//\"");
+		}
+		else {
+			std::system("start \"\" \"steam://run/782330//\"");
+		}
 	}
 	else {
 		atlog("Could not determine how to automatically launch your game\n"

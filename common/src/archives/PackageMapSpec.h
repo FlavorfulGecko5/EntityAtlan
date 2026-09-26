@@ -6,6 +6,11 @@
 typedef std::filesystem::path fspath;
 
 struct MapSpec_t {
+
+	struct AddOn {
+		std::string newfile;
+		std::string mapname;
+	};
 	
 	bool good = false;
 
@@ -28,7 +33,7 @@ struct MapSpec_t {
 	// list_newfiles: New files to add to the packagemapspec. First in array == first in the JSON
 	// list_imports: List of import statements from mod config files Format is "FROM_MAP$TO_MAP$FilterString"
 	// FilterString is optional. If missing, everything will be imported from that map
-	bool Modify(const std::string* list_newfiles, const size_t num_newfiles, const std::string* list_imports, const size_t num_imports);
+	bool Modify(const AddOn* list_newfiles, const size_t num_newfiles, const std::string* list_imports, const size_t num_imports);
 };
 
 namespace PackageMapSpec

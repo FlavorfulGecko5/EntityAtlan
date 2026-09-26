@@ -132,7 +132,8 @@ void PackagerMain(const char* DIR_GAME, fspath DIR_INPUT, fspath ZIP_OUTPUT)
 		{"strandsHair",   rt_strandsHair},
 		{"compfile",      rt_compfile},
 		{"binaryFile",    rt_binaryFile},
-		{"cswf",          rt_cswf}
+		{"cswf",          rt_cswf},
+		{"model",         rt_generic_atdb}
 	};
 
 	AtlanModConfig ModConfig;
