@@ -145,11 +145,6 @@ void PackagerMain(const char* DIR_GAME, fspath DIR_INPUT, fspath ZIP_OUTPUT)
 	}
 	atlog("Packaging %ls", modsfolder.c_str());
 
-	// Put this after the mod folder is located, so
-	// we don't download Oodle in an incorrect place.
-	if (!Oodle::AtlanOodleInit("."))
-		return;
-
 	// Keep init_heap values at zero or the finalized zip file will have some sort of offset error
 	mz_zip_archive zipfile;
 	mz_zip_archive* zptr = &zipfile;
@@ -375,6 +370,65 @@ void AlternateMode(int argc, char* argv[])
 }
 #endif
 
+bool IsZipFile(const char* path) {
+
+	fspath fs(path);
+	return std::filesystem::exists(fs) && fs.extension() == ".zip";
+}
+
+void PackagerInitialize(int argc, char* argv[]) {
+
+	atlog("Atlan Mod Packager 3.0 by FlavorfulGecko5");
+
+	// The packager also needs COM for the file dialogs
+	if (!idImageEncodingContext::COMThreadInit()) {
+		atlog("FATAL ERROR: Failed to initialize COM");
+		return;
+	}
+
+	if (!Oodle::AtlanOodleInit(".")) {
+		return;
+	}
+
+	std::vector<const char*> in_zipfiles;
+	const char* inputdir   = "";
+	const char* outputpath = "";
+	const char* gamedir    = ".";
+
+	for (int i = 1; i < argc; i++)
+	{
+		std::string arg = argv[i];
+
+		if (arg == "--input" && i + 1 < argc)
+		{
+			inputdir = argv[++i];
+		}
+		else if (arg == "--output" && i + 1 < argc)
+		{
+			outputpath = argv[++i];
+		}
+		else if (arg == "--gamedir" && i + 1 < argc)
+		{
+			gamedir = argv[++i];
+		}
+		else if (IsZipFile(argv[i])) {
+			in_zipfiles.push_back(argv[i]);
+		}
+		else
+		{
+			atlog("AtlanModPackager.exe [--input <mod_folder>] [--output <output_zip>] [--gamedir <game_folder>] [<legacy_zip_path>]");
+		}
+	}
+
+	if(in_zipfiles.size()) {
+		extern void LegacyConverterMain(const char** input_zips, size_t numzips, const char* gamedir);
+		LegacyConverterMain(in_zipfiles.data(), in_zipfiles.size(), gamedir);
+	}
+	else {
+		PackagerMain(gamedir, inputdir, outputpath);
+	}
+}
+
 int main(int argc, char* argv[])
 {
 	#define logpath "packager_log.txt"
@@ -382,42 +436,9 @@ int main(int argc, char* argv[])
 	#ifndef _DEBUG
 	try {
 	#endif
+
 		AtlanLogger_Init(logpath);
-		// The packager also needs COM for the file dialogs
-		if (!idImageEncodingContext::COMThreadInit()) {
-			atlog("FATAL ERROR: Failed to initialize COM");
-		}
-		else {
-			atlog("Atlan Mod Packager 2.3 by FlavorfulGecko5");
-
-			const char* inputdir   = "";
-			const char* outputpath = "";
-			const char* gamedir    = ".";
-
-			for (int i = 1; i < argc; i++)
-			{
-				std::string arg = argv[i];
-
-				if (arg == "--input" && i + 1 < argc)
-				{
-					inputdir = argv[++i];
-				}
-				else if (arg == "--output" && i + 1 < argc)
-				{
-					outputpath = argv[++i];
-				}
-				else if (arg == "--gamedir" && i + 1 < argc)
-				{
-					gamedir = argv[++i];
-				}
-				else 
-				{
-					atlog("AtlanModPackager.exe [--input <mod_folder>] [--output <output_zip>] [--gamedir <game_folder>]");
-				}
-			}
-
-			PackagerMain(gamedir, inputdir, outputpath);
-		}	
+		PackagerInitialize(argc, argv);
 
 	#ifndef _DEBUG
 	}

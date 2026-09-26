@@ -29,6 +29,7 @@
     <ClCompile Include="src\archives\SlugFont.cpp" />
     <ClCompile Include="src\archives\SoundArchive.cpp" />
     <ClCompile Include="src\archives\StreamDB.cpp" />
+    <ClCompile Include="src\atlan\AtlanDB.cpp" />
     <ClCompile Include="src\atlan\AtlanLib.cpp" />
     <ClCompile Include="src\atlan\AtlanLogger.cpp" />
     <ClCompile Include="src\atlan\AtlanModConfig.cpp" />
@@ -63,6 +64,7 @@
     <ClInclude Include="src\archives\SlugFont.h" />
     <ClInclude Include="src\archives\SoundArchive.h" />
     <ClInclude Include="src\archives\StreamDB.h" />
+    <ClInclude Include="src\atlan\AtlanDB.h" />
     <ClInclude Include="src\atlan\AtlanLib.h" />
     <ClInclude Include="src\atlan\AtlanLogger.h" />
     <ClInclude Include="src\atlan\AtlanModConfig.h" />

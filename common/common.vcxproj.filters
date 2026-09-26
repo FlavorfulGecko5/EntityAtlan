@@ -108,6 +108,9 @@
     <ClCompile Include="src\crypt\aesgcm\gcm.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\atlan\AtlanDB.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\entityslayer\EntityLogger.h">
@@ -201,6 +204,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\crypt\aesgcm\gcm.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\atlan\AtlanDB.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
