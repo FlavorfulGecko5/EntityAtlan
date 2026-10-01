@@ -67,8 +67,8 @@ void pk5_zipImage(mz_zip_archive* zptr, const ResourceArchive& r, ResourceEntryB
 		return;
 	}
 
-	ResourceEntryData_t data_img = Get_EntryData(r, r.entries[0], decomp_img.data, decomp_img.length);
-	ResourceEntryData_t data_sfile = Get_EntryData(r, r.entries[1], decomp_sfile.data, decomp_sfile.length);
+	ResourceEntryData_t data_img = Get_EntryDataPK5(r, r.entries[0], decomp_img.data, decomp_img.length);
+	ResourceEntryData_t data_sfile = Get_EntryDataPK5(r, r.entries[1], decomp_sfile.data, decomp_sfile.length);
 
 	check_debug(data_img.returncode == EntryDataCode::OK && data_sfile.returncode == EntryDataCode::OK);
 
@@ -110,8 +110,8 @@ void pk5_zipModel(mz_zip_archive* zptr, const ResourceArchive& r) {
 		return;
 	}
 
-	ResourceEntryData_t data_model = Get_EntryData(r, r.entries[0], decomp_model.data, decomp_model.length);
-	ResourceEntryData_t data_sfile = Get_EntryData(r, r.entries[1], decomp_sfile.data, decomp_sfile.length);
+	ResourceEntryData_t data_model = Get_EntryDataPK5(r, r.entries[0], decomp_model.data, decomp_model.length);
+	ResourceEntryData_t data_sfile = Get_EntryDataPK5(r, r.entries[1], decomp_sfile.data, decomp_sfile.length);
 	check_debug(data_model.returncode == EntryDataCode::OK && data_sfile.returncode == EntryDataCode::OK);
 
 	//std::string zipname = "rs_emb_sfile/";

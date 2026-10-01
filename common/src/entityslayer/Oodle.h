@@ -8,8 +8,8 @@ namespace Oodle
     bool init();
     bool init(const char* dllpath);
     bool IsInitialized();
-    bool DecompressBuffer(char* inputBuffer, size_t inputSize, char* outputBuffer, size_t outputSize);
-    bool CompressBuffer(char* inputBuffer, size_t inputSize, char* outputBuffer, size_t& outputSize);
+    bool DecompressBuffer(const void* inputBuffer, size_t inputSize, char* outputBuffer, size_t outputSize);
+    bool CompressBuffer(const void* inputBuffer, size_t inputSize, char* outputBuffer, size_t& outputSize);
 
-    int CompressBuffer(char* inputBuffer, size_t inputSize, char* outputBuffer, int compLevel);
+    int CompressBuffer(const void* inputBuffer, size_t inputSize, char* outputBuffer, int compLevel);
 }

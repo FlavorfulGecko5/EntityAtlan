@@ -12,7 +12,7 @@
 #endif
 
 void Get_EntryStrings(const ResourceArchive& r, const ResourceEntry& e, const char*& typeString, const char*& nameString) {
-	uint64_t* stringBuffer = r.stringIndex + e.strings;
+	uint64_t* stringBuffer = r.stringIndex.buffer + e.strings;
 
 	assert(e.numStrings == 2);
 	assert(e.resourceTypeString == 0);
@@ -21,15 +21,15 @@ void Get_EntryStrings(const ResourceArchive& r, const ResourceEntry& e, const ch
 
 	uint64_t typeOffset = r.stringChunk.offsets[*stringBuffer];
 	uint64_t nameOffset = r.stringChunk.offsets[*(stringBuffer + 1)];
-	typeString = r.stringChunk.dataBlock + typeOffset;
-	nameString = r.stringChunk.dataBlock + nameOffset;
+	typeString = r.stringChunk.dataBlock.buffer + typeOffset;
+	nameString = r.stringChunk.dataBlock.buffer + nameOffset;
 
 }
 
 void Get_DependencyStrings(const ResourceArchive& r, const ResourceDependency& d, const char*& typestring, const char*& namestring)
 {
-	typestring = r.stringChunk.dataBlock + r.stringChunk.offsets[d.type];
-	namestring = r.stringChunk.dataBlock + r.stringChunk.offsets[d.name];
+	typestring = r.stringChunk.dataBlock.buffer + r.stringChunk.offsets[d.type];
+	namestring = r.stringChunk.dataBlock.buffer + r.stringChunk.offsets[d.name];
 }
 
 
@@ -100,7 +100,7 @@ bool idcl::compfile_create(const char* data, size_t length, charbuffer_t& out)
 	return compfile_isvalid(out.data, out.length);
 }
 
-ResourceEntryData_t Get_EntryData_Internal(const ResourceEntry& e, char* raw, char*& buffer, size_t& buffersize) {
+ResourceEntryData_t Get_EntryData_Internal(const ResourceEntry& e, const char* raw, char*& buffer, size_t& buffersize) {
 	switch (e.compMode)
 	{
 		default:
@@ -128,10 +128,20 @@ ResourceEntryData_t Get_EntryData_Internal(const ResourceEntry& e, char* raw, ch
 }
 
 ResourceEntryData_t Get_EntryData(const ResourceArchive& r, const ResourceEntry& e, char*& decompbuffer, size_t& decompsize) {
-	if (!r.bufferData)
+	if (!r.bufferData.buffer)
 		return { EntryDataCode::DATA_NOT_READ, nullptr, 0 };
 
-	char* raw = r.bufferData + (e.dataOffset - r.header.dataOffset);
+	char* raw = r.bufferData.buffer + (e.dataOffset - r.header.dataOffset);
+
+	return Get_EntryData_Internal(e, raw, decompbuffer, decompsize);
+}
+
+ResourceEntryData_t Get_EntryDataPK5(const ResourceArchive& r, const ResourceEntry& e, char*& decompbuffer, size_t& decompsize)
+{
+	if (!r.bufferData_pk5)
+		return { EntryDataCode::DATA_NOT_READ, nullptr, 0 };
+
+	const char* raw = r.bufferData_pk5 + (e.dataOffset - r.header.dataOffset);
 
 	return Get_EntryData_Internal(e, raw, decompbuffer, decompsize);
 }
@@ -149,13 +159,6 @@ ResourceEntryData_t Get_EntryData(const ResourceEntry& e, FileReader& reader, Re
 
 	return Get_EntryData_Internal(e, buffers.raw_buffer, buffers.decomp_buffer, buffers.decomp_length);
 
-}
-
-#define INITBUFFER(type, buffer, target, capacity) \
-if(capacity < target) { \
-	capacity = target;  \
-	delete[] buffer;    \
-	buffer = new type [target]; \
 }
 
 bool Read_ResourceArchive_Internal(ResourceArchive& r, int flags) {
@@ -181,9 +184,9 @@ bool Read_ResourceArchive_Internal(ResourceArchive& r, int flags) {
 		return true;
 
 	// Read the Resource Entries
-	INITBUFFER(ResourceEntry, r.entries, r.header.numResources, r.capacity_resources)
+	r.entries.EnsureCapacity(r.header.numResources);
 	opener.seek(r.header.resourceEntriesOffset);
-	opener.read((char*)r.entries, r.header.numResources * sizeof(ResourceEntry));
+	opener.read((char*)r.entries.buffer, r.header.numResources * sizeof(ResourceEntry));
 	if(flags & RF_StopAfterEntries)
 		return true;
 
@@ -193,12 +196,11 @@ bool Read_ResourceArchive_Internal(ResourceArchive& r, int flags) {
 	opener.read((char*)&r.stringChunk.numStrings, sizeof(uint64_t));
 
 	size_t stringBlockSize = r.header.stringTableSize - r.stringChunk.numStrings * sizeof(uint64_t) - sizeof(uint64_t);
+	r.stringChunk.offsets.EnsureCapacity(r.stringChunk.numStrings);
+	r.stringChunk.dataBlock.EnsureCapacity(stringBlockSize);
 
-	INITBUFFER(uint64_t, r.stringChunk.offsets, r.stringChunk.numStrings, r.capacity_stringoffsets);
-	INITBUFFER(char, r.stringChunk.dataBlock, stringBlockSize, r.capacity_stringblob);
-
-	opener.read((char*)r.stringChunk.offsets, r.stringChunk.numStrings * sizeof(uint64_t));
-	opener.read(r.stringChunk.dataBlock, stringBlockSize);
+	opener.read((char*)r.stringChunk.offsets.buffer, r.stringChunk.numStrings * sizeof(uint64_t));
+	opener.read(r.stringChunk.dataBlock.buffer, stringBlockSize);
 
 	// Count the number of padding bytes
 	while (r.stringChunk.dataBlock[--stringBlockSize] == '\0') {
@@ -208,17 +210,17 @@ bool Read_ResourceArchive_Internal(ResourceArchive& r, int flags) {
 
 
 	// Initialize Dependency Data
-	INITBUFFER(ResourceDependency, r.dependencies, r.header.numDependencies, r.capacity_dependencies);
-	INITBUFFER(uint32_t, r.dependencyIndex, r.header.numDepIndices, r.capacity_depindex);
-	INITBUFFER(uint64_t, r.stringIndex, r.header.numStringIndices, r.capacity_stringindex);
+	r.dependencies.EnsureCapacity(r.header.numDependencies);
+	r.dependencyIndex.EnsureCapacity(r.header.numDepIndices);
+	r.stringIndex.EnsureCapacity(r.header.numStringIndices);
 
 	// Read Dependency Data
 	// There can be a varying number of null bytes after the final string (or none at all)
 	// Hence we have to jump to the dependency offset and can't just read from where we stopped.
 	opener.seek(r.header.resourceDepsOffset);
-	opener.read((char*)r.dependencies,    r.header.numDependencies * sizeof(ResourceDependency));
-	opener.read((char*)r.dependencyIndex, r.header.numDepIndices * sizeof(uint32_t));
-	opener.read((char*)r.stringIndex,     r.header.numStringIndices * sizeof(uint64_t));
+	opener.read((char*)r.dependencies.buffer,    r.header.numDependencies * sizeof(ResourceDependency));
+	opener.read((char*)r.dependencyIndex.buffer, r.header.numDepIndices * sizeof(uint32_t));
+	opener.read((char*)r.stringIndex.buffer, r.header.numStringIndices * sizeof(uint64_t));
 
 	// TODO: must take note of IDCL size - develop assert for it
 	// TODO: Account for location of data now being = file_offset - data_offset
@@ -231,8 +233,8 @@ bool Read_ResourceArchive_Internal(ResourceArchive& r, int flags) {
 	opener.seek(r.header.dataOffset);
 
 	// Read the data block
-	INITBUFFER(char, r.bufferData, dataBufferLength, r.capacity_entrydata);
-	opener.read(r.bufferData, dataBufferLength);
+	r.bufferData.EnsureCapacity(dataBufferLength);
+	opener.read(r.bufferData.buffer, dataBufferLength);
 	return true;
 }
 
@@ -248,9 +250,9 @@ bool idcl::ReadResource_PK5(ResourceArchive& r, const char* const Data, const si
 	next += sizeof(ResourceMetaHeader);
 
 	// Read the Resource Entries
-	INITBUFFER(ResourceEntry, r.entries, r.header.numResources, r.capacity_resources)
+	r.entries.EnsureCapacity(r.header.numResources);
 	next = Data + r.header.resourceEntriesOffset;
-	memcpy(r.entries, next, r.header.numResources * sizeof(ResourceEntry));
+	memcpy(r.entries.buffer, next, r.header.numResources * sizeof(ResourceEntry));
 
 	// Read the String Chunk
 	next = Data + r.header.stringTableOffset;
@@ -259,12 +261,12 @@ bool idcl::ReadResource_PK5(ResourceArchive& r, const char* const Data, const si
 
 	size_t stringBlockSize = r.header.stringTableSize - r.stringChunk.numStrings * sizeof(uint64_t) - sizeof(uint64_t);
 
-	INITBUFFER(uint64_t, r.stringChunk.offsets, r.stringChunk.numStrings, r.capacity_stringoffsets);
-	INITBUFFER(char, r.stringChunk.dataBlock, stringBlockSize, r.capacity_stringblob);
+	r.stringChunk.offsets.EnsureCapacity(r.stringChunk.numStrings);
+	r.stringChunk.dataBlock.EnsureCapacity(stringBlockSize);
 
-	memcpy(r.stringChunk.offsets, next, r.stringChunk.numStrings * sizeof(uint64_t));
+	memcpy(r.stringChunk.offsets.buffer, next, r.stringChunk.numStrings * sizeof(uint64_t));
 	next += r.stringChunk.numStrings * sizeof(uint64_t);
-	memcpy(r.stringChunk.dataBlock, next, stringBlockSize);
+	memcpy(r.stringChunk.dataBlock.buffer, next, stringBlockSize);
 	next += stringBlockSize;
 
 	// Count the number of padding bytes
@@ -277,7 +279,7 @@ bool idcl::ReadResource_PK5(ResourceArchive& r, const char* const Data, const si
 	// Initialize Dependency Data
 	//INITBUFFER(ResourceDependency, r.dependencies, r.header.numDependencies, r.capacity_dependencies);
 	//INITBUFFER(uint32_t, r.dependencyIndex, r.header.numDepIndices, r.capacity_depindex);
-	INITBUFFER(uint64_t, r.stringIndex, r.header.numStringIndices, r.capacity_stringindex);
+	r.stringIndex.EnsureCapacity(r.header.numStringIndices);
 
 	// Read Dependency Data
 	// There can be a varying number of null bytes after the final string (or none at all)
@@ -292,13 +294,9 @@ bool idcl::ReadResource_PK5(ResourceArchive& r, const char* const Data, const si
 
 	//opener.read((char*)r.dependencies, r.header.numDependencies * sizeof(ResourceDependency));
 	//opener.read((char*)r.dependencyIndex, r.header.numDepIndices * sizeof(uint32_t));
-	memcpy(r.stringIndex, next, r.header.numStringIndices * sizeof(uint64_t));
+	memcpy(r.stringIndex.buffer, next, r.header.numStringIndices * sizeof(uint64_t));
 
-	// TODO: Should probably find a better way to do this than casting the const away (even though
-	// we don't modify the data)
-	r.ownsBufferData = false;
-	r.bufferData = (char*)Data + r.header.dataOffset;
-
+	r.bufferData_pk5 = Data + r.header.dataOffset;
 	return true;
 }
 
@@ -379,7 +377,7 @@ void Audit_ResourceArchive(const ResourceArchive& r) {
 
 	// Insure string chunk offsets are sorted in ascending order
 	// Start with the second offset, and compare with the previous offset
-	for (uint64_t* ptr = r.stringChunk.offsets + 1, *max = r.stringChunk.offsets + r.stringChunk.numStrings; ptr < max; ptr++) {
+	for (uint64_t* ptr = r.stringChunk.offsets.buffer + 1, *max = r.stringChunk.offsets.buffer + r.stringChunk.numStrings; ptr < max; ptr++) {
 		assert(*ptr > *(ptr - 1));
 	}
 
@@ -625,9 +623,9 @@ ResourceEntry* idcl::ArchiveIterator::nextarchive() {
 		if (archive.header.numResources == 0)
 			continue;
 
-		archivemax = archive.entries + archive.header.numResources;
+		archivemax = archive.entries.buffer + archive.header.numResources;
 		newarchiveloaded = true;
-		return archive.entries;
+		return archive.entries.buffer;
 	}
 }
 
@@ -646,7 +644,7 @@ ResourceEntry* idcl::ArchiveIterator::next(ResourceEntry* current) {
 		Get_EntryStrings(archive, *current, typestring, namestring);
 
 		if (archivebitmask.size) {
-			isEnabled = archivebitmask.IsLoaded(static_cast<uint32_t>(current - archive.entries));
+			isEnabled = archivebitmask.IsLoaded(static_cast<uint32_t>(current - archive.entries.buffer));
 			if (!isEnabled && !allowDisabled) {
 				continue;
 			}
@@ -672,6 +670,68 @@ idcl::ArchiveIterator::iter_t idcl::ArchiveIterator::begin() {
 }
 
 idcl::ArchiveIterator::iter_t idcl::ArchiveIterator::end() {
+	return {this, nullptr};
+}
+
+// --- Archive Dep Iterator
+
+idcl::ArchiveDepIterator::ArchiveDepIterator(ResourceArchive& p_archive)
+	: archive(p_archive) {}
+
+ResourceDependency* idcl::ArchiveDepIterator::next()
+{
+	startDep++;
+	if(startDep >= endDep)
+		return nullptr;
+
+	Get_DependencyStrings(archive, *startDep, type, name);
+
+	return startDep;
+}
+
+idcl::ArchiveDepIterator::iter_t idcl::ArchiveDepIterator::begin()
+{
+	startDep = archive.dependencies.buffer - 1;
+	endDep = archive.dependencies.buffer + archive.header.numDependencies;
+
+	return {this, next()};
+}
+
+idcl::ArchiveDepIterator::iter_t idcl::ArchiveDepIterator::end()
+{
+	return {this, nullptr};
+}
+
+// ---- Entry Dep Iterator
+
+idcl::EntryDepIterator::EntryDepIterator(const ResourceArchive& p_archive, const ResourceEntry& p_entry)
+	: archive(p_archive) 
+{
+	startIndex = archive.dependencyIndex.buffer + p_entry.depIndices;
+	endIndex = startIndex + p_entry.numDependencies;
+}
+
+ResourceDependency* idcl::EntryDepIterator::next()
+{
+	startIndex++;
+	if(startIndex >= endIndex)
+		return nullptr;
+
+	ResourceDependency* dep = archive.dependencies.buffer + *startIndex;
+
+	Get_DependencyStrings(archive, *dep, type, name);
+	return dep;
+}
+
+idcl::EntryDepIterator::iter_t idcl::EntryDepIterator::begin()
+{
+	// TODO: Since we're not storing the ResourceEntry this iterator can only
+	// run once. Fix this?
+	startIndex--;
+	return {this, next()};
+}
+
+idcl::EntryDepIterator::iter_t idcl::EntryDepIterator::end() {
 	return {this, nullptr};
 }
 
@@ -738,7 +798,7 @@ void idcl::String_StringChunk(const StringChunk& s, std::string& writeto)
 
 	for (uint64_t i = 0; i < s.numStrings; i++) {
 		writeto.push_back('"');
-		writeto.append(s.dataBlock + s.offsets[i]);
+		writeto.append(s.dataBlock.buffer + s.offsets[i]);
 		writeto.append("\"\n");
 	}
 	writeto.append("}\n");
@@ -754,7 +814,7 @@ void idcl::String_ResourceArchive(const ResourceArchive& r, std::string& writeto
 	writeto.append("files {\n");
 
 	for (uint64_t i = 0; i < r.header.numResources; i++) {
-		ResourceEntry& h = r.entries[i];
+		const ResourceEntry& h = r.entries[i];
 
 		const char* typeString = nullptr, * nameString = nullptr;
 		Get_EntryStrings(r, h, typeString, nameString);
@@ -810,17 +870,13 @@ void idcl::String_ResourceArchive(const ResourceArchive& r, std::string& writeto
 
 		writeto.append("dependencies {\n");
 
-		uint32_t* depPtr = r.dependencyIndex + h.depIndices;
-		for (uint64_t depIndex = 0; depIndex < h.numDependencies; depIndex++) {
-			const ResourceDependency& d = r.dependencies[depPtr[depIndex]];
-
-			const char* dType = r.stringChunk.dataBlock + r.stringChunk.offsets[d.type];
-			const char* dName = r.stringChunk.dataBlock + r.stringChunk.offsets[d.name];
+		idcl::EntryDepIterator depiter(r, h);
+		for (const ResourceDependency& d : depiter) {
 
 			writeto.append("\"#"); // A # makes it easier to cntrl+f only for entry strings
-			writeto.append(dType);
+			writeto.append(depiter.type);
 			writeto.push_back('/');
-			writeto.append(dName);
+			writeto.append(depiter.name);
 
 			#if 1
 			writeto.append("\"\n");

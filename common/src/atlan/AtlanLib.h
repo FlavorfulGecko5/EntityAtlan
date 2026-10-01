@@ -73,6 +73,39 @@ void __atlan_assert_failed(const char* op, const char* file, const int line, con
 * Atlan Buffers
 */
 
+template<typename TYPE>
+struct heaparray {
+	
+	TYPE* buffer = nullptr;
+	size_t capacity = 0;
+
+	~heaparray() {
+		delete[] buffer;
+	}
+
+	void Free() {
+		delete[] buffer;
+		buffer = nullptr;
+		capacity = 0;
+	}
+
+	// Ensures buffer has the target capacity
+	// If reallocation occurs, old data is not copied over
+	void EnsureCapacity(const size_t target) {
+
+		check_debug(target * sizeof(TYPE) < 500'000'000);
+
+		if (capacity < target) {
+			capacity = target;
+			delete[] buffer;
+			buffer = new TYPE[target];
+		}
+	}
+
+	TYPE& operator[](const size_t i) {return buffer[i]; }
+	const TYPE& operator[](const size_t i) const {return buffer[i]; }
+};
+
 // Simple char buffer that owns it's data
 struct charbuffer_t {
 	char* data = nullptr;

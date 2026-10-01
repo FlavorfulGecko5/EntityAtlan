@@ -21,10 +21,10 @@ typedef unsigned int uint;
 
 /* Oodle Function typedefs */
 typedef int WINAPI OodLZ_CompressFunc(
-    int codec, uint8* src_buf, size_t src_len, uint8* dst_buf, int level,
+    int codec, const void* src_buf, size_t src_len, uint8* dst_buf, int level,
     void* opts, size_t offs, size_t unused, void* scratch, size_t scratch_size);
 
-typedef int WINAPI OodLZ_DecompressFunc(uint8* src_buf, int src_len, uint8* dst, size_t dst_size,
+typedef int WINAPI OodLZ_DecompressFunc(const void* src_buf, int src_len, uint8* dst, size_t dst_size,
     int fuzz, int crc, int verbose,
     uint8* dst_base, size_t e, void* cb, void* cb_ctx, void* scratch, size_t scratch_size, int threadPhase);
 
@@ -71,12 +71,12 @@ bool Oodle::init(const char* dllpath)
     return true;
 }
 
-bool Oodle::DecompressBuffer(char* inputBuffer, size_t inputSize, char* outputBuffer, size_t outputSize)
+bool Oodle::DecompressBuffer(const void* inputBuffer, size_t inputSize, char* outputBuffer, size_t outputSize)
 {
     if (!initializedSuccessfully && !init())
         return false;
 
-    int result = OodLZ_Decompress((byte*)inputBuffer, (int)inputSize, (byte*)outputBuffer, outputSize,
+    int result = OodLZ_Decompress(inputBuffer, (int)inputSize, (byte*)outputBuffer, outputSize,
         1, 1, 0, NULL, NULL, NULL, NULL, NULL, NULL, 0);
 
     if ((size_t)result != outputSize) // Decompression failed
@@ -84,12 +84,12 @@ bool Oodle::DecompressBuffer(char* inputBuffer, size_t inputSize, char* outputBu
     return true;
 }
 
-bool Oodle::CompressBuffer(char* inputBuffer, size_t inputSize, char* outputBuffer, size_t& outputSize)
+bool Oodle::CompressBuffer(const void* inputBuffer, size_t inputSize, char* outputBuffer, size_t& outputSize)
 {
     if (!initializedSuccessfully && !init())
         return false;
 
-    int compressedSize = OodLZ_Compress(13, (byte*)inputBuffer, inputSize, (byte*)outputBuffer,
+    int compressedSize = OodLZ_Compress(13, inputBuffer, inputSize, (byte*)outputBuffer,
         4, 0, 0, 0, 0, 0);
     if (compressedSize < 0) // Compression failed
         return false;
@@ -98,10 +98,10 @@ bool Oodle::CompressBuffer(char* inputBuffer, size_t inputSize, char* outputBuff
     return true;
 }
 
-int Oodle::CompressBuffer(char* inputBuffer, size_t inputSize, char* outputBuffer, int compLevel)
+int Oodle::CompressBuffer(const void* inputBuffer, size_t inputSize, char* outputBuffer, int compLevel)
 {
     if (!initializedSuccessfully && !init())
         return false;
 
-    return OodLZ_Compress(13, (byte*)inputBuffer, inputSize, (byte*)outputBuffer, compLevel, 0, 0, 0, 0, 0);
+    return OodLZ_Compress(13, inputBuffer, inputSize, (byte*)outputBuffer, compLevel, 0, 0, 0, 0, 0);
 }

@@ -69,11 +69,11 @@ class StringTable {
 	void finalize(StringChunk& s, uint32_t& finalSize) const {
 		s.numStrings = offsets.size();
 		
-		s.offsets = new uint64_t[offsets.size()];
-		memcpy(s.offsets, offsets.data(), offsets.size() * sizeof(uint64_t));
+		s.offsets.EnsureCapacity(offsets.size());
+		memcpy(s.offsets.buffer, offsets.data(), offsets.size() * sizeof(uint64_t));
 		
-		s.dataBlock = new char[blob.size()];
-		memcpy(s.dataBlock, blob.data(), blob.size());
+		s.dataBlock.EnsureCapacity(blob.size());
+		memcpy(s.dataBlock.buffer, blob.data(), blob.size());
 
 		// String Count + Offset Chunk + String Blob
 		finalSize = static_cast<uint32_t>(sizeof(uint64_t) + s.numStrings * sizeof(uint64_t) + blob.size());
@@ -90,9 +90,9 @@ void BuildArchive_StringChunk(const std::vector<ModFile*>& modfiles, ResourceArc
 	* Build String Indices
 	*/
 	r.header.numStringIndices = static_cast<uint32_t>(modfiles.size() * 2);
-	r.stringIndex = new uint64_t[r.header.numStringIndices];
+	r.stringIndex.EnsureCapacity(r.header.numStringIndices);
 
-	uint64_t* ptr = r.stringIndex;
+	uint64_t* ptr = r.stringIndex.buffer;
 	for (const ModFile* f : modfiles) {
 		*ptr = stable.indexof(f->typestring);
 		*(ptr + 1) = stable.indexof(f->assetPath);
@@ -361,7 +361,7 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 	/*
 	* Build the resource entries
 	*/
-	archive.entries = new ResourceEntry[modfiles.size()];
+	archive.entries.EnsureCapacity(modfiles.size());
 	outstreams.resDataOffset = h.dataOffset;
 	for(size_t MODFILE_INDEX = 0; MODFILE_INDEX < modfiles.size(); MODFILE_INDEX++) {
 		ResourceEntry& e = archive.entries[MODFILE_INDEX];
@@ -458,16 +458,16 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 		outstreams.reswriter.write((char*)&archive.metaheader, sizeof(ResourceMetaHeader));
 	}
 
-	outstreams.reswriter.write((char*)archive.entries, sizeof(ResourceEntry) * h.numResources);
+	outstreams.reswriter.write((char*)archive.entries.buffer, sizeof(ResourceEntry) * h.numResources);
 
 	// String Chunk
 	uint64_t blobSize = h.stringTableSize - sizeof(uint64_t) - sizeof(uint64_t) * archive.stringChunk.numStrings - archive.stringChunk.paddingCount;
 	outstreams.reswriter.write((char*)&archive.stringChunk.numStrings, sizeof(uint64_t));
-	outstreams.reswriter.write((char*)archive.stringChunk.offsets, archive.stringChunk.numStrings * sizeof(uint64_t));
-	outstreams.reswriter.write(archive.stringChunk.dataBlock, blobSize);
+	outstreams.reswriter.write((char*)archive.stringChunk.offsets.buffer, archive.stringChunk.numStrings * sizeof(uint64_t));
+	outstreams.reswriter.write(archive.stringChunk.dataBlock.buffer, blobSize);
 	for(uint64_t i = 0; i < archive.stringChunk.paddingCount; i++)
 		outstreams.reswriter.put('\0');
-	outstreams.reswriter.write((char*)archive.stringIndex, h.numStringIndices * sizeof(uint64_t));
+	outstreams.reswriter.write((char*)archive.stringIndex.buffer, h.numStringIndices * sizeof(uint64_t));
 
 	// IDCL
 	outstreams.reswriter.write("IDCL", 4);

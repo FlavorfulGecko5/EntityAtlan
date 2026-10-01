@@ -41,99 +41,88 @@ void Deserializer::DeserialInit(const fspath& gamedir, const fspath& filedir, bo
 	const fspath basepath = gamedir / "base";
 	const fspath entitydir = filedir / "entityDef";
 	const std::set<std::string> ValidTypes = { "mapentities", "entityDef", "logicFX", "logicLibrary", "logicClass", "logicUIWidget", "logicEntity" };
-	const std::vector<std::string> archiveList = PackageMapSpec::GetPrioritizedArchiveList(gamedir, false);
 	
 	deserial::declHashMap.reserve(15000);
 	deserial::entityclassmap.reserve(5000);
+
+	idcl::ArchiveIterator archiveIterator(gamedir / "base/packagemapspec.json", false);
 
 	// For entitydef data
 	ResourceEntryBuffers_t entryBuffers;
 	entryBuffers.init(24000);
 
-	for (const std::string& archivename : archiveList) {
-		ResourceArchive r;
-		idcl::ReadResource(r, (basepath / archivename).c_str(), RF_SkipData, true);
+	ResourceArchive& r = archiveIterator.archive;
+	for(const ResourceEntry& e : archiveIterator) {
 
-		for (uint32_t i = 0; i < r.header.numResources; i++) {
-			const ResourceEntry& e = r.entries[i];
+		if(ValidTypes.count(archiveIterator.typestring) == 0)
+			continue;
+		
+		/* The dependency list gives us a complete hashmap for resource paths */
+		idcl::EntryDepIterator depiter(r, e);
+		for (const ResourceDependency& d : depiter) {
 
-			const char* typestring, *namestring;
-			Get_EntryStrings(r, e, typestring, namestring);
+			uint64_t depfarmhash = HashLib::DeclHash(depiter.type, depiter.name);
+			std::string hashString = depiter.type;
+			hashString.push_back('/');
+			hashString.append(depiter.name);
 
-			if(ValidTypes.count(typestring) == 0)
-				continue;
-			
-			/* The dependency list gives us a complete hashmap for resource paths */
-			for (uint32_t k = 0; k < e.numDependencies; k++) {
-				uint32_t depindex = r.dependencyIndex[e.depIndices + k];
-				const ResourceDependency& d = r.dependencies[depindex];
+			const auto& iter = deserial::declHashMap.find(depfarmhash);
+			assert(iter == deserial::declHashMap.end() || iter->second == hashString);
+			deserial::declHashMap.emplace(depfarmhash, hashString);
+		}
 
-				const char* deptypestring = r.stringChunk.dataBlock + r.stringChunk.offsets[d.type];
-				const char* depnamestring = r.stringChunk.dataBlock + r.stringChunk.offsets[d.name];
+		/* If this is an entitydef, put it's data into the entity class map */
+		if (strcmp(archiveIterator.typestring, "entityDef") == 0) {
+			uint64_t farmhash = HashLib::DeclHash(archiveIterator.typestring, archiveIterator.namestring);
 
-				uint64_t depfarmhash = HashLib::DeclHash(deptypestring, depnamestring);
-				std::string hashString = deptypestring;
-				hashString.push_back('/');
-				hashString.append(depnamestring);
-
-				const auto& iter = deserial::declHashMap.find(depfarmhash);
-				assert(iter == deserial::declHashMap.end() || iter->second == hashString);
-				deserial::declHashMap.emplace(depfarmhash, hashString);
+			// Don't allow older file versions to have priority in the class map
+			{
+				const auto& iter = deserial::entityclassmap.find(farmhash);
+				if(iter != deserial::entityclassmap.end())
+					continue;
 			}
 
-			/* If this is an entitydef, put it's data into the entity class map */
-			if (strcmp(typestring, "entityDef") == 0) {
-				uint64_t farmhash = HashLib::DeclHash(typestring, namestring);
+			entityclass_t classdef;
 
-				// Don't allow older file versions to have priority in the class map
-				{
-					const auto& iter = deserial::entityclassmap.find(farmhash);
-					if(iter != deserial::entityclassmap.end())
-						continue;
+			classdef.filepath = (entitydir / archiveIterator.namestring).replace_extension(".bin").string();
+			assert(std::filesystem::exists(classdef.filepath));
+
+			const ResourceEntryData_t entrydata = Get_EntryData(e, r.filehandle, entryBuffers);
+			assert(entrydata.returncode == EntryDataCode::OK);
+
+			/*
+			* Do a hacky read-through of the entitydef
+			* to extract the inheritance hash and class hash (if it exists)
+			*/
+			uint64_t temphash;
+			uint32_t length;
+
+			BinaryReader reader(entrydata.buffer, entrydata.length);
+			assert(reader.GoRight(5));              // Skip null byte and file length
+			assert(reader.ReadLE(classdef.parent)); // Read the inherit hash
+			assert(reader.GoRight(6)); // ExpandInheritance(?), 5 padding bytes
+			assert(reader.ReadLE(length)); // Length of editorVars block
+			assert(reader.GoRight(length)); // Skip editorVars block
+			assert(reader.GoRight(5));      // Skip padding
+			assert(reader.ReadLE(length)); // Read system variables block length
+
+
+			if (length > 0) {
+				assert(length > 14); // Ensure there's at least one property
+				assert(reader.GoRight(15)); // Edit block hash + sub-length of block + 0 byte code
+				assert(reader.ReadLE(temphash));
+
+				// Farmhash of "entityClass" - *should* always be first if it exists
+				// Todo: might be risky to assume it will always be first
+				if (temphash == 17091029760865742588UL) {
+					assert(reader.GoRight(5)); // Leaf node byte + Length
+					assert(reader.ReadLE(classdef.typehash));
 				}
-
-				entityclass_t classdef;
-
-				classdef.filepath = (entitydir / namestring).replace_extension(".bin").string();
-				assert(std::filesystem::exists(classdef.filepath));
-
-				const ResourceEntryData_t entrydata = Get_EntryData(e, r.filehandle, entryBuffers);
-				assert(entrydata.returncode == EntryDataCode::OK);
-
-				/*
-				* Do a hacky read-through of the entitydef
-				* to extract the inheritance hash and class hash (if it exists)
-				*/
-				uint64_t temphash;
-				uint32_t length;
-
-				BinaryReader reader(entrydata.buffer, entrydata.length);
-				assert(reader.GoRight(5));              // Skip null byte and file length
-				assert(reader.ReadLE(classdef.parent)); // Read the inherit hash
-				assert(reader.GoRight(6)); // ExpandInheritance(?), 5 padding bytes
-				assert(reader.ReadLE(length)); // Length of editorVars block
-				assert(reader.GoRight(length)); // Skip editorVars block
-				assert(reader.GoRight(5));      // Skip padding
-				assert(reader.ReadLE(length)); // Read system variables block length
-
-
-				if (length > 0) {
-					assert(length > 14); // Ensure there's at least one property
-					assert(reader.GoRight(15)); // Edit block hash + sub-length of block + 0 byte code
-					assert(reader.ReadLE(temphash));
-
-					// Farmhash of "entityClass" - *should* always be first if it exists
-					// Todo: might be risky to assume it will always be first
-					if (temphash == 17091029760865742588UL) {
-						assert(reader.GoRight(5)); // Leaf node byte + Length
-						assert(reader.ReadLE(classdef.typehash));
-					}
-				}
-				deserial::entityclassmap.emplace(farmhash, classdef);
-				//std::cout << declpath << " " << classdef.typehash << "\n";
-				//if (classdef.typehash == 0)
-				//	std::cout << "MISSING\n";
 			}
+			deserial::entityclassmap.emplace(farmhash, classdef);
+			//std::cout << declpath << " " << classdef.typehash << "\n";
+			//if (classdef.typehash == 0)
+			//	std::cout << "MISSING\n";
 		}
 	}
 

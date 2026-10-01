@@ -77,8 +77,8 @@ struct ResourceEntry
 
 struct StringChunk {
 	uint64_t numStrings;
-	uint64_t* offsets = nullptr;   // numStrings - Relative to byte after the offset list
-	char* dataBlock = nullptr;
+	heaparray<uint64_t> offsets;
+	heaparray<char> dataBlock;
 	uint64_t paddingCount = 0; // Number of padding bytes at end of chunk. Enforces an 8-byte alignment
 };
 
@@ -98,38 +98,23 @@ struct ResourceArchive {
 	ResourceHeader     header;
 	ResourceMetaHeader metaheader;    // Not present in archive version 13
 
-	// Need this bool because PK5 Reader does not copy the data to it's own buffer
-	// TODO: Improve this somehow
-	bool ownsBufferData = true;
-	char* bufferData = nullptr;
+	// TODO: Merge/simplify these
+	heaparray<char> bufferData; // If we read the entire archive, this is the data chunk
+	const char* bufferData_pk5 = nullptr; // Not owned by this struct
 
-	ResourceEntry* entries = nullptr; // Offset: header.resourceEntriesOffset; Size: header.numResources
+	heaparray<ResourceEntry> entries;
 	StringChunk stringChunk;          // Offset: header.stringTableOffset
 
 	//FSeek(header.resourceDepsOffset);
-	ResourceDependency* dependencies = nullptr; // header.numDependencies
-	uint32_t* dependencyIndex = nullptr; // header.numDepIndices
-	uint64_t* stringIndex = nullptr; // header.numStringIndices
-	
-	/* Buffer Capacities */
-	u32 capacity_resources     = 0;
-	u32 capacity_dependencies  = 0;
-	u32 capacity_depindex      = 0;
-	u32 capacity_stringindex   = 0;
-	u64 capacity_stringoffsets = 0;
-	u64 capacity_stringblob = 0;
-	u64 capacity_entrydata = 0;
+	heaparray<ResourceDependency> dependencies;
+	heaparray<uint32_t> dependencyIndex; // header.numDepIndices: Array of indices into ResourceDependency array
+	heaparray<uint64_t> stringIndex; // header.numStringIndices: Array of indices into string chunk offsets array
 
-	~ResourceArchive() {
-		if(ownsBufferData)
-			delete[] bufferData;
-		delete[] entries;
-		delete[] dependencies;
-		delete[] dependencyIndex;
-		delete[] stringIndex;
-		delete[] stringChunk.offsets;
-		delete[] stringChunk.dataBlock;
-	}
+	ResourceArchive() = default;
+	ResourceArchive(const ResourceArchive& other) = delete;
+	ResourceArchive(const ResourceArchive&& other) = delete;
+	ResourceArchive& operator=(const ResourceArchive& other) = delete;
+	ResourceArchive& operator=(const ResourceArchive&& other) = delete;
 };
 
 struct containerMaskEntry_t {
@@ -200,6 +185,9 @@ void Get_DependencyStrings(const ResourceArchive& r, const ResourceDependency& d
 
 // Returns the offset where we *should* find the magic "IDCL" that denotes
 // the end of the meta section. Returned value is the offset of the 'I' character
+// IMPORTANT: This is only guaranteed to be accurate for retail .resources archives;
+// .meta archives, archives extracted from pk5's, etc. have more stuff in them that
+// can make this value inaccurate
 inline uint64_t Get_ExpectedMetaOffset(const ResourceHeader& h)
 {
 	return h.resourceDepsOffset
@@ -266,6 +254,8 @@ struct ResourceEntryData_t {
 */
 ResourceEntryData_t Get_EntryData(const ResourceArchive& r, const ResourceEntry& e, char*& decompbuffer, size_t& decompsize);
 
+// If the resource archive was extracted from a pk5, use this Get Data function
+ResourceEntryData_t Get_EntryDataPK5(const ResourceArchive& r, const ResourceEntry& e, char*& decompbuffer, size_t& decompsize);
 
 /*
 * Returns the correctly decompressed data for a given resource entry
@@ -352,6 +342,51 @@ namespace idcl {
 		iter_t end();
 		ResourceEntry* next(ResourceEntry* current);
 		ResourceEntry* nextarchive();
+	};
+
+	// Iterator over all ResourceDependencies in a resource archive
+	struct ArchiveDepIterator {
+		ResourceArchive& archive;
+		ResourceDependency* startDep, *endDep;
+		const char* type, *name;
+
+		ArchiveDepIterator(ResourceArchive& p_archive);
+
+		struct iter_t {
+			ArchiveDepIterator* controller;
+			ResourceDependency* dependency;
+
+			ResourceDependency& operator*() {return *dependency;}
+			bool operator!=(iter_t& other) { return dependency != other.dependency;}
+			void operator++() {dependency = controller->next();}
+		};
+
+		ResourceDependency* next();
+		iter_t begin();
+		iter_t end();
+	};
+
+	// Iterates over all ResourceDependencies belonging
+	// to a particular ResourceEntry
+	struct EntryDepIterator {
+		const ResourceArchive& archive;
+		uint32_t* startIndex, *endIndex;
+		const char* type, *name;
+
+		EntryDepIterator(const ResourceArchive& p_archive, const ResourceEntry& p_entry);
+
+		struct iter_t {
+			EntryDepIterator* controller;
+			ResourceDependency* dependency;
+
+			ResourceDependency& operator*() { return *dependency; }
+			bool operator!=(iter_t& other) { return dependency != other.dependency; }
+			void operator++() { dependency = controller->next(); }
+		};
+
+		ResourceDependency* next();
+		iter_t begin();
+		iter_t end();
 	};
 }
 

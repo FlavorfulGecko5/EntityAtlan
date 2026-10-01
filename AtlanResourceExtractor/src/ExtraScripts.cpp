@@ -31,11 +31,9 @@ void Script_DumpResourceTypes(const fspath& gamedir, const fspath& outputdir)
 		if (iter.newarchiveloaded) {
 			iter.newarchiveloaded = false;
 
-			for (ResourceDependency* d = iter.archive.dependencies; d < iter.archive.dependencies + iter.archive.header.numDependencies; d++) {
-				const char* deptype, *depname;
-
-				Get_DependencyStrings(iter.archive, *d, deptype, depname);
-				maprestypes.insert(deptype);
+			idcl::ArchiveDepIterator depiter(iter.archive);
+			for (const ResourceDependency& d : depiter) {
+				maprestypes.insert(depiter.type);
 			}
 		}
 
