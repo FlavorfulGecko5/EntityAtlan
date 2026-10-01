@@ -293,7 +293,7 @@ bool Legacy_ConvertData_Model(LegacyInfo& info, const charbuffer_t& resdata, con
 		+ resdata.length;
 
 	for (size_t i = 0; i < dbentries.size(); i++) {
-		writer << (u64)0 << (u64)0 << (u64)(dbentries.size() - i)
+		writer << (u64)0 << (u64)0 << (u64)(i)
 			<< (u64)0 << (u64)0 << (u64)0 << (u64)(0)
 			<< (u32)DB_ENTRY_OFFSET << (u32)dbentries[0].size;
 	}

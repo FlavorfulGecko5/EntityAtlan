@@ -277,6 +277,10 @@ struct idImageEncodingContext {
 
     // Converts a legacy Eternal Mod Loader image file into an Atlan image file
     static bool ConvertLegacy(char* OLD, const size_t OLDSIZE, idImageEncodingResults& results);
+
+    // Converts a valid BIM + rs_emb_sfile combo into an Atlan image file
+    // Vanilla Doom Eternal cannot load mips from rs_emb_sfiles so we must do this
+    static bool ConvertIdStudio(const char* IMG, const size_t IMGLEN, const char* SFILE, const size_t SFILELEN, idImageEncodingResults& results);
 };
 
 /*

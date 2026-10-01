@@ -377,6 +377,12 @@ bool IsZipFile(const char* path) {
 	return std::filesystem::exists(fs) && fs.extension() == ".zip";
 }
 
+bool IsStudioMod(const char* path) {
+	fspath fs = fspath(path).filename();
+
+	return fs == "modinfo.json" || fs == "modinfo.dev.json" && std::filesystem::exists(path);
+}
+
 void PackagerInitialize(int argc, char* argv[]) {
 
 	atlog("Atlan Mod Packager 3.0 by FlavorfulGecko5");
@@ -395,6 +401,7 @@ void PackagerInitialize(int argc, char* argv[]) {
 	const char* inputdir   = "";
 	const char* outputpath = "";
 	const char* gamedir    = ".";
+	const char* modinfojson = nullptr;
 
 	for (int i = 1; i < argc; i++)
 	{
@@ -415,6 +422,9 @@ void PackagerInitialize(int argc, char* argv[]) {
 		else if (IsZipFile(argv[i])) {
 			in_zipfiles.push_back(argv[i]);
 		}
+		else if (IsStudioMod(argv[i])) {
+			modinfojson = argv[i];
+		}
 		else
 		{
 			atlog("AtlanModPackager.exe [--input <mod_folder>] [--output <output_zip>] [--gamedir <game_folder>] [<legacy_zip_path>]");
@@ -424,6 +434,12 @@ void PackagerInitialize(int argc, char* argv[]) {
 	if(in_zipfiles.size()) {
 		extern void LegacyConverterMain(const char** input_zips, size_t numzips, const char* gamedir);
 		LegacyConverterMain(in_zipfiles.data(), in_zipfiles.size(), gamedir);
+	}
+	else if (modinfojson) {
+		extern void idStudioPackagerMain(const char* modfolder);
+
+		std::string studiofolder = fspath(modinfojson).parent_path().string();
+		idStudioPackagerMain(studiofolder.c_str());
 	}
 	else {
 		PackagerMain(gamedir, inputdir, outputpath);

@@ -596,6 +596,46 @@ bool idImageEncodingContext::ConvertLegacy(char* OLD, const size_t OLDSIZE, idIm
 	return true;
 }
 
+bool idImageEncodingContext::ConvertIdStudio(const char* IMG, const size_t IMGLEN, const char* SFILE, const size_t SFILELEN, idImageEncodingResults& RESULTS)
+{
+	idImage bim;
+	check(bim.Read(IMG, IMGLEN, true));
+
+	if (bim.header.textureType != TT_2D) {
+		atlog("ERROR: Cannot convert non-2D images");
+		return false;
+	}
+
+	u32 compsum = 0;
+	for (u32 i = 0; i < bim.header.streamDBMipCount; i++) {
+		compsum += bim.mipinfos[i].compressedSize;
+	}
+	check(compsum == SFILELEN);
+
+	BinaryWriter writer;
+	writer.EnsureMaxCapacity(IMGLEN + SFILELEN + 2048);
+	writer.WriteBytes("ATIM", 4);
+	writer << decltype(idAtlanImage::version)(2)
+		<< decltype(idAtlanImage::bimversion)(bim.header.version)
+		<< decltype(idAtlanImage::singlestream)(0)
+		<< decltype(idAtlanImage::streamdbmips)(bim.header.streamDBMipCount)
+		<< decltype(idAtlanImage::prefetch_farmhash)(0)
+		<< (uint64_t)(bim.header.HeaderLength())
+		<< (uint32_t)IMGLEN;
+
+	writer.WriteBytes(IMG, IMGLEN);
+	writer.WriteBytes(SFILE, SFILELEN);
+
+	idAtlanImage validator;
+	check(validator.Read((const uint8_t*)writer.GetBuffer(), writer.GetFilledSize()));
+
+	delete[] RESULTS.buffer;
+	RESULTS.buffer_max = writer.GetMaxCapacity();
+	RESULTS.file_length = writer.GetFilledSize();
+	RESULTS.buffer = (uint8_t*)writer.Finalize();
+	return true;
+}
+
 bool idAtlanImage::Validate(const uint8_t* data, size_t length) {
 	
 	idAtlanImage testatlan;

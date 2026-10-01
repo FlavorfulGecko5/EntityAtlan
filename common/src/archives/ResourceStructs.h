@@ -93,11 +93,16 @@ struct ResourceDependency {
 };
 
 struct ResourceArchive {
-	char* bufferData = nullptr;
 	FileReader filehandle;
 
 	ResourceHeader     header;
 	ResourceMetaHeader metaheader;    // Not present in archive version 13
+
+	// Need this bool because PK5 Reader does not copy the data to it's own buffer
+	// TODO: Improve this somehow
+	bool ownsBufferData = true;
+	char* bufferData = nullptr;
+
 	ResourceEntry* entries = nullptr; // Offset: header.resourceEntriesOffset; Size: header.numResources
 	StringChunk stringChunk;          // Offset: header.stringTableOffset
 
@@ -116,7 +121,8 @@ struct ResourceArchive {
 	u64 capacity_entrydata = 0;
 
 	~ResourceArchive() {
-		delete[] bufferData;
+		if(ownsBufferData)
+			delete[] bufferData;
 		delete[] entries;
 		delete[] dependencies;
 		delete[] dependencyIndex;

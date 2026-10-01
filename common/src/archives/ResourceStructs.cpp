@@ -232,7 +232,6 @@ bool Read_ResourceArchive_Internal(ResourceArchive& r, int flags) {
 
 	// Read the data block
 	INITBUFFER(char, r.bufferData, dataBufferLength, r.capacity_entrydata);
-	r.bufferData = new char[fileLength - r.header.dataOffset];
 	opener.read(r.bufferData, dataBufferLength);
 	return true;
 }
@@ -294,6 +293,11 @@ bool idcl::ReadResource_PK5(ResourceArchive& r, const char* const Data, const si
 	//opener.read((char*)r.dependencies, r.header.numDependencies * sizeof(ResourceDependency));
 	//opener.read((char*)r.dependencyIndex, r.header.numDepIndices * sizeof(uint32_t));
 	memcpy(r.stringIndex, next, r.header.numStringIndices * sizeof(uint64_t));
+
+	// TODO: Should probably find a better way to do this than casting the const away (even though
+	// we don't modify the data)
+	r.ownsBufferData = false;
+	r.bufferData = (char*)Data + r.header.dataOffset;
 
 	return true;
 }
