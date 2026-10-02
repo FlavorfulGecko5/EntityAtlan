@@ -25,4 +25,7 @@ struct AtlanDBFile {
 
 	bool ReadFrom(const char* data, size_t length);
 
+	
+	static bool FromStaticModel(const char* bmodel, const size_t bmodel_length, const char* sfile, const size_t sfile_length, charbuffer_t& output);
+
 };

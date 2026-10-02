@@ -5,6 +5,7 @@
 #include "atlan/AtlanLib.h"
 #include "atlan/AtlanLogger.h"
 #include "io/BinaryWriter.h"
+#include "atlan/AtlanDB.h"
 
 void pk5_zipDecl(mz_zip_archive* zptr, std::string name, ResourceEntryData_t data) {
 	
@@ -41,7 +42,49 @@ void pk5_zipStrings(mz_zip_archive* zptr, const std::string& name, ResourceEntry
 	mz_zip_writer_add_mem(zptr, zipname.c_str(), outcsv.data(), outcsv.size(), MZ_DEFAULT_COMPRESSION);
 }
 
-void pk5_zipImage(mz_zip_archive* zptr, const ResourceArchive& r, ResourceEntryBuffers_t& buffers) {
+void pk5_zipSound(mz_zip_archive* zptr, const std::string& name, ResourceEntryData_t data) {
+	if (name.rfind(".wem") == -1) {
+		atlog("   ERROR: This audio file is currently unsupported");
+		return;
+	}
+
+	std::string zipname = "audio/" + name;
+	mz_zip_writer_add_mem(zptr, zipname.c_str(), data.buffer, data.length, MZ_DEFAULT_COMPRESSION);
+}
+
+void pk5_zipSingleArchive(mz_zip_archive* zptr, const ResourceArchive& r, const char* ExpectedType) {
+	if (r.header.numResources != 1) {
+		atlog("   ERROR: Expected 1 resource entry, found %u", r.header.numResources);
+		return;
+	}
+	if (r.entries[0].dataSize == 0) {
+		atlog("   WARNING: Archive is empty. Skipping");
+		return;
+	}
+
+	const char* typestring, *namestring;
+
+	Get_EntryStrings(r, r.entries[0], typestring, namestring);
+	if (strcmp(typestring, ExpectedType)) {
+		atlog("   ERROR: Unexpected resource type string %s", typestring);
+		return;
+	}
+
+	charbuffer_t decompbuffer;
+	ResourceEntryData_t entrydata = Get_EntryDataPK5(r, r.entries[0], decompbuffer.data, decompbuffer.capacity);
+
+	check_debug(entrydata.returncode == EntryDataCode::OK);
+
+	std::string zipname = typestring;
+	zipname.push_back('/');
+	zipname += namestring;
+
+	atlog("   %s", zipname.c_str());
+
+	mz_zip_writer_add_mem(zptr, zipname.c_str(), entrydata.buffer, entrydata.length, MZ_DEFAULT_COMPRESSION);
+}
+
+void pk5_zipImage(mz_zip_archive* zptr, const ResourceArchive& r) {
 
 	if (r.header.numResources != 2) {
 		if (r.header.numResources == 1 && r.entries[0].dataSize == 0) {
@@ -84,7 +127,6 @@ void pk5_zipImage(mz_zip_archive* zptr, const ResourceArchive& r, ResourceEntryB
 	mz_zip_writer_add_mem(zptr, zipname.c_str(), results.buffer, results.file_length, MZ_DEFAULT_COMPRESSION);
 }
 
-// TODO: THIS FUNCTION IS A WIP
 void pk5_zipModel(mz_zip_archive* zptr, const ResourceArchive& r) {
 	if (r.header.numResources != 2) {
 		if (r.header.numResources == 1 && r.entries[0].dataSize == 0) {
@@ -114,33 +156,16 @@ void pk5_zipModel(mz_zip_archive* zptr, const ResourceArchive& r) {
 	ResourceEntryData_t data_sfile = Get_EntryDataPK5(r, r.entries[1], decomp_sfile.data, decomp_sfile.length);
 	check_debug(data_model.returncode == EntryDataCode::OK && data_sfile.returncode == EntryDataCode::OK);
 
-	//std::string zipname = "rs_emb_sfile/";
-	//zipname += embname;
-
-	//mz_zip_writer_add_mem(zptr, zipname.c_str(), data_sfile.buffer, data_sfile.length, MZ_DEFAULT_COMPRESSION);
+	charbuffer_t output;
+	if (!AtlanDBFile::FromStaticModel(data_model.buffer, data_model.length, data_sfile.buffer, data_sfile.length, output)) {
+		atlog("   ERROR: Failed to convert model to AtlanDB file");
+		return;
+	}
 
 	std::string zipname = "model/";
 	zipname += modelname;
 
-	const u32 OFFSET = 32 + 64 + data_model.length;
-
-	BinaryWriter writer;
-	writer.WriteBytes("ATDB", 4);
-
-	// old
-	//writer << (u32)1 << (u32)67 << (u32)0 << data_model.length << data_model.length;
-
-	writer << (u32)1 << (u32)67 << (u32)1 << data_model.length << data_model.length;
-	writer << (u64)0 << (u64)0 << (u64)0 
-		<< (u64)0 << (u64)0 << (u64)0 << (u64)0
-		<< OFFSET << (u32)data_sfile.length;
-
-
-	writer.WriteBytes(data_model.buffer, data_model.length);
-
-	writer.WriteBytes(data_sfile.buffer, data_sfile.length);
-
-	mz_zip_writer_add_mem(zptr, zipname.c_str(), writer.GetBuffer(), writer.GetFilledSize(), MZ_DEFAULT_COMPRESSION);
+	mz_zip_writer_add_mem(zptr, zipname.c_str(), output.data, output.length, MZ_DEFAULT_COMPRESSION);
 }
 
 void idStudio_ZipPk5(mz_zip_archive* zptr, const fspath& pk5path) {
@@ -188,6 +213,31 @@ void idStudio_ZipPk5(mz_zip_archive* zptr, const fspath& pk5path) {
 			continue;
 		}
 
+		if (e.name._Starts_with("sound/")) {
+			pk5_zipSound(zptr, e.name, entrydata);
+			continue;
+		}
+
+		if (e.name._Starts_with("generated/compfile/")) {
+			if (!idcl::ReadResource_PK5(resarchive, entrydata.buffer, entrydata.length)) {
+				atlog("   ERROR: Failed to read image archive");
+				continue;
+			}
+
+			pk5_zipSingleArchive(zptr, resarchive, "compfile");
+			continue;
+		}
+
+		if (e.name._Starts_with("generated/cswf/")) {
+			if (!idcl::ReadResource_PK5(resarchive, entrydata.buffer, entrydata.length)) {
+				atlog("   ERROR: Failed to read image archive");
+				continue;
+			}
+
+			pk5_zipSingleArchive(zptr, resarchive, "cswf");
+			continue;
+		}
+
 		if (e.name._Starts_with("generated/image/")) {
 
 			if (!idcl::ReadResource_PK5(resarchive, entrydata.buffer, entrydata.length)) {
@@ -195,7 +245,7 @@ void idStudio_ZipPk5(mz_zip_archive* zptr, const fspath& pk5path) {
 				continue;
 			}
 
-			pk5_zipImage(zptr, resarchive, archivebuffers);
+			pk5_zipImage(zptr, resarchive);
 			continue;
 		}
 
