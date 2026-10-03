@@ -383,6 +383,9 @@ bool IsStudioMod(const char* path) {
 	return fs == "modinfo.json" || fs == "modinfo.dev.json" && std::filesystem::exists(path);
 }
 
+// When we run the exe by dragging-and-dropping files onto it, 
+// the working directory may not be the exe directory.
+// Must account for this by using the exe directory instead of "." where applicable
 void PackagerInitialize(int argc, char* argv[]) {
 
 	atlog("Atlan Mod Packager 3.0 by FlavorfulGecko5");
@@ -393,15 +396,22 @@ void PackagerInitialize(int argc, char* argv[]) {
 		return;
 	}
 
-	if (!Oodle::AtlanOodleInit(".")) {
+	// argv[0] is not guaranteed to be the exe directory (but it should be for
+	// all practical purposes of tool)
+	const fspath exedir = fspath(argv[0]).parent_path();
+	if (!std::filesystem::is_directory(exedir)) {
+		atlog("FATAL ERROR: argv[0] is not the executable directory. Please report this error");
+		return;
+	}
+	if (!Oodle::AtlanOodleInit(exedir)) {
 		return;
 	}
 
 	std::vector<const char*> in_zipfiles;
 	const char* inputdir   = "";
 	const char* outputpath = "";
-	const char* gamedir    = ".";
 	const char* modinfojson = nullptr;
+	std::string gamedir = exedir.string();
 
 	for (int i = 1; i < argc; i++)
 	{
@@ -433,7 +443,7 @@ void PackagerInitialize(int argc, char* argv[]) {
 
 	if(in_zipfiles.size()) {
 		extern void LegacyConverterMain(const char** input_zips, size_t numzips, const char* gamedir);
-		LegacyConverterMain(in_zipfiles.data(), in_zipfiles.size(), gamedir);
+		LegacyConverterMain(in_zipfiles.data(), in_zipfiles.size(), gamedir.c_str());
 	}
 	else if (modinfojson) {
 		extern void idStudioPackagerMain(const char* modfolder);
@@ -442,7 +452,7 @@ void PackagerInitialize(int argc, char* argv[]) {
 		idStudioPackagerMain(studiofolder.c_str());
 	}
 	else {
-		PackagerMain(gamedir, inputdir, outputpath);
+		PackagerMain(gamedir.c_str(), inputdir, outputpath);
 	}
 }
 
@@ -453,7 +463,7 @@ int main(int argc, char* argv[])
 	#ifndef _DEBUG
 	try {
 	#endif
-
+		
 		AtlanLogger_Init(logpath);
 		PackagerInitialize(argc, argv);
 
