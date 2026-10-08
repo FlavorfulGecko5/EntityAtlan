@@ -154,6 +154,8 @@
     <ClCompile Include="src\AtlanModPackager.cpp" />
     <ClCompile Include="src\idStudioPackager.cpp" />
     <ClCompile Include="src\LegacyConverter.cpp" />
+    <ClCompile Include="src\LevelPackager.cpp" />
+    <ClCompile Include="src\LevelPackagerGlobals.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\common\common.vcxproj">
@@ -162,6 +164,9 @@
     <ProjectReference Include="..\reserializer\reserializer.vcxproj">
       <Project>{985e6d4f-e6e3-410a-93c4-208b2395b33c}</Project>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\LevelPackagerGlobals.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

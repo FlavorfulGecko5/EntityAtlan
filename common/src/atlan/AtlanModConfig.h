@@ -24,6 +24,9 @@ struct AtlanModConfig {
 		}
 	};
 
+	// Special mode - should treat as idStudio level mod
+	bool installOnce = false;
+
 	// If set, no other mod may have gameplay-affecting files loaded
 	bool elevated = false;
 	gamebit_t gameid = game_all;
@@ -31,19 +34,26 @@ struct AtlanModConfig {
 	int loadPriority = 0;
 	std::unordered_map<std::string, std::string> alias;
 
+	// idStudio folder to load
+	std::string levelfolder;
+
 	namedlist_t* listassets = nullptr;
 	int numAssetlists = 0;
 
-	namedlist_t* listedits = nullptr;
 	int numEdits = 0;
+	namedlist_t* listedits = nullptr;
 
 	std::string* listmapspec = nullptr;
 	int nummapspec = 0;
+
+	int numnewmaps = 0;
+	namedlist_t* listnewmaps = nullptr;
 
 	~AtlanModConfig() {
 		delete[] listassets;
 		delete[] listmapspec;
 		delete[] listedits;
+		delete[] listnewmaps;
 	}
 
 	void GetNormalizedName(const std::string& in_zipname, std::string& out_assettype, std::string& out_assetname) const;

@@ -205,6 +205,8 @@ bool AtlanModConfig::TryRead_Internal(EntNode& root) {
         atlog("WARNING: " CFG_LOADPRIORITY  " not found. Using default value");
     }
     elevated = &modInfo["elevated_gameplay"] != EntNode::SEARCH_404;
+    installOnce = &root["install_once"] != EntNode::SEARCH_404;
+    levelfolder = root["load_level"].getValueUQ();
 
     /*
     * Read optional filepath aliases
@@ -261,6 +263,9 @@ bool AtlanModConfig::TryRead_Internal(EntNode& root) {
 
     EntNode& resnode = root["mapresources"];
     AtlanModConfig__ReadListBuffer(listedits, numEdits, resnode);
+
+    EntNode& newMapNode = root["newmaps"];
+    AtlanModConfig__ReadListBuffer(listnewmaps, numnewmaps, newMapNode);
 
     return true;
 }

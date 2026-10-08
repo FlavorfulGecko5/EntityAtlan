@@ -6,6 +6,13 @@
 #include "atlan/AtlanLogger.h"
 #include "io/BinaryWriter.h"
 #include "atlan/AtlanDB.h"
+#include "atlan/AtlanModConfig.h"
+#include <set>
+
+// Need this so the level packager can warn about new global assets
+// not being contained in the pk5
+// It consists of "real" assetpaths extracted from an entry's IDCL container
+std::set<std::string> G_PK5_MANIFEST;
 
 void pk5_zipDecl(mz_zip_archive* zptr, std::string name, ResourceEntryData_t data) {
 	
@@ -16,6 +23,8 @@ void pk5_zipDecl(mz_zip_archive* zptr, std::string name, ResourceEntryData_t dat
 			c += 32;
 	}
 	
+	G_PK5_MANIFEST.insert(std::string("rs_streamfile/") + name);
+
 	// + 10 to skip "generated/"
 	mz_zip_writer_add_mem(zptr, name.c_str() + 10 , data.buffer, data.length, MZ_DEFAULT_COMPRESSION);
 }
@@ -81,6 +90,7 @@ void pk5_zipSingleArchive(mz_zip_archive* zptr, const ResourceArchive& r, const 
 
 	atlog("   %s", zipname.c_str());
 
+	G_PK5_MANIFEST.insert(zipname);
 	mz_zip_writer_add_mem(zptr, zipname.c_str(), entrydata.buffer, entrydata.length, MZ_DEFAULT_COMPRESSION);
 }
 
@@ -124,6 +134,7 @@ void pk5_zipImage(mz_zip_archive* zptr, const ResourceArchive& r) {
 	}
 
 	std::string zipname = std::string("image/") + imgname;
+	G_PK5_MANIFEST.insert(zipname);
 	mz_zip_writer_add_mem(zptr, zipname.c_str(), results.buffer, results.file_length, MZ_DEFAULT_COMPRESSION);
 }
 
@@ -164,7 +175,7 @@ void pk5_zipModel(mz_zip_archive* zptr, const ResourceArchive& r) {
 
 	std::string zipname = "model/";
 	zipname += modelname;
-
+	G_PK5_MANIFEST.insert(zipname);
 	mz_zip_writer_add_mem(zptr, zipname.c_str(), output.data, output.length, MZ_DEFAULT_COMPRESSION);
 }
 
@@ -263,31 +274,46 @@ void idStudio_ZipPk5(mz_zip_archive* zptr, const fspath& pk5path) {
 	}
 }
 
-
-void idStudioPackagerMain(const char* modfolder) {
-	
-	atlog("Running idStudio Mod Packager on %s", modfolder);
-
-	const fspath modpath = modfolder;
-	std::string outpath = (modpath / "AtlanPackage.zip").string();
+void ZipPK5(const fspath& modfolder) {
+	std::string outpath = (modfolder / "AtlanPackage.zip").string();
 
 	mz_zip_archive ziparchive;
 	mz_zip_archive* zptr = &ziparchive;
-	
+
 	mz_zip_zero_struct(zptr);
 	if (!mz_zip_writer_init_file(zptr, outpath.c_str(), 0)) {
 		atlog("ERROR: Failed to open output zip file");
 		return;
 	}
 
-	
-	const fspath pk5path = modpath / "base.pk5";
+	// Zip the config file if it exists
+	if(std::filesystem::exists(modfolder / CFG_NAME_V2))
+		mz_zip_writer_add_file(zptr, CFG_NAME_V2, (modfolder / CFG_NAME_V2).string().c_str(), NULL, 0, MZ_DEFAULT_COMPRESSION);
+
+	const fspath pk5path = modfolder / "base.pk5";
 	if (std::filesystem::exists(pk5path)) {
 		atlog("\nPackaging base.pk5\n-----");
 		idStudio_ZipPk5(zptr, pk5path);
 	}
 
-
 	mz_zip_writer_finalize_archive(zptr);
 	mz_zip_writer_end(zptr);
 }
+
+extern void ZipLevel(const fspath& modfolder, const fspath& leveldir);
+
+void idStudioPackagerMain(const char* modfolder) {
+	
+	atlog("Running idStudio Mod Packager on %s", modfolder);
+
+	const fspath modpath = modfolder;
+
+	ZipPK5(modpath);
+
+	const fspath leveldir = modpath / "dvdpc/base";
+	if (std::filesystem::is_directory(leveldir)) {
+		atlog("\nRunning Level Packager\n-----");
+		ZipLevel(modpath, leveldir);
+	}
+}
+

@@ -958,7 +958,7 @@ bool idPackage::Read(const wchar_t* filepath)
 	BinaryReader reader(rawentries.data, header.indexSize);
 	reader.ReadBig(numentries);
 
-	check(numentries < 1000);
+	check(numentries < 10'000);
 
 	delete[] entries;
 	entries = new idPackageEntry[numentries];
