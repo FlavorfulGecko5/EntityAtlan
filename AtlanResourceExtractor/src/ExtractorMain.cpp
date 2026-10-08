@@ -287,8 +287,12 @@ void AudioExtractor(const configdata_t& config)
 		const fspath archivepath = snddir / (archiveMask.fnvstring + ".snd");
 		const std::string archivestem = archivepath.stem().string();
 
+		size_t outsubstringLength = archivestem.find("_patch_");
+		if(outsubstringLength == -1)
+			outsubstringLength = archivestem.size();
+
 		const fspath archiveoutdir = audiodir / ( 
-			archivestem.substr(0,  archivestem.find_first_of('_')) 
+			archivestem.substr(0,  outsubstringLength) 
 			+ (config.decode_samples ? "" : "_encoded") 
 		);
 		//const fspath archiveoutdir = audiodir / archivepath.stem(); // If we want to extract to separate folders
