@@ -1,6 +1,7 @@
 #pragma once
 #include <filesystem>
 #include <unordered_map>
+#include "archives/PackageMapSpec.h"
 #include "archives/ResourceEnums.h"
 #include "archives/idImage.h"
 #include "miniz/miniz.h"
@@ -85,9 +86,19 @@ struct GlobalConfig_t {
 
 	std::unordered_map <std::string, std::vector<ModFile*>> blanginfo;
 
+	// Packagemapspec import statements
 	std::vector<std::string> mapspec;
 
+	std::vector<std::string> levelfolders;
+
+	// Packagemapspec addons
+	std::vector<MapSpec_t::AddOn> mapspec_addons;
+
 	ModDef* elevatedmod = nullptr;
+
+	void ReadLevelConfigs(const fspath& gamedir);
+	void AddCommonFiles(bool includeStreamDB);
+	std::vector<std::string> GetNewArchives() const;
 
 	GlobalConfig_t() = default;
 	GlobalConfig_t(const GlobalConfig_t& other) = delete;
@@ -98,7 +109,7 @@ struct GlobalConfig_t {
 
 namespace ModReader {
 	void ReadLooseModv2(ModDef& readto, const fspath modsfolder, const fspath& gamedir, GlobalConfig_t& cfg);
-	void ReadZipMod(ModDef& readto, const fspath& zipPath, GlobalConfig_t& cfg);
+	void ReadZipMod(ModDef& readto, const fspath& gamedir, const fspath& zipPath, GlobalConfig_t& cfg);
 
 	// Used for Just-In-Time loading of large zipped mod files
 	bool LoadModData(ModFile& modfile, charbuffer_t& buffer);

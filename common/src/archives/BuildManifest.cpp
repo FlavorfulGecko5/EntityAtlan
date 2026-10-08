@@ -218,7 +218,7 @@ bool idcl::buildmanifest::buildsimplemanifest(const wchar_t* binpath, bool Rewri
 	return true;
 }
 
-void buildmanifest_addinfo(const fspath& basedir, const fspath& relativepath, std::string& data) {
+void buildmanifest_addinfo(const fspath& basedir, const char* relativepath, std::string& data) {
 
 	//std::error_code ec;
 	size_t fileSize = std::filesystem::file_size(basedir / relativepath);
@@ -228,7 +228,7 @@ void buildmanifest_addinfo(const fspath& basedir, const fspath& relativepath, st
 	data.reserve(data.length() + numchunks * 42 + 250);
 
 	data.append(",\"");
-	data.append(relativepath.string());
+	data.append(relativepath);
 	data.append("\":{\"fileSize\":");
 	data.append(std::to_string(fileSize));
 	data.append(",\"chunkSize\":65536,\"hashes\":[");
@@ -263,9 +263,12 @@ bool idcl::buildmanifest::modfromcache(modargs_t args)
 	// meta.resources is not, but there's some strange behavior that causes information
 	// about it to not get logged with fs_debug 1. So for safety we're adding it anyways
 	std::string newdata;
-	buildmanifest_addinfo(basedir, L"packagemapspec.json", newdata);
-	buildmanifest_addinfo(basedir, L"modarchives/common_mod.resources", newdata);
-	buildmanifest_addinfo(basedir, L"meta.resources", newdata);
+	buildmanifest_addinfo(basedir, "packagemapspec.json", newdata);
+	buildmanifest_addinfo(basedir, "meta.resources", newdata);
+
+	for (size_t i = 0; i < args.num_newfiles; i++) {
+		buildmanifest_addinfo(basedir, args.newfiles[i].c_str(), newdata);
+	}
 	newdata.append("}}");
 
 	idcl::buildmanifest man;

@@ -34,15 +34,18 @@ struct MapSpec_t {
 	// list_imports: List of import statements from mod config files Format is "FROM_MAP$TO_MAP$FilterString"
 	// FilterString is optional. If missing, everything will be imported from that map
 	bool Modify(const AddOn* list_newfiles, const size_t num_newfiles, const std::string* list_imports, const size_t num_imports);
+
+	// Returns -1 if map cannot be found
+	size_t MapIndex(const std::string& mapname) const;
+
+	// Returns -1 if file cannot be found
+	size_t FileIndex(const std::string& filename, size_t startIndex = 0) const;
 };
 
 namespace PackageMapSpec
 {
 	/* Prints a human-readable version of the PackageMapSpec*/
 	void ToString(const fspath gamedir);
-
-	/* Injects an archive into the Common map */
-	void InjectCommonArchive(const fspath gamedir, const fspath newarchivepath, bool includeStreamDB);
 
 	/*
 	* Returns a list of archives paths (taken verbatim from the packagemapspec)

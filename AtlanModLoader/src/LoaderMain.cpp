@@ -508,14 +508,18 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 
 #define MODDED_TIMESTAMP 123456
 
-void RebuildContainerMask(const fspath metapath, const fspath newarchivepath) {
-	// Read the entire archive into memory
-	BinaryOpener open(metapath.string());
-	assert(open.Okay());
+void RebuildContainerMask(const fspath metapath, const fspath& basedir, const std::vector<std::string>& NewArchives) {
+	struct NewMaskEntry {
+		containerMaskEntry_t hashinfo;
+		uint32_t bitmaskLongs; // Size of the bitmask in 64 byte integers
+	};
 
+	// Read the entire archive into memory
+	charbuffer_t open;
+	FileReader::ReadFile(metapath.c_str(), open);
 	
 	// Get addresses of relevant data pieces
-	char* archive = const_cast<char*>(open.ToReader().GetBuffer());
+	char* archive = open.data;
 	ResourceHeader* h = reinterpret_cast<ResourceHeader*>(archive);
 	ResourceEntry* e = reinterpret_cast<ResourceEntry*>(archive + sizeof(ResourceHeader) + (h->version < 13 ? sizeof(ResourceMetaHeader) : 0));
 	char* compressed = archive + e->dataOffset;
@@ -526,20 +530,28 @@ void RebuildContainerMask(const fspath metapath, const fspath newarchivepath) {
 	//assert(e->compMode == 2); COULD CHANGE TO UNCOMPRESSED BETWEEN UPDATES
 	assert(e->defaultHash == e->dataCheckSum);
 
-	// TODO: If adding multiple archives, must do this for every archive
-	// Get data we'll be inserting into container mask
-	containerMaskEntry_t newentry = GetContainerMaskHash(newarchivepath);
-	//atlog("Container Mask Hash: 0x%llx", newentry.hash);
+	// Number of bytes we're adding to the mask file size
+	size_t TotalExtraBytes = 0;
 
-	// Number of uint64_t's in our bitmask.
-	// Ensure at least 1 just incase having 0 is bad
-	uint32_t bitmasklongs = static_cast<uint32_t>(newentry.numResources / 64 + (newentry.numResources % 64 ? 1 : 0) + 1);
+	std::vector<NewMaskEntry> NewEntries;
+	NewEntries.resize(NewArchives.size());
 
-	// Hash + bitmasklongs + byte count of our bitmask
-	size_t extraSize = sizeof(uint64_t) + sizeof(uint32_t) + bitmasklongs * sizeof(uint64_t);
+	for (size_t i = 0; i < NewArchives.size(); i++) {
+		fspath archivedir = basedir / NewArchives[i];
+		NewMaskEntry& n = NewEntries[i];
+		n.hashinfo = GetContainerMaskHash(archivedir);
+		//atlog("Container Mask Hash: 0x%llx", newentry.hash);
+
+		// Number of uint64_t's in our bitmask.
+		// Ensure at least 1 just incase having 0 is bad
+		n.bitmaskLongs = static_cast<uint32_t>(n.hashinfo.numResources / 64 + (n.hashinfo.numResources % 64 ? 1 : 0) + 1);
+
+		// Size Of: Hash Field + Size Field + Bitmask byte count
+		TotalExtraBytes += sizeof(uint64_t) + sizeof(uint32_t) + n.bitmaskLongs * sizeof(uint64_t);
+	}
 
 	// Decompress the Oodle-compressed container mask
-	char* decomp = new char[e->uncompressedSize + extraSize];
+	char* decomp = new char[e->uncompressedSize + TotalExtraBytes];
 	if (e->compMode == 2) {
 		if (!Oodle::DecompressBuffer(compressed, e->dataSize, decomp, e->uncompressedSize)) {
 			atlog("ERROR: FAILED TO DECOMPRESS CONTAINER MASK");
@@ -552,33 +564,27 @@ void RebuildContainerMask(const fspath metapath, const fspath newarchivepath) {
 	}
 
 
-	// Important file offsets
+	// Update number of bitmasks
 	uint32_t* hashCount = reinterpret_cast<uint32_t*>(decomp);
-
 	if(*hashCount & 0xFFFFF000)
 		hashCount++; // Skip the compacted timestamp (idTech7 container masks only)
+	*hashCount = *hashCount + static_cast<u32>(NewEntries.size());
 
-	uint64_t* newHash = reinterpret_cast<uint64_t*>(decomp + e->uncompressedSize);
-	uint32_t* blobSize = reinterpret_cast<uint32_t*>(decomp + e->uncompressedSize + sizeof(uint64_t));
-	uint64_t* bitmask = reinterpret_cast<uint64_t*>(decomp + e->uncompressedSize + sizeof(uint64_t) + sizeof(uint32_t));
-
-	// Add new bitmask to the file
-	*hashCount = *hashCount + 1;
-	*newHash = newentry.hash;
-	*blobSize = bitmasklongs;
-	for(size_t i = 0; i < bitmasklongs; i++) {
-		*(bitmask + i) = -1;
+	// Add new bitmasks to the file
+	char* nextbyte = decomp + e->uncompressedSize;
+	for(const NewMaskEntry& n : NewEntries) {
+		memcpy(nextbyte, &n.hashinfo.hash, sizeof(u64));
+		nextbyte += sizeof(u64);
+		memcpy(nextbyte, &n.bitmaskLongs, sizeof(u32));
+		nextbyte += sizeof(u32);
+		memset(nextbyte, 0xFF, n.bitmaskLongs * sizeof(u64));
+		nextbyte += n.bitmaskLongs * sizeof(u64);
 	}
 
-	/*
-	* - Unnecessary: Change data offset
-	* - Change data size
-	* - Change uncompressed size
-	* - Change defaultHash and data Check Sum
-	* - Change compMode to 0 (if we opt not to recompress it)
-	*/
+	check_debug(nextbyte == decomp + e->uncompressedSize + TotalExtraBytes);
+
 	// Modify the ResourceEntry - disabling compression on the file should be fine
-	e->dataSize = e->uncompressedSize + extraSize;
+	e->dataSize = e->uncompressedSize + TotalExtraBytes;
 	e->uncompressedSize = e->dataSize;
 	e->compMode = 0;
 	
@@ -598,18 +604,14 @@ void RebuildContainerMask(const fspath metapath, const fspath newarchivepath) {
 	delete[] decomp;
 }
 
-bool Modify_PackageMapSpec(const fspath& pmspath, bool includeStreamDB, GlobalConfig_t& config) {
+bool Modify_PackageMapSpec(const fspath& pmspath, GlobalConfig_t& config) {
 
 	MapSpec_t mapspec(pmspath);
 	if(!mapspec.good)
 		return false;
 
-	MapSpec_t::AddOn newfiles[] = {
-		{"modarchives/common_mod.resources", "common"},
-		{"modarchives/common_mod.streamdb", "common"}
-	};
-
-	bool result = mapspec.Modify(newfiles, includeStreamDB ? 2 : 1, config.mapspec.data(), config.mapspec.size());
+	bool result = mapspec.Modify(config.mapspec_addons.data(), config.mapspec_addons.size(), 
+		config.mapspec.data(), config.mapspec.size());
 	if(!result)
 		return false;
 
@@ -619,11 +621,11 @@ bool Modify_PackageMapSpec(const fspath& pmspath, bool includeStreamDB, GlobalCo
 
 #include "archives/BuildManifest.h"
 
-bool Modify_BuildManifest(const fspath& gamedir) {
+bool Modify_BuildManifest(const fspath& gamedir, const std::vector<std::string>& NewArchives) {
 	if(g_game != game_eternal)
 		return true;
 
-	idcl::buildmanifest::modargs_t args = {gamedir.c_str()};
+	idcl::buildmanifest::modargs_t args = {gamedir.c_str(), NewArchives.data(), NewArchives.size()};
 	return idcl::buildmanifest::modfromcache(args);
 }
 
@@ -944,6 +946,12 @@ void Injector_CheckConflicts(const modlist_t& ModList, GlobalConfig_t& globalcon
 			// Special Case: Put string csvs into the global config data
 			// These must not get loaded as regular mod files
 			if (file.typeenum == rt_binaryFile) {
+
+				#ifdef _DEBUG // Decrypting/encrypting blangs is too slow in debug mode
+				if(file.assetPath != "strings/english")
+					continue;
+				#endif
+
 				file.assetPath += ".blang";
 				globalconfig.blanginfo[file.assetPath].push_back(&file);
 				continue;
@@ -1044,9 +1052,11 @@ void Injector_ReadMods(const fspath& gamedir, modlist_t& ModList, GlobalConfig_t
 		ModReader::ReadLooseModv2(*nextmod++, UnzippedFolder, gamedir, globalconfig);
 	}
 	for (const fspath& ZipPath : zipmodpaths) {
-		ModReader::ReadZipMod(*nextmod++, ZipPath, globalconfig);
+		ModReader::ReadZipMod(*nextmod++, gamedir, ZipPath, globalconfig);
 	}
 	check_debug(nextmod == ModList.mods + ModList.totalmods);
+
+	globalconfig.ReadLevelConfigs(gamedir);
 }
 
 bool InjectorLoadMods(const fspath gamedir, const int argflags) {
@@ -1211,18 +1221,24 @@ bool InjectorLoadMods(const fspath gamedir, const int argflags) {
 			atlog("FATAL ERROR: Resource Mod Loading aborted due to the above error");
 			return false;
 		}
-		okay = Modify_PackageMapSpec(pmspath, streamdbFileCount > 0, globalconfig);
+
+		globalconfig.AddCommonFiles(streamdbFileCount > 0);
+
+		okay = Modify_PackageMapSpec(pmspath, globalconfig);
 		if (!okay) {
 			atlog("FATAL ERROR: Mod Loading aborted due to above error with packagemapspec");
 			return false;
 		}
-		RebuildContainerMask(metapath, outarchivepath);
+
+		const std::vector<std::string> NewArchives = globalconfig.GetNewArchives();
+
+		RebuildContainerMask(metapath, basedir, NewArchives);
 
 		// IMPORTANT: This MUST go after everything else, otherwise incorrect file sizes
 		// will be used when updating packagemapspec.json and meta.resources build-manifest entries
 		// Need to do a Cleanup if this fails because users will be left with a modded mapspec
 		// and an unmodded build-manifest, which will cause a startup crash and Steam file verification
-		okay = Modify_BuildManifest(gamedir);
+		okay = Modify_BuildManifest(gamedir, NewArchives);
 		if (!okay) {
 			atlog("FATAL ERROR: Failed to modify build-manifest");
 			CleanupLastLoad(gamedir);

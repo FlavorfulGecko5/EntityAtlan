@@ -181,8 +181,16 @@ void ModReader_ConfirmModFile(ModDef& moddef, ModFile& modfile) {
 	moddef.modFiles.push_back(modfile);
 }
 
-void ModReader_ExtractConfigData(const AtlanModConfig& modconfig, GlobalConfig_t& globalconfig) {
+// AddLevel parameter is needed to prevent a recursive loop when parsing bad level config files
+void ModReader_ExtractConfigData(const AtlanModConfig& modconfig, GlobalConfig_t& globalconfig, bool AddLevel) {
 	globalconfig.mapspec.insert(globalconfig.mapspec.end(), modconfig.listmapspec, modconfig.listmapspec + modconfig.nummapspec);
+
+	// If installing mods for the first time, the level folder may not have
+	// been unzipped yet, depending on the order mods are read in.
+	// Hence we must cache the folder names and read their configs later
+	if (AddLevel && modconfig.levelfolder.size()) {
+		globalconfig.levelfolders.push_back(modconfig.levelfolder);
+	}
 
 	for (int i = 0; i < modconfig.numEdits; i++) {
 		AtlanModConfig::namedlist_t& editlist = modconfig.listedits[i];
@@ -213,6 +221,61 @@ void ModReader_ExtractConfigData(const AtlanModConfig& modconfig, GlobalConfig_t
 				atlog("CONFIG ERROR: Unknown asset list named %s ", key.c_str());
 		}
 	}
+
+	for (int i = 0; i < modconfig.numnewmaps; i++) {
+		AtlanModConfig::namedlist_t& maplist = modconfig.listnewmaps[i];
+		for (int i = 0; i < maplist.numentries; i++) {
+			globalconfig.mapspec_addons.push_back({ maplist.entries[i], maplist.listname});
+		}
+	}
+}
+
+void GlobalConfig_t::ReadLevelConfigs(const fspath& gamedir) {
+
+	const fspath archivesdir = gamedir / "base/modarchives";
+
+	if(levelfolders.size())
+		atlog("\n\nReading Load Level configs for %zu levels\n-----", levelfolders.size());
+
+	for (const std::string& s_levelfolder : levelfolders) {
+
+		const fspath folder = archivesdir / s_levelfolder;
+
+		AtlanModConfig cfg;
+
+		// TODO: Should probably just read config into memory then call TryRead directory
+		// it will avoid flooding console with standard atlanmod log messages
+		if (!cfg.TryRead_FromDir(folder)) {
+			atlog("Error while reading level config for %s", s_levelfolder.c_str());
+		}
+
+		ModReader_ExtractConfigData(cfg, *this, false);
+	}
+}
+
+void GlobalConfig_t::AddCommonFiles(bool includeStreamDB)
+{
+	MapSpec_t::AddOn newfiles[] = {
+		{"modarchives/common_mod.resources", "common"},
+		{"modarchives/common_mod.streamdb", "common"}
+	};
+	mapspec_addons.insert(mapspec_addons.begin(), newfiles, newfiles + (includeStreamDB ? 2 : 1));
+}
+
+std::vector<std::string> GlobalConfig_t::GetNewArchives() const
+{
+	std::vector<std::string> relativepaths;
+	relativepaths.reserve(mapspec_addons.size());
+
+	// MONITOR: We're not checking for uniqueness....for now
+	// Probably not necessary, since the only duplicate entries
+	// are .streamdbs.
+	for (const MapSpec_t::AddOn& addon : mapspec_addons) {
+		if (addon.newfile.rfind(".resources") != -1) {
+			relativepaths.push_back(addon.newfile);
+		}
+	}
+	return relativepaths;
 }
 
 struct idUnzippedImageJob {
@@ -297,7 +360,7 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 		return;
 	if(!ModReader_CanLoadMod(moddef, cfg, globalconfig))
 		return;
-	ModReader_ExtractConfigData(cfg, globalconfig);
+	ModReader_ExtractConfigData(cfg, globalconfig, true);
 	moddef.loadPriority = -999;
 
 	std::vector<fspath> ModFilePaths = cfg.GetModFiles(modsfolder);
@@ -370,32 +433,66 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 	}
 }
 
-bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& readto, GlobalConfig_t& globalconfig);
+bool ModReader_InstallLevelMod(mz_zip_archive* zptr, const fspath& gamedir) {
 
-void ModReader::ReadZipMod(ModDef& mod, const fspath& zipPath, GlobalConfig_t& globalconfig)
-{
-	atlog("\n\nReading %ls\n---", zipPath.filename().c_str());
+	const fspath basedir = gamedir / "base";
+	fspath extractionPath;
 
-	// Open the zip file
-	mz_zip_archive* zptr = &mod.zipfile;
-	mz_zip_zero_struct(zptr);
-	if (!mz_zip_reader_init_file(zptr, zipPath.string().c_str(), 0))
-	{
-		atlog("ERROR: Failed to open zip file");
-		return;
+	uint32_t fileCount = mz_zip_reader_get_num_files(zptr);
+	
+	std::string typestring;
+	charbuffer_t namebuffer;
+	namebuffer.EnsureCapacity(512);
+	
+	for (u32 i = 0; i < fileCount; i++) {
+		if(mz_zip_reader_is_file_a_directory(zptr, i))
+			continue;
+
+		u32 namelength = mz_zip_reader_get_filename(zptr, i, namebuffer.data, (u32)namebuffer.capacity);
+		while (namelength >= namebuffer.capacity) {
+			namebuffer.EnsureCapacity(namelength);
+			namelength = mz_zip_reader_get_filename(zptr, i, namebuffer.data, (u32)namebuffer.capacity);
+		}
+
+		if(strcmp(CFG_NAME_V2, namebuffer.data) == 0)
+			continue;
+
+		typestring.clear();
+		char* cptr = namebuffer.data;
+		while (*cptr) {
+			if (*cptr == '/' || *cptr == '\\') {
+				typestring = std::string(namebuffer.data, cptr - namebuffer.data);
+				break;
+			}
+			cptr++;
+		}
+		if (typestring == "modarchives") {
+			extractionPath = basedir / namebuffer.data;
+		}
+		else if (typestring == "virtualtextures") {
+			extractionPath = gamedir / namebuffer.data;
+		}
+		else {
+			atlog("ERROR: Unrecognized file type for file %s", namebuffer.data);
+			return false;
+		}
+
+		atlog("Extracting %s", namebuffer.data);
+		std::filesystem::create_directories(extractionPath.parent_path());
+
+		bool result = mz_zip_reader_extract_to_file(zptr, i, extractionPath.string().c_str(), 0);
+		if (!result) {
+			atlog("   ERROR: Failed to extract file");
+			return false;
+		}
 	}
 
-	mod.modtype = mt_zipfile;
-	mod.modName = zipPath.stem().string();
-	mod.ActiveZip = ReadZipMod_Internal(zptr, mod, globalconfig);
-	if (!mod.ActiveZip) {
-		mz_zip_reader_end(zptr);
-	}
+	return true;
 }
 
 // If return value is true, we should keep the zip file alive after reading
 // to enable just-in-time loading
-bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, GlobalConfig_t& globalconfig)
+bool ReadZipMod_Internal(mz_zip_archive* zptr, const fspath& gamedir, ModDef& mod, GlobalConfig_t& globalconfig, bool& out_deleteZip)
 {
 	bool KEEP_ZIP_ALIVE = false;
 
@@ -409,7 +506,18 @@ bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, GlobalConfig_t& glob
 	if (!ModReader_CanLoadMod(mod, cfg, globalconfig)) {
 		return false;
 	}
-	ModReader_ExtractConfigData(cfg, globalconfig);
+
+	if (cfg.installOnce) {
+		atlog("Performing one-time installation of idStudio level mod"
+			"\nThis process may take some time!");
+		
+		if (ModReader_InstallLevelMod(zptr, gamedir)) {
+			out_deleteZip = true;
+		}
+		return false;
+	}
+
+	ModReader_ExtractConfigData(cfg, globalconfig, true);
 
 	/*
 	* Read all mod files
@@ -467,6 +575,35 @@ bool ReadZipMod_Internal(mz_zip_archive* zptr, ModDef& mod, GlobalConfig_t& glob
 		ModReader_ConfirmModFile(mod, modfile);
 	}
 	return KEEP_ZIP_ALIVE;
+}
+
+void ModReader::ReadZipMod(ModDef& mod, const fspath& gamedir, const fspath& zipPath, GlobalConfig_t& globalconfig)
+{
+	atlog("\n\nReading %ls\n---", zipPath.filename().c_str());
+
+	// Make sure this starts off false
+	bool delete_zipFile = false;
+
+	// Open the zip file
+	mz_zip_archive* zptr = &mod.zipfile;
+	mz_zip_zero_struct(zptr);
+	if (!mz_zip_reader_init_file(zptr, zipPath.string().c_str(), 0))
+	{
+		atlog("ERROR: Failed to open zip file");
+		return;
+	}
+
+	mod.modtype = mt_zipfile;
+	mod.modName = zipPath.stem().string();
+	mod.ActiveZip = ReadZipMod_Internal(zptr, gamedir, mod, globalconfig, delete_zipFile);
+	if (!mod.ActiveZip) {
+		mz_zip_reader_end(zptr);
+	}
+
+	if (delete_zipFile) {
+		atlog("Level Mod installed successfully. Deleting zip file");
+		std::filesystem::remove(zipPath);
+	}
 }
 
 bool ModReader::LoadModData(ModFile& modfile, charbuffer_t& buffer) {

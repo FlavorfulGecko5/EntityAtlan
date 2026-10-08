@@ -51,6 +51,7 @@ MapSpec_t::MapSpec_t(const fspath& p_mapspecpath)
 
 bool MapSpec_t::Modify(const AddOn* list_newfiles, const size_t num_newfiles, const std::string* list_imports, const size_t num_imports)
 {
+	const size_t STARTING_NUMFILES = listfiles.size();
 	for (int64_t i = num_newfiles - 1; i > -1; i--) {
 		const AddOn* a = list_newfiles + i;
 
@@ -69,8 +70,16 @@ bool MapSpec_t::Modify(const AddOn* list_newfiles, const size_t num_newfiles, co
 			listrefs.emplace_back();
 		}
 
-		listrefs[mapindex].push_back((int)listfiles.size());
-		listfiles.push_back(a->newfile);
+		// In the case of multi-level mods, one streamdb will
+		// be shared by every level
+		size_t fileindex = FileIndex(a->newfile, STARTING_NUMFILES);
+		if (fileindex == -1) {
+			listrefs[mapindex].push_back((int)listfiles.size());
+			listfiles.push_back(a->newfile);
+		}
+		else {
+			listrefs[mapindex].push_back((int)fileindex);
+		}
 	}
 
 	// Do Imports
@@ -165,6 +174,23 @@ bool MapSpec_t::Modify(const AddOn* list_newfiles, const size_t num_newfiles, co
 	}
 
 	return true;
+}
+
+size_t MapSpec_t::MapIndex(const std::string& mapname) const {
+	for (size_t i = 0; i < listmaps.size(); i++) {
+		if(listmaps[i] == mapname)
+			return i;
+	}
+	return -1;
+}
+
+size_t MapSpec_t::FileIndex(const std::string& filename, size_t startIndex) const
+{
+	for (size_t i = startIndex; i < listfiles.size(); i++) {
+		if(listfiles[i] == filename)
+			return i;
+	}
+	return -1;
 }
 
 bool MapSpec_t::operator==(const MapSpec_t& other) const {
@@ -279,67 +305,6 @@ void PackageMapSpec::ToString(const fspath gamedir) {
 	}
 
 	atlog("Files: %zu Maps: %zu", filenames.size(), mapnames.size());
-}
-
-// TODO: Will need to revisit this upon adding more advanced features
-// and allow for packagemapspec manipulation
-void PackageMapSpec::InjectCommonArchive(const fspath gamedir, const fspath newarchivepath, bool includeStreamDB)
-{
-	const fspath pmspath = gamedir / "base/packagemapspec.json";
-	EntityParser entparser(pmspath.string(), ParsingMode::JSON);
-	EntNode& jsonroot = *entparser.getRoot()->ChildAt(0);
-
-	// Get the relative path appropriate for the packagemapspec
-	size_t substringIndex = pmspath.parent_path().string().size() + 1;
-	std::string archrelativepath = newarchivepath.string().substr(substringIndex);
-	for (char& c : archrelativepath) {
-		if (c == '\\') c = '/';
-	}
-	//std::cout << archrelativepath;
-
-	// Ensure first map is the common map
-	assert(jsonroot["\"maps\""].ChildAt(0)->ChildAt(0)->getValueUQ() == "common");
-
-	char buffer[512];
-
-	// Insert archive into beginning of file list
-	// We must insert it at the beginning since this list dictates patch priority
-	{
-		EntNode& filelist = jsonroot["\"files\""];
-		if (includeStreamDB) {
-			snprintf(buffer, 512, R"({ "name": "%s" })", "modarchives/common_mod.streamdb");
-			entparser.EditTree(buffer, &filelist, 0, 0, 0, 0);
-		}
-		snprintf(buffer, 512, R"({ "name": "%s" })", archrelativepath.c_str());
-		entparser.EditTree(buffer, &filelist, 0, 0, 0, 0);
-	}
-
-	// Now we must increment every file number in the map list to account for the insertion
-	{
-		EntNode& mapfilerefs = jsonroot["\"mapFileRefs\""];
-
-		for (int i = 0; i < mapfilerefs.getChildCount(); i++) {
-			EntNode& mapping = *mapfilerefs.ChildAt(i);
-			EntNode& file = mapping["\"file\""];
-			int index = -1;
-
-			assert(&file != EntNode::SEARCH_404);
-			assert(file.ValueInt(index, -999999, 999999));
-			index += includeStreamDB ? 2 : 1;
-
-			std::string newText = "\"file\"";
-			newText.append(std::to_string(index));
-			entparser.EditText(newText, &file, 6, 0); // Note: This is a very hacky function. 6 is length of "file" (including quotes)
-		}
-
-		// Finally, we insert the new archive into common's mapFileRef
-		if (includeStreamDB) {
-			entparser.EditTree(R"({ "file": 1, "map": 0 })", &mapfilerefs, 0, 0, 0, 0);
-		}
-		entparser.EditTree(R"({ "file": 0, "map": 0 })", &mapfilerefs, 0, 0, 0, 0);
-	}
-
-	entparser.WriteToFile(pmspath.string(), 0);
 }
 
 std::vector<std::string> PackageMapSpec_MakeFileList(const fspath gamedir, bool IncludeModArchives, std::string extString)

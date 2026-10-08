@@ -1,5 +1,6 @@
 #pragma once
 #include "atlan/AtlanLib.h"
+#include <string>
 
 namespace idcl {
 
@@ -31,6 +32,8 @@ namespace idcl {
 
 		struct modargs_t {
 			const wchar_t* gamedir;
+			const std::string* newfiles;
+			size_t num_newfiles;
 		};
 
 		static bool modfromcache(modargs_t args);
