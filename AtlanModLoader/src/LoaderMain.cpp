@@ -924,6 +924,66 @@ struct modlist_t {
 
 typedef std::unordered_map<std::string, ModFile*> modfilemap_t;
 
+// Extreme Edge Case: since conflict detection never occurs for 
+// Blang files, weird behavior will occur if users
+// alias multiple files to the same blang.
+// Not going to do anything about this, since this is
+// highly incorrect usage of the aliasing system
+void Injector_AddBlang(ModFile& file, GlobalConfig_t& config) {
+
+	const char* BLANG_PATHS[] = {
+		"strings/english.blang",
+		"strings/french.blang",
+		"strings/german.blang",
+		"strings/italian.blang",
+		"strings/japanese.blang",
+		"strings/korean.blang",
+		"strings/latin_spanish.blang",
+		"strings/polish.blang",
+		"strings/portuguese.blang",
+		"strings/russian.blang",
+		"strings/simplified_chinese.blang",
+		"strings/spanish.blang",
+		"strings/traditional_chinese.blang"
+	};
+
+	if(file.assetPath != "strings/default.blang") {
+
+		#ifdef _DEBUG // Decrypting/encrypting blangs in debug mode is slow
+		if(file.assetPath != "strings/english.blang")
+			return;
+		#endif
+
+		std::vector<ModFile*>& vtor = config.blanginfo[file.assetPath];
+
+		// Override this mod's default blang with the language-specific blang
+		if(vtor.size() && vtor.back()->parentMod == file.parentMod) {
+			check_debug(vtor.back()->assetPath == "strings/default.blang");
+			vtor.back() = &file;
+		}
+		else {
+			vtor.push_back(&file);
+		}
+		return;
+	}
+
+	#ifdef _DEBUG
+	int IMAX = 1;
+	#else
+	int IMAX = sizeof(BLANG_PATHS) / sizeof(BLANG_PATHS[0]);
+	#endif
+
+	for(int i = 0; i < IMAX; i++) {
+		std::vector<ModFile*>& vtor = config.blanginfo[BLANG_PATHS[i]];
+
+		// Only load the default csv if this mod has no language-specific
+		// csv for this language
+		if (!vtor.size() || vtor.back()->parentMod != file.parentMod) {
+			vtor.push_back(&file);
+		}
+	}
+}
+
 /*
 * Check for mod conflicts - eliminating any duplicate assets
 * Also enables online safety when necessary
@@ -947,13 +1007,8 @@ void Injector_CheckConflicts(const modlist_t& ModList, GlobalConfig_t& globalcon
 			// These must not get loaded as regular mod files
 			if (file.typeenum == rt_binaryFile) {
 
-				#ifdef _DEBUG // Decrypting/encrypting blangs is too slow in debug mode
-				if(file.assetPath != "strings/english")
-					continue;
-				#endif
-
 				file.assetPath += ".blang";
-				globalconfig.blanginfo[file.assetPath].push_back(&file);
+				Injector_AddBlang(file, globalconfig);
 				continue;
 			}
 
