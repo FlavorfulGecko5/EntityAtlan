@@ -5,7 +5,7 @@
 #include "io/BinaryReader.h"
 #include "io/BinaryWriter.h"
 #include "atlan/AtlanLogger.h"
-
+#include "atlan/AtlanProfiling.h"
 
 bool idcl::blang_decrypt(char* data, size_t datalength, const char* filename, charbuffer_t& out_buffer) {
 	
@@ -28,6 +28,7 @@ bool idcl::blang_decrypt(char* data, size_t datalength, const char* filename, ch
 		sha256_final(&sha, (BYTE*)SHA_KEY);
 	}
 
+	#ifdef _DEBUG // ~10 MS per hmac SHA calculation on Release builds
 	{
 		char EXPECTED_HMAC[32];
 		memcpy(HMAC, data + datalength - sizeof(HMAC), sizeof(HMAC));
@@ -35,17 +36,18 @@ bool idcl::blang_decrypt(char* data, size_t datalength, const char* filename, ch
 		if(memcmp(HMAC, EXPECTED_HMAC, sizeof(HMAC)))
 			atlog("WARNING: Blang Decode - HMAC mismatch");
 	}
+	#endif
 
 	const char* blangoffset = data + sizeof(SALT) + sizeof(IV);
 	const size_t blanglength = datalength - sizeof(SALT) - sizeof(IV) - sizeof(HMAC);
 
-	AES_ctx aes;
-	AES_init_ctx_iv(&aes, (u8*)SHA_KEY, (u8*)IV);
-	AES_CBC_decrypt_buffer(&aes, (u8*)blangoffset, blanglength);
-
 	out_buffer.EnsureCapacity(blanglength);
 	out_buffer.length = blanglength;
 	memcpy(out_buffer.data, blangoffset, blanglength);
+
+	AES_ctx aes;
+	AES_init_ctx_iv(&aes, (u8*)SHA_KEY, (u8*)IV);
+	AES_CBC_decrypt_buffer(&aes, (u8*)out_buffer.data, out_buffer.length);
 
 	return true;
 }
@@ -408,7 +410,7 @@ bool idcl::blang_modify(blangmodargs args, charbuffer_t& output)
 	*/
 
 	BinaryWriter writer;
-	writer.EnsureMaxCapacity(decrypted.length * 1.2);
+	writer.EnsureMaxCapacity(static_cast<size_t>(decrypted.length * 1.2f));
 
 	// Write an empty salt and IV
 	for(int i = 0; i < 7; i++)

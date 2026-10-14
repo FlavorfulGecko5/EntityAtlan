@@ -498,6 +498,8 @@ static void XorWithIv(uint8_t* buf, const uint8_t* Iv)
   }
 }
 
+#if 0
+
 void AES_CBC_encrypt_buffer(struct AES_ctx *ctx, uint8_t* buf, size_t length)
 {
   size_t i;
@@ -527,6 +529,77 @@ void AES_CBC_decrypt_buffer(struct AES_ctx* ctx, uint8_t* buf, size_t length)
   }
 
 }
+#else
+
+// Decryption/Encryption implementation that uses x86 intrinsics,
+// reducing blang decryption times to sub-zero milliseconds instead of
+// 70-90 milliseconds on Release builds
+#include <immintrin.h>
+
+void AES_CBC_decrypt_buffer(struct AES_ctx* ctx, uint8_t* buf, size_t length) {
+
+    /* Load Round Keys */
+    __m128i RoundKeys[11];
+    static_assert(sizeof(RoundKeys) == sizeof(ctx->RoundKey));
+    memcpy(RoundKeys, ctx->RoundKey, sizeof(RoundKeys));
+
+    for (int i = 1; i < 10; i++) {
+        RoundKeys[i] = _mm_aesimc_si128(RoundKeys[i]);
+    }
+
+    __m128i nextIV = _mm_loadu_si128((const __m128i*)(ctx->Iv));
+
+    uint8_t* const BUF_MAX = buf + length;
+    for (; buf < BUF_MAX; buf += 16) {
+        __m128i original = _mm_loadu_si128((const __m128i*)(buf));
+        __m128i state = original;
+
+        // Inverse Transform Data 
+        state = _mm_xor_si128(state, RoundKeys[10]);
+        for (int i = 9; i > 0; i--) {
+            state = _mm_aesdec_si128(state, RoundKeys[i]);
+        }
+        state = _mm_aesdeclast_si128(state, RoundKeys[0]);
+        state = _mm_xor_si128(state, nextIV);
+
+        // Write out data
+        _mm_storeu_si128((__m128i*)(buf), state);
+
+        nextIV = original;
+    }
+}
+
+void AES_CBC_encrypt_buffer(struct AES_ctx* ctx, uint8_t* buf, size_t length)
+{
+    /* Load Round Keys */
+    __m128i RoundKeys[11];
+    static_assert(sizeof(RoundKeys) == sizeof(ctx->RoundKey));
+    memcpy(RoundKeys, ctx->RoundKey, sizeof(RoundKeys));
+
+    __m128i nextIV = _mm_loadu_si128((const __m128i*)(ctx->Iv));
+
+    uint8_t* const BUF_MAX = buf + length;
+    for (; buf < BUF_MAX; buf += 16) {
+        // Load plaintext block
+        __m128i state = _mm_loadu_si128((const __m128i*)(buf));
+
+        // CBC Mode: XOR plaintext with the previous ciphertext block (or IV)
+        state = _mm_xor_si128(state, nextIV);
+
+        // Encrypt the state
+        state = _mm_xor_si128(state, RoundKeys[0]);
+        for (int i = 1; i < 10; i++) {
+            state = _mm_aesenc_si128(state, RoundKeys[i]);
+        }
+        state = _mm_aesenclast_si128(state, RoundKeys[10]);
+
+        // Save ciphertext block to output and update feedback register
+        _mm_storeu_si128((__m128i*)(buf), state);
+        nextIV = state;
+    }
+}
+
+#endif
 
 #endif // #if defined(CBC) && (CBC == 1)
 
