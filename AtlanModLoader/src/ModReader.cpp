@@ -439,6 +439,12 @@ bool ModReader_InstallLevelMod(mz_zip_archive* zptr, const fspath& gamedir) {
 	fspath extractionPath;
 
 	uint32_t fileCount = mz_zip_reader_get_num_files(zptr);
+
+	MapSpec_t mapspec(gamedir / "base/packagemapspec.json");
+	if (!mapspec.good) {
+		atlog("   ERROR: Failed to read packagemapspec");
+		return false;
+	}
 	
 	std::string typestring;
 	charbuffer_t namebuffer;
@@ -471,6 +477,15 @@ bool ModReader_InstallLevelMod(mz_zip_archive* zptr, const fspath& gamedir) {
 		}
 		else if (typestring == "virtualtextures") {
 			extractionPath = gamedir / namebuffer.data;
+
+			// Fail safe to prevent the deletion of vanilla lightmaps
+			// TODO: we'll need to support lightmap backup creation/restoration if
+			// users ever want to package a modified vanilla level as an Atlan mod
+			bool replacesVanillaLightmap = !mapspec.IsUnusedLightmap(namebuffer.data);
+			if (replacesVanillaLightmap) {
+				atlog("ERROR: Unzipping file %s would overrwrite vanilla lightmap.\n   This is unsupported", namebuffer.data);
+				return false;
+			}
 		}
 		else {
 			atlog("ERROR: Unrecognized file type for file %s", namebuffer.data);

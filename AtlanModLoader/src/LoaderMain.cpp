@@ -915,6 +915,49 @@ bool CleanupLastLoad(const fspath gamedir)
 	return true;
 }
 
+bool CleanupLevelMods(const fspath& gamedir) {
+	
+	atlog("Running Level Mod Uninstaller");
+
+	fspath dir = gamedir / "base/modarchives";
+
+	atlog("Deleting everything in base/modarchives/");
+
+	if(std::filesystem::is_directory(dir)) {
+		std::filesystem::remove_all(dir);
+		std::filesystem::create_directory(dir);
+	}
+
+	atlog("Deleting modded files in virtualtextures/");
+
+	MapSpec_t mapspec(gamedir / "base/packagemapspec.json");
+	if(!mapspec.good)
+		return false;
+
+	dir = gamedir / "virtualtextures/maps";
+	if(!std::filesystem::is_directory(gamedir))
+		return true;
+
+	// This folder also contains the game's vanilla lightmaps
+	// We must carefully iterate through each file, checking if it's vanilla
+	// by comparing with the maps list in the (assumed vanilla) packagemapspec. 
+	for(const auto& dir_iter : std::filesystem::recursive_directory_iterator(dir)) {
+		if(dir_iter.is_directory())
+			continue;
+
+		fspath relative = std::filesystem::relative(dir_iter.path(), gamedir);
+		bool canDelete = mapspec.IsUnusedLightmap(relative);
+		if(canDelete) {
+			atlog("Deleting lightmap %ls", relative.c_str());
+			std::filesystem::remove(dir_iter);
+		}
+
+	}
+
+	atlog("Level mod uninstaller completed. The program will now exit.");
+	return true;
+}
+
 struct modlist_t {
 	ModDef* mods = nullptr;
 	int totalmods = 0;
@@ -1332,6 +1375,7 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 	// (it won't translate string literal slashes to the appropriate slash like it does when using the / operator)
 	fspath gamedirectory = ".";
 	bool allowEternal = false;
+	bool uninstallLevelMods = false;
 
 	/*
 	* Parse Command Line Arguments
@@ -1352,6 +1396,10 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 		else if (arg == "--nolaunch") {
 			atlog("ARGS: Game will not launch after loading mods");
 			argflags |= argflag_nolaunch;
+		}
+
+		else if (arg == "--uninstall") {
+			uninstallLevelMods = true;
 		}
 
 		else if (arg == "--eternal") {
@@ -1419,6 +1467,13 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 	/* Cleanup last mod load. Moved this here so it's execution is independent of the executable patcher's success */
 	if (CleanupLastLoad(gamedirectory) == false)
 		return;
+
+	// Warning: This MUST run after CleanupLastLoad, because we need
+	// a vanilla packagemapspec to know what lightmaps should be deleted
+	if (uninstallLevelMods) {
+		CleanupLevelMods(gamedirectory);
+		return;
+	}
 
 	if (!Executable_Patcher_Main(gamedirectory)) {
 		atlog("Aborting mod loading due to executable patcher failure");

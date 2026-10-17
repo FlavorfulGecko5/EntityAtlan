@@ -193,6 +193,30 @@ size_t MapSpec_t::FileIndex(const std::string& filename, size_t startIndex) cons
 	return -1;
 }
 
+bool MapSpec_t::IsUnusedLightmap(fspath lightmap_path) const
+{
+	// Cull the extension
+	if(lightmap_path.extension() != L".lightdb")
+		return false;
+	std::string mapname = lightmap_path.replace_extension("").string();
+
+	// Normalize path separators
+	for (char& c : mapname) {
+		if(c == '\\')
+			c = '/';
+	}
+
+	// Cull start of path
+	const char preface[] = "virtualtextures/maps/";
+	if(!mapname._Starts_with("virtualtextures/maps/"))
+		return false;
+	mapname.erase(mapname.begin(), mapname.begin() + sizeof(preface) - 1); // - 1 for null term
+
+	size_t mapindex = MapIndex(mapname);
+
+	return mapindex == -1;
+}
+
 bool MapSpec_t::operator==(const MapSpec_t& other) const {
 	return good == other.good 
 		&& listfiles == other.listfiles

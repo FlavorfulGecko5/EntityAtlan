@@ -40,6 +40,12 @@ struct MapSpec_t {
 
 	// Returns -1 if file cannot be found
 	size_t FileIndex(const std::string& filename, size_t startIndex = 0) const;
+
+	// Returns true if this lightmap does not match up with any level in this packagemapspec
+	// Returns false if this lightmap does match with a level, or if this filepath does not
+	// have the expected format
+	// lightmap_path is presumed to have the format "virtualtextures/maps/.../mapname.lightdb"
+	bool IsUnusedLightmap(fspath lightmap_path) const;
 };
 
 namespace PackageMapSpec
