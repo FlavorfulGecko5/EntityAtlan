@@ -9,6 +9,11 @@
 #include "atlan/AtlanModConfig.h"
 #include <set>
 
+#define DEBUG_ZIP_NO_MEMORY 1
+#if DEBUG_ZIP_NO_MEMORY && defined ( _DEBUG )
+#define mz_zip_writer_add_mem(...)
+#endif
+
 // Need this so the level packager can warn about new global assets
 // not being contained in the pk5
 // It consists of "real" assetpaths extracted from an entry's IDCL container
@@ -179,13 +184,12 @@ void pk5_zipModel(mz_zip_archive* zptr, const ResourceArchive& r) {
 	mz_zip_writer_add_mem(zptr, zipname.c_str(), output.data, output.length, MZ_DEFAULT_COMPRESSION);
 }
 
-void idStudio_ZipPk5(mz_zip_archive* zptr, const fspath& pk5path) {
+void ZipPk5(mz_zip_archive* zptr, const fspath& pk5path) {
 
 	idPackage package;
 	ResourceEntryBuffers_t packagebuffers;
 	
 	ResourceArchive resarchive;
-	ResourceEntryBuffers_t archivebuffers;
 
 	if (!package.Read(pk5path.c_str())) {
 		atlog("ERROR: Failed to read pk5");
@@ -193,9 +197,11 @@ void idStudio_ZipPk5(mz_zip_archive* zptr, const fspath& pk5path) {
 	}
 
 	#ifdef _DEBUG
-	atlog("%s", package.ListEntries().c_str());
-	atlog("-------\n");
+	atlog("---PK5: DEBUG LIST ENTRIES---\n%s", package.ListEntries().c_str());
+	atlog("---PK5: DEBUG LIST ENTRIES END---\n");
 	#endif
+
+	atlog("Scanning %u PK5 entries", package.numentries);
 
 	for (u32 i = 0; i < package.numentries; i++) {
 		const idPackageEntry& e = package.entries[i];
@@ -229,43 +235,32 @@ void idStudio_ZipPk5(mz_zip_archive* zptr, const fspath& pk5path) {
 			continue;
 		}
 
-		if (e.name._Starts_with("generated/compfile/")) {
-			if (!idcl::ReadResource_PK5(resarchive, entrydata.buffer, entrydata.length)) {
-				atlog("   ERROR: Failed to read image archive");
-				continue;
-			}
+		// All entries past this point are assumed to be IDCL containers
+		if (entrydata.length < 4 || memcmp(entrydata.buffer, "IDCL", 4)) {
+			atlog("   ERROR: Unsupported non-IDCL resource type");
+			continue;
+		}
+		if (!idcl::ReadResource_PK5(resarchive, entrydata.buffer, entrydata.length)) {
+			atlog("   ERROR: Failed to read entry into an IDCL archive");
+			continue;
+		}
 
+		if (e.name._Starts_with("generated/compfile/")) {
 			pk5_zipSingleArchive(zptr, resarchive, "compfile");
 			continue;
 		}
 
 		if (e.name._Starts_with("generated/cswf/")) {
-			if (!idcl::ReadResource_PK5(resarchive, entrydata.buffer, entrydata.length)) {
-				atlog("   ERROR: Failed to read image archive");
-				continue;
-			}
-
 			pk5_zipSingleArchive(zptr, resarchive, "cswf");
 			continue;
 		}
 
 		if (e.name._Starts_with("generated/image/")) {
-
-			if (!idcl::ReadResource_PK5(resarchive, entrydata.buffer, entrydata.length)) {
-				atlog("   ERROR: Failed to read image archive");
-				continue;
-			}
-
 			pk5_zipImage(zptr, resarchive);
 			continue;
 		}
 
 		if (e.name._Starts_with("generated/model/")) {
-			if (!idcl::ReadResource_PK5(resarchive, entrydata.buffer, entrydata.length)) {
-				atlog("   ERROR: Failed to read image archive");
-				continue;
-			}
-
 			pk5_zipModel(zptr, resarchive);
 			continue;
 		}
@@ -274,26 +269,28 @@ void idStudio_ZipPk5(mz_zip_archive* zptr, const fspath& pk5path) {
 	}
 }
 
-void ZipPK5(const fspath& modfolder) {
-	std::string outpath = (modfolder / "AtlanPackage.zip").string();
+void ZipPK5Files(const fspath& modfolder) {
+	std::string pathstring = (modfolder / "AtlanPackage.zip").string();
 
 	mz_zip_archive ziparchive;
 	mz_zip_archive* zptr = &ziparchive;
 
 	mz_zip_zero_struct(zptr);
-	if (!mz_zip_writer_init_file(zptr, outpath.c_str(), 0)) {
+	if (!mz_zip_writer_init_file(zptr, pathstring.c_str(), 0)) {
 		atlog("ERROR: Failed to open output zip file");
 		return;
 	}
 
 	// Zip the config file if it exists
-	if(std::filesystem::exists(modfolder / CFG_NAME_V2))
-		mz_zip_writer_add_file(zptr, CFG_NAME_V2, (modfolder / CFG_NAME_V2).string().c_str(), NULL, 0, MZ_DEFAULT_COMPRESSION);
+	pathstring = (modfolder / CFG_NAME_V2).string();
+	if(std::filesystem::exists(pathstring))
+		mz_zip_writer_add_file(zptr, CFG_NAME_V2, pathstring.c_str(), NULL, 0, MZ_DEFAULT_COMPRESSION);
 
 	const fspath pk5path = modfolder / "base.pk5";
 	if (std::filesystem::exists(pk5path)) {
 		atlog("\nPackaging base.pk5\n-----");
-		idStudio_ZipPk5(zptr, pk5path);
+		ZipPk5(zptr, pk5path);
+		atlog("PK5 Packaging Complete\n-----");
 	}
 
 	mz_zip_writer_finalize_archive(zptr);
@@ -308,7 +305,7 @@ void idStudioPackagerMain(const char* modfolder) {
 
 	const fspath modpath = modfolder;
 
-	ZipPK5(modpath);
+	ZipPK5Files(modpath);
 
 	const fspath leveldir = modpath / "dvdpc/base";
 	if (std::filesystem::is_directory(leveldir)) {

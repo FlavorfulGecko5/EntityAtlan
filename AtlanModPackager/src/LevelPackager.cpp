@@ -14,10 +14,19 @@
 #define COMPMODE_LARGE_FILES MZ_DEFAULT_COMPRESSION
 #endif
 
+#define DEBUG_ZIP_NO_FILES 1
+#if DEBUG_ZIP_NO_FILES && defined ( _DEBUG )
+#define mz_zip_writer_add_file(...)
+#endif
+
 extern std::set<std::string> G_PK5_MANIFEST;
 
+// Maps all-lowercase mapresources entries to their capitalized type strings
+// i.e. "ability_dash/some/file" = "ability_Dash"
+typedef std::unordered_map<std::string, std::string> mapresmap_t;
+
 // Our Goal: Automate asset list generation for .mapresources editing
-void LevelPackager_LoadMapResources(ResourceArchive& r, std::unordered_map<std::string, std::string>& EntryMap) {
+void LevelPackager_LoadMapResources(ResourceArchive& r, mapresmap_t& EntryMap) {
 
 	MapResource mapres;
 	ResourceEntryBuffers_t buffers;
@@ -76,13 +85,14 @@ void LevelPackager_LoadMapResources(ResourceArchive& r, std::unordered_map<std::
 	}
 }
 
-// IMPORTANT: This function may modify the lookup string parameter
-void LevelPackager_NeedsMapRes(std::string& lookup, const std::unordered_map<std::string, std::string>& MapResMap, std::string& atlanmod) {
+void LevelPackager_NeedsMapRes(const std::string& archiveString, const mapresmap_t& MapResMap, std::string& atlanmod) {
 
-	bool InPK5 = G_PK5_MANIFEST.count(lookup);
+	bool InPK5 = G_PK5_MANIFEST.count(archiveString);
 	if (!InPK5) {
-		atlog("   - WARNING: File not in PK5");
+		atlog("%s\n   - WARNING: Global asset missing from PK5", archiveString.c_str());
 	}
+
+	std::string lookup = archiveString;
 
 	if (lookup._Starts_with("rs_streamfile/generated/decls/")) {
 		lookup.erase(lookup.begin(), lookup.begin() + 30); // Length of the above string literal
@@ -91,7 +101,7 @@ void LevelPackager_NeedsMapRes(std::string& lookup, const std::unordered_map<std
 
 	auto iter = MapResMap.find(lookup);
 	if (iter == MapResMap.end()) {
-		atlog("   - WARNING: No mapresources entry found!");
+		atlog("%s\n   - WARNING: No mapresources entry found!", archiveString.c_str());
 		return;
 	}
 
@@ -122,7 +132,7 @@ void AnalyzeGlobalMap(const fspath& basedir, const MapSpec_t& mapspec, const siz
 		}
 	}
 
-	atlog("- Checking archive %ls", archivepath.c_str());
+	atlog("Checking archive %ls", archivepath.c_str());
 
 	ResourceArchive r;
 	if (!idcl::ReadResource(r, archivepath.c_str(), RF_SkipData, true)) {
@@ -130,7 +140,7 @@ void AnalyzeGlobalMap(const fspath& basedir, const MapSpec_t& mapspec, const siz
 		return;
 	}
 
-	std::unordered_map<std::string, std::string> MapResMap;
+	mapresmap_t MapResMap;
 	LevelPackager_LoadMapResources(r, MapResMap);
 
 	atlog("Map Resource Array Size: %zu", MapResMap.size());
@@ -148,14 +158,13 @@ void AnalyzeGlobalMap(const fspath& basedir, const MapSpec_t& mapspec, const siz
 		lookup.push_back('/');
 		lookup.append(name);
 
-		// renderProgResources have duplicate names with different variations
 		auto iter = assetmap.find(lookupHash);
 		if (iter == assetmap.end()) {
-			atlog("ADD TO PK5: %s", lookup.c_str());
+			//atlog("ADD TO PK5: %s", lookup.c_str());
 			LevelPackager_NeedsMapRes(lookup, MapResMap, atlanmod);
 		}
 		else if(iter->second.v0 != e.dataCheckSum && iter->second.v1 != e.dataCheckSum) {
-			atlog("MODIFIED GLOBAL ASSET: %s", lookup.c_str());
+			atlog("%s\n   - Note: Vanilla global asset is modified", lookup.c_str());
 		}
 	}
 }
@@ -191,7 +200,7 @@ void AnalyzeShell(const fspath& basedir, const MapSpec_t& mapspec, const size_t 
 	}
 }
 
-void LevelPackager_AddArchives(mz_zip_archive* zptr, const fspath& basedir, const std::string& LEVEL_FOLDER) {
+bool LevelPackager_AddArchives(mz_zip_archive* zptr, const fspath& basedir, const std::string& LEVEL_FOLDER) {
 	MapSpec_t mapspec(basedir / "packagemapspec.json");
 
 	if (mapspec.listmaps.size() < 5
@@ -201,8 +210,10 @@ void LevelPackager_AddArchives(mz_zip_archive* zptr, const fspath& basedir, cons
 		|| mapspec.listmaps.back() != "init")
 	{
 		atlog("ERROR: Malformed packagemapspec");
+		return false;
 	}
 
+	// --- Analyze archives and build up global asset lists ---
 	std::string atlanmod = "assets {\ngenerated_common {\n";
 	AnalyzeGlobalMap(basedir, mapspec, 0, EMPTYMAP_GAMERESOURCES, atlanmod);
 	atlanmod.append("}\ngenerated_warehouse{\n");
@@ -252,6 +263,7 @@ void LevelPackager_AddArchives(mz_zip_archive* zptr, const fspath& basedir, cons
 		mz_zip_writer_add_file(zptr, zipname.c_str(), fullpath.string().c_str(), NULL, 0, COMPMODE_LARGE_FILES);
 	}
 
+	return true;
 }
 
 void LevelPackager_AddVirtualTextures(mz_zip_archive* zptr, const fspath& modfolder) {
@@ -272,9 +284,9 @@ void LevelPackager_AddVirtualTextures(mz_zip_archive* zptr, const fspath& modfol
 }
 
 std::string LevelPackager_GetArchiveDir(const fspath& modfolder) {
-
+	std::string path = (modfolder / CFG_NAME_V2).string();
 	AtlanModConfig config;
-	if (config.TryRead((modfolder / CFG_NAME_V2).string())) {
+	if (config.TryRead(path)) {
 		if (config.levelfolder.size()) {
 
 			for (char c : config.levelfolder) {
@@ -289,7 +301,7 @@ std::string LevelPackager_GetArchiveDir(const fspath& modfolder) {
 		}
 	}
 
-	atlog("FATAL ERROR: Level Packager requires a valid atlanmod.txt to exist, with a 'load_level' property"
+	atlog("FATAL ERROR: Level Packager requires a valid " CFG_NAME_V2 " to exist, with a 'load_level' property"
 		"\n   This property defines the directory your archives will go in");
 	return "";
 }
