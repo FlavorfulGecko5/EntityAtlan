@@ -1,7 +1,7 @@
 AtlanModLoader {
 	"../AtlanModLoader/bin/build/x64/Release/AtlanModLoader.exe"
 	"../AtlanModLoader/AtlanPatcher.txt"
-	"../AtlanModLoader/DarkAgesModManager.exe"
+	"../AtlanModLoader/AtlanModManager.exe"
 	"../AtlanModLoader/DisabledMods" = empty
 	"../AtlanModLoader/mods" = empty
 }

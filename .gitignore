@@ -21,6 +21,7 @@ DarkAgesPatcher.def
 DarkAgesPatcher.exe
 DarkAgesPatcher.exe.config
 DarkAgesModManager.exe
+AtlanModManager.exe
 
 # Reflector Files
 reflector/*.zip

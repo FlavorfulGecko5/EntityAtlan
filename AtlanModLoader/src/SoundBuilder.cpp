@@ -116,6 +116,7 @@ void BuildSoundMetadata(const fspath soundsfolder, const uint32_t numSamples)
 
 void ModBuilder::BuildAudioArchives(const fspath soundsfolder, const std::vector<ModFile*>& samplefiles, gamebit_t gameid)
 {
+	charbuffer_t DeferredBuffer;
 	const uint32_t samplecount = static_cast<uint32_t>(samplefiles.size());
 
 	BinaryWriter headerchunk(1000000);
@@ -126,8 +127,12 @@ void ModBuilder::BuildAudioArchives(const fspath soundsfolder, const std::vector
 	aksnd::entry* const entries = new aksnd::entry[samplecount];
 	aksnd::entry* eptr = entries;
 
-	for (const ModFile* sample : samplefiles)
+	for (ModFile* sample : samplefiles)
 	{
+		if (!ModReader::LoadModData(*sample, DeferredBuffer)) {
+			atlog("ERROR: Failed to load sample data for '%s'", sample->assetPath.c_str());
+			continue;
+		}
 
 		// Find Sample ID
 		{

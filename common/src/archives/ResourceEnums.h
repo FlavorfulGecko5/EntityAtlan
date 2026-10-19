@@ -33,5 +33,5 @@ enum ResourceTypeComboFlags : uint32_t
 	rtc_last_number   = rt_audio,
 	rtc_query_dbhash  = rt_mapentities, // compfiles have a streamdb hash but apparently don't use it (or at least, .entities don't)
 	rtc_assign_dbhash = rt_image | rt_baseModel | rt_generic_atdb,
-	rtc_deferload     = rt_image | rt_baseModel | rt_strandsHair | rt_generic_atdb
+	rtc_deferload     = rt_image | rt_baseModel | rt_strandsHair | rt_generic_atdb | rt_audio
 };
