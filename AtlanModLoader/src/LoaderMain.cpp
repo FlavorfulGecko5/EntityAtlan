@@ -645,8 +645,22 @@ bool Query_Archives_Blang(GlobalConfig_t& config, ModDef& GlobalMod, ResourceEnt
 	size_t* l_csvs = new size_t[langargs.numcsvs];
 
 	for(int i = 0; i < langargs.numcsvs; i++) {
-		p_csvs[i] = Langcsvs[i]->dataBuffer;
-		l_csvs[i] = Langcsvs[i]->dataLength;
+
+		size_t len = Langcsvs[i]->dataLength;
+		l_csvs[i] = len;
+
+		// EDGE CASE: Escape sequences are parsed and replaced in the
+		// original blang text so we don't need to allocate any std::strings when
+		// rebuilding the blang file. This means the default.csv must be duplicated to prevent
+		// the double-parsing of escape sequences in multiple blangs
+		if (Langcsvs[i]->assetPath == "strings/default.blang") {
+			char* duplicate = new char[len];
+			memcpy(duplicate, Langcsvs[i]->dataBuffer, len);
+			p_csvs[i] = duplicate;
+		}
+		else {
+			p_csvs[i] = Langcsvs[i]->dataBuffer;
+		}
 	}
 
 	langargs.csvs = p_csvs;
@@ -654,6 +668,14 @@ bool Query_Archives_Blang(GlobalConfig_t& config, ModDef& GlobalMod, ResourceEnt
 
 	charbuffer_t ModdedLang;
 	bool Success = idcl::blang_modify(langargs, ModdedLang);
+
+	// Delete duplicated default CSVs
+	for(int i = 0; i < langargs.numcsvs; i++) {
+		if (Langcsvs[i]->assetPath == "strings/default.blang") {
+			delete[] p_csvs[i];
+		}
+	}
+
 	delete[] p_csvs;
 	delete[] l_csvs;
 
@@ -992,11 +1014,6 @@ void Injector_AddBlang(ModFile& file, GlobalConfig_t& config) {
 
 	if(file.assetPath != "strings/default.blang") {
 
-		#ifdef _DEBUG // Decrypting/encrypting blangs in debug mode is slow
-		if(file.assetPath != "strings/english.blang")
-			return;
-		#endif
-
 		std::vector<ModFile*>& vtor = config.blanginfo[file.assetPath];
 
 		// Override this mod's default blang with the language-specific blang
@@ -1010,11 +1027,8 @@ void Injector_AddBlang(ModFile& file, GlobalConfig_t& config) {
 		return;
 	}
 
-	#ifdef _DEBUG
-	int IMAX = 1;
-	#else
+
 	int IMAX = sizeof(BLANG_PATHS) / sizeof(BLANG_PATHS[0]);
-	#endif
 
 	for(int i = 0; i < IMAX; i++) {
 		std::vector<ModFile*>& vtor = config.blanginfo[BLANG_PATHS[i]];

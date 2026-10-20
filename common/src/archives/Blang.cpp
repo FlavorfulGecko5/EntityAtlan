@@ -75,7 +75,7 @@ bool idcl::blang_encrypt(char* outdata, size_t outlength, const char* filename)
 	// TODO: Can't actually run this because it will decrypt our final blang text
 	#ifdef _DEBUG
 	//charbuffer_t testbuf;
-	//check(idcl::blang_decrypt(output.data, output.length, filename, testbuf));
+	//check(idcl::blang_decrypt(outdata, outlength, filename, testbuf));
 	//std::string csv;
 	//check(idcl::blang_totxt(testbuf.data, testbuf.length, csv));
 	#endif
@@ -209,6 +209,7 @@ struct blangentry {
 
 typedef std::unordered_map<u32, blangentry> blangmap_t;
 
+#if 0
 bool blang_buildmap(blangmap_t& map, const char* blang_data, const size_t blang_length) {
 	BinaryReader r(blang_data, blang_length);
 	
@@ -240,6 +241,7 @@ bool blang_buildmap(blangmap_t& map, const char* blang_data, const size_t blang_
 
 	return true;
 }
+#endif
 
 #define isLetter(VAL) (((unsigned int)(VAL | 32) - 97) < 26U)
 #define isNum(VAL) (((unsigned)VAL - '0') < 10u)
@@ -391,14 +393,9 @@ bool idcl::blang_modify(blangmodargs args, charbuffer_t& output)
 	if(!result)
 		return false;
 
-	/* Construct map of vanilla blang strings */
+	/* Construct map of modded blang strings */
 	blangmap_t stringmap;
-	result = blang_buildmap(stringmap, decrypted.data, decrypted.length);
-	if(!result)
-		return false;
-
-
-	/* Add modded strings to map */
+	stringmap.reserve(512);
 	for (size_t i = 0; i < args.numcsvs; i++) {
 		result = blang_addcsv(stringmap, args.csvs[i], args.csvlengths[i]);
 		if(!result)
@@ -412,13 +409,62 @@ bool idcl::blang_modify(blangmodargs args, charbuffer_t& output)
 	BinaryWriter writer;
 	writer.EnsureMaxCapacity(static_cast<size_t>(decrypted.length * 1.2f));
 
-	// Write an empty salt and IV
 	for(int i = 0; i < 7; i++)
-		writer << (u32)0;
+		writer << (u32)0; // Write an empty salt and IV
+	writer << *(u64*)(decrypted.data) << 0; // First 8 bytes of vanilla file + placeholder for number of strings
 
-	writer << *(u64*)(decrypted.data);  // Copy first 8 bytes of vanilla file
-	writer.WriteBig((u32)stringmap.size());
-	for (const auto& pair : stringmap) {
+	BinaryReader r(decrypted.data, decrypted.length);
+	r.GoRight(8);
+
+	u32 numVanillaStrings;
+	r.ReadBig(numVanillaStrings);
+	check(numVanillaStrings < 25'000);
+
+	u32 numStringsWritten = 0;
+
+	// Add vanilla strings
+	for(int i = 0; i < numVanillaStrings; i++) {
+		const char* ptr = r.GetNext();
+
+		u32 length;
+		r >> length; // String Hash
+		
+		auto iter = stringmap.find(length);
+
+		// Unmodded String
+		// Seek to end of it's entry and block-copy it in one go
+		if (iter == stringmap.end()) {
+
+			r >> length; r.GoRight(length);
+			r >> length; r.GoRight(length);
+			r >> length; r.GoRight(length);
+			const char* endPtr = r.GetNext();
+
+			writer.WriteBytes(ptr, endPtr - ptr);
+			numStringsWritten++;
+		}
+
+		// Modded String - Skip this
+		// We write the modded strings when we iterate over the stringmap
+		else {
+			r >> length; r.GoRight(length);
+			r >> length; r.GoRight(length);
+			r >> length;
+
+			// Still need to investigate whether the feature set strings 
+			// are actually used by the game.
+			iter->second.feature = std::string_view(r.GetNext(), length);
+			r.GoRight(length);
+		}
+	}
+	check(r.NoErrors());
+
+	// Write the number of strings at the appropriate address
+	numStringsWritten += (u32)stringmap.size();
+	*(u32*)(writer.GetEditableBuffer() + 36) = _byteswap_ulong(numStringsWritten);
+
+	// Add modded strings
+	for(const auto& pair : stringmap) {
 		writer << (u32)pair.first;
 
 		const blangentry& entry = pair.second;
