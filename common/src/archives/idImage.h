@@ -233,7 +233,7 @@ struct idImageEncodingQuery {
     bool found = false;
 };
 
-bool idImageHeaderMap_Build(const std::string& gamedir, const std::string* AssetPaths, const size_t NumAssetPaths, idImageEncodingQuery*& out_results);
+bool idImageHeaderMap_Build(const std::string& gamedir, std::string* AssetPaths, const size_t NumAssetPaths, idImageEncodingQuery*& out_results);
 
 struct ID3D11Device;
 struct ID3D11DeviceContext;
@@ -258,7 +258,7 @@ struct idImageEncodingContext {
     idImageEncodingQuery* m_querylist = nullptr;
     gamebit_t m_gameid = game_none;
     
-    bool InitializeContext(const std::string& gamedir, int in_CompressionLevel, const std::string* in_AssetPaths, size_t num_AssetPaths);
+    bool InitializeContext(const std::string& gamedir, int in_CompressionLevel, std::string* in_out_AssetPaths, size_t num_AssetPaths);
     bool EncodeImage(const std::string& AssetPath, size_t JobIndex, const std::string& EncodingInfo, const wchar_t* FilePath, idImageEncodingResults& results, std::string& OutputLog) const;
     bool Release();
 

@@ -40,7 +40,7 @@ bool idImageEncodingContext::CanEncode(const wchar_t* filepath)
 	return *(int*)magic == 'GNP\x89';
 }
 
-bool idImageEncodingContext::InitializeContext(const std::string& gamedir, int in_CompressionLevel, const std::string* in_AssetPaths, size_t num_AssetPaths) {
+bool idImageEncodingContext::InitializeContext(const std::string& gamedir, int in_CompressionLevel, std::string* in_out_AssetPaths, size_t num_AssetPaths) {
 
 	m_CompressionLevel = in_CompressionLevel;
 	if(std::filesystem::exists( fspath(gamedir) / "DOOMTheDarkAges.exe"))
@@ -88,7 +88,7 @@ bool idImageEncodingContext::InitializeContext(const std::string& gamedir, int i
 	* Step 3: Build the Image Header Map
 	*/
 
-	if (idImageHeaderMap_Build(gamedir, in_AssetPaths, num_AssetPaths, m_querylist) == false) {
+	if (idImageHeaderMap_Build(gamedir, in_out_AssetPaths, num_AssetPaths, m_querylist) == false) {
 		atlog("FATAL ERROR: Failed to create ImageHeaderMap for image encoder.\n"
 			  "Please ensure AtlanModPackager and AtlanModLoader are placed in your game directory");
 		return false;
@@ -690,35 +690,123 @@ bool idAtlanImage::Read(const uint8_t* data, size_t length) {
 
 #include "PackageMapSpec.h"
 
-bool idImageHeaderMap_Build(const std::string& gamedir, const std::string* AssetPaths, const size_t NumAssetPaths, idImageEncodingQuery*& out_results)
-{
-	std::unordered_map<std::string, int> IndexMap;
-	IndexMap.reserve(NumAssetPaths);
-	for(size_t i = 0; i < NumAssetPaths; i++)
-		IndexMap[AssetPaths[i]] = i;
+/*
+* An attempt to eliminate the major nuisances that is typing out the correct image path
+* 
+* We do a 2-phase lookup:
+* - 1. An exact-path lookup, for cases where it's replicated perfectly
+* - 2. A hash lookup parsed from <image_path>#<16-char hash>.<extension>
+*	- New versions of Valen use this convention when exporting images
+*/
 
+bool ImagePath_ToHash(const std::string& AssetPath, u64& output) {
+	size_t pound = AssetPath.find('#');
+	if(pound == -1)
+		return false;
+	pound++;
+
+	size_t period = AssetPath.find('.', pound);
+	if(period == -1)
+		period = AssetPath.length();
+;
+	if(period - pound != 16)
+		return false;
+
+	u64 temp = 0;
+	for (pound; pound < period; pound++) {
+		temp <<= 4;
+
+		u8 c = static_cast<u8>(AssetPath[pound]);
+		if(c >= '0' && c <= '9')
+			temp += (c - '0');
+		else if(c >= 'A' && c <= 'F')
+			temp += (c - 'A') + 10;
+		else if(c >= 'a' && c <= 'f')
+			temp += (c - 'a') + 10;
+		else return false;
+	}
+
+	output = temp;
+	return true;
+}
+
+#include "hash/HashLib.h"
+
+bool idImageHeaderMap_Build(const std::string& gamedir, std::string* AssetPaths, const size_t NumAssetPaths, idImageEncodingQuery*& out_results)
+{
+	// Maps assetpaths to their out_results index
+	std::unordered_map<std::string, size_t> ExactIndexMap;
+	std::unordered_map<uint64_t, size_t> HashIndexMap;
+	u64 lookuphash;
+
+	/* Setup the lookup maps */
+	ExactIndexMap.reserve(NumAssetPaths);
+	HashIndexMap.reserve(NumAssetPaths);
+	for (size_t i = 0; i < NumAssetPaths; i++) {
+
+		// Edge Case
+		if (!ExactIndexMap.try_emplace(AssetPaths[i], i).second) {
+			atlog("FATAL ERROR: Multiple images in this mod map to asset path %s", AssetPaths[i].c_str());
+			return false;
+		}
+
+		if(!ImagePath_ToHash(AssetPaths[i], lookuphash))
+			continue;
+
+		// Edge Case
+		if (!HashIndexMap.try_emplace(lookuphash, i).second) {
+			atlog("FATAL ERROR: Multiple images in this mod have same lookup hash as %s", AssetPaths[i].c_str());
+		}
+	}
+
+	/* Initialize query results */
 	if(out_results)
 		delete[] out_results;
 	out_results = new idImageEncodingQuery[NumAssetPaths];
 
-	idcl::ArchiveIterator iter(gamedir + "/base/packagemapspec.json", false);
+	// Initialize the archive iterator
+	// Using the container mask has the side effect of skipping over images
+	// that are completely disabled. However, this should be fine
+	idcl::ArchiveIterator iter(gamedir + "/base/packagemapspec.json", true);
+	if(!iter.archivepaths.size()) // mapspec failed to read
+		return false;
 	iter.typefilter = "image";
-
 
 	ResourceEntryBuffers_t entrybuffers;
 
 	for (const ResourceEntry& e : iter) {
 		if (e.uncompressedSize == 0) {
-			//printf("%s\n", NameString);
 			continue;
 		}
 
-		const auto& IndexIter = IndexMap.find(iter.namestring);
-		if(IndexIter == IndexMap.end())
-			continue;
-		size_t Index = IndexIter->second;
-		if(out_results[Index].found)
-			continue;
+		size_t Index = -1;
+		lookuphash = HashLib::DeclHash("image", iter.namestring);
+
+		/* First we attempt an exact lookup */
+		auto exactiter = ExactIndexMap.find(iter.namestring);
+		if (exactiter != ExactIndexMap.end()) {
+
+			Index = exactiter->second;
+			ExactIndexMap.erase(exactiter);
+			HashIndexMap.erase(lookuphash);
+		}
+
+		/* If the exact lookup fails, proceed to hash lookup*/
+		else {
+			auto hashiter = HashIndexMap.find(lookuphash);
+
+			// If both lookups failed, do nothing
+			if(hashiter == HashIndexMap.end())
+				continue;
+
+			// TODO: should probably find some way to remove the associated
+			// string from ExactIndexMap
+			Index = hashiter->second;
+			HashIndexMap.erase(hashiter);
+
+			// Update a hash-lookup asset path to the correct path
+			AssetPaths[Index] = iter.namestring;
+		}
 
 		ResourceEntryData_t entrydata = Get_EntryData(e, iter.archive.filehandle, entrybuffers);
 		if (entrydata.returncode != EntryDataCode::OK) {
@@ -728,11 +816,9 @@ bool idImageHeaderMap_Build(const std::string& gamedir, const std::string* Asset
 		if(!out_results[Index].header.Read(entrydata.buffer, entrydata.length))
 			return false;
 		out_results[Index].found = true;
-
-		IndexMap.erase(IndexIter);
-		if(IndexMap.size() == 0)
-			return true;
 	}
+
+	atlog("Finished archive image query");
 
 	// Failing to find all images is acceptable, in the case of new images
 	return true;

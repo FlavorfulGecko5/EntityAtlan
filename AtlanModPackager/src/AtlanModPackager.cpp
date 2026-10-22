@@ -297,6 +297,11 @@ void PackagerMain(const char* DIR_GAME, fspath DIR_INPUT, fspath ZIP_OUTPUT)
 
 			if (!ImageEncoder.InitializeContext(DIR_GAME, 6, temp_assetpaths.data(), temp_assetpaths.size()))
 				return;
+
+			// Replace the original/aliased paths with the queried paths
+			for(size_t i = 0; i < temp_assetpaths.size(); i++) {
+				ImageJobs.jobs[i].assetpath = std::move(temp_assetpaths[i]);
+			}
 		}
 
 		ImageJobs.context = &ImageEncoder;

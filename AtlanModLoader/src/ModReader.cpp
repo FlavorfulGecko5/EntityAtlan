@@ -423,6 +423,12 @@ void ModReader::ReadLooseModv2(ModDef& moddef, const fspath modsfolder, const fs
 		if(!ImageEncoder.InitializeContext(gamedir.string(), 3, temp_assetpaths.data(), temp_assetpaths.size()))
 			return;
 
+		for (size_t i = 0; i < temp_assetpaths.size(); i++) {
+			idUnzippedImageJob& j = ImageJobs.jobs[i];
+			j.assetpath = temp_assetpaths[i];
+			moddef.modFiles[j.ModFileIndex].assetPath = std::move(temp_assetpaths[i]);
+		}
+
 		ImageJobs.context = &ImageEncoder;
 		ImageJobs.mod = &moddef;
 
