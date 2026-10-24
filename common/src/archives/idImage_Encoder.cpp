@@ -155,7 +155,7 @@ DXGI_FORMAT idFormat_To_DXGI(const textureFormat_t idFormat) {
 	}
 }
 
-bool BuildOriginalImageHeader(const std::string& AssetPath, const std::string& EncodingInfo, ImageHeader& header, std::string& OutputLog, gamebit_t gameid)
+bool BuildOriginalImageHeader(const std::string& AssetPath, const std::string& EncodingInfo, ImageHeader& header, std::string& OutputLog, gamebit_t gameid, textureFormat_t& out_realFormat)
 {
 	header.DefaultInitialize(gameid);
 
@@ -167,7 +167,7 @@ bool BuildOriginalImageHeader(const std::string& AssetPath, const std::string& E
 		OutputLog.append(EncodingInfo);
 		OutputLog.append("\n");
 
-		// Format is "FORMAT_ENUM~MATERIAL_ENUM"
+		// Format is "FORMAT_ENUM~MATERIAL_ENUM[~REAL_ENCODING]"
 		std::string inputstring;
 		while (*c) {
 			if ('~' == *c) {
@@ -177,9 +177,21 @@ bool BuildOriginalImageHeader(const std::string& AssetPath, const std::string& E
 				if (!textureFormat_fromstring(inputstring, header.textureFormat)) {
 					return false;
 				}
+				out_realFormat = header.textureFormat;
 
-				inputstring = EncodingInfo.substr(delimindex + 1);
-				return textureMaterialKind_fromstring(inputstring, header.textureMaterialKind);
+				size_t secondTilde = EncodingInfo.find('~', delimindex + 1);
+				if (secondTilde == -1) {
+					inputstring = EncodingInfo.substr(delimindex + 1);
+					return textureMaterialKind_fromstring(inputstring, header.textureMaterialKind);
+				}
+
+				inputstring = EncodingInfo.substr(delimindex + 1, secondTilde - delimindex - 1);
+				if (!textureMaterialKind_fromstring(inputstring, header.textureMaterialKind)) {
+					return false;
+				}
+
+				inputstring = EncodingInfo.substr(secondTilde + 1);
+				return textureFormat_fromstring(inputstring, out_realFormat);
 			}
 			c++;
 		}
@@ -244,15 +256,18 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, size_t Jo
 
 	ImageHeader header;
 	DXGI_FORMAT dxgiFormat;
+	textureFormat_t realFormat;
 	{
 		idImageEncodingQuery& query = m_querylist[JobIndex];
-		if (!query.found) {
+		if (!query.found || EncodingInfo.size()) {
 			
-			if (BuildOriginalImageHeader(AssetPath, EncodingInfo, header, OutputLog, m_gameid)) {
+			if (BuildOriginalImageHeader(AssetPath, EncodingInfo, header, OutputLog, m_gameid, realFormat)) {
 				OutputLog.append("   Non-Vanilla Image Recognized ( ");
 				OutputLog.append(textureFormat_tostring(header.textureFormat));
 				OutputLog.append(", ");
 				OutputLog.append(textureMaterialKind_tostring(header.textureMaterialKind));
+				OutputLog.append(", ");
+				OutputLog.append(textureFormat_tostring(realFormat));
 				OutputLog.append(")\n   (If this should be a vanilla image, check your alias for a typo)\n");
 			}
 			else {
@@ -263,6 +278,7 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, size_t Jo
 		}
 		else {
 			header = query.header;
+			realFormat = header.textureFormat;
 		}
 	}
 
@@ -279,12 +295,12 @@ bool idImageEncodingContext::EncodeImage(const std::string& AssetPath, size_t Jo
 		return false;
 	}
 
-	dxgiFormat = idFormat_To_DXGI(header.textureFormat);
+	dxgiFormat = idFormat_To_DXGI(realFormat);
 	if (dxgiFormat == DXGI_FORMAT_UNKNOWN) {
 		OutputLog.append("   ERROR: Unsupported texture format\n");
 		return false;
 	}
-	bool IsSRGB = header.textureFormat == FMT_BC1_SRGB || header.textureFormat == FMT_BC3_SRGB || header.textureFormat == FMT_BC7_SRGB;
+	bool IsSRGB = realFormat == FMT_BC1_SRGB || realFormat == FMT_BC3_SRGB || realFormat == FMT_BC7_SRGB;
 
 	/*
 	* Step 3: Perform the encoding
