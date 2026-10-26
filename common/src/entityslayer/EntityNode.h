@@ -360,11 +360,11 @@ class EntNode
 		}
 	};
 
-	iter_t begin() {
+	iter_t begin() const {
 		return {children};
 	}
 
-	iter_t end() {
+	iter_t end() const {
 		return {children + childCount};
 	}
 };

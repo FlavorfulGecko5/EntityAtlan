@@ -188,8 +188,8 @@ void ModReader_ExtractConfigData(const AtlanModConfig& modconfig, GlobalConfig_t
 	// If installing mods for the first time, the level folder may not have
 	// been unzipped yet, depending on the order mods are read in.
 	// Hence we must cache the folder names and read their configs later
-	if (AddLevel && modconfig.levelfolder.size()) {
-		globalconfig.levelfolders.push_back(modconfig.levelfolder);
+	if (AddLevel) {
+		globalconfig.levelfolders.insert(globalconfig.levelfolders.end(), modconfig.listLoadLevels, modconfig.listLoadLevels + modconfig.numLoadLevels);
 	}
 
 	for (int i = 0; i < modconfig.numEdits; i++) {

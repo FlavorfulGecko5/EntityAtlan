@@ -287,9 +287,9 @@ std::string LevelPackager_GetArchiveDir(const fspath& modfolder) {
 	std::string path = (modfolder / CFG_NAME_V2).string();
 	AtlanModConfig config;
 	if (config.TryRead(path)) {
-		if (config.levelfolder.size()) {
+		if (config.numLoadLevels > 0) {
 
-			for (char c : config.levelfolder) {
+			for (char c : *config.listLoadLevels) {
 				if ((c >= 'a' && c <= 'z') || c == '_')
 					continue;
 				atlog("FATAL ERROR: Config file's load_level property may only have lowercase letters and underscores");
@@ -297,7 +297,7 @@ std::string LevelPackager_GetArchiveDir(const fspath& modfolder) {
 			}
 
 			atlog("Found valid config file");
-			return config.levelfolder;
+			return *config.listLoadLevels;
 		}
 	}
 

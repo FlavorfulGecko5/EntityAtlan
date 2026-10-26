@@ -34,8 +34,10 @@ struct AtlanModConfig {
 	int loadPriority = 0;
 	std::unordered_map<std::string, std::string> alias;
 
-	// idStudio folder to load
-	std::string levelfolder;
+	// In the (likely) chance that we need to support one mod loading
+	// multiple level mods in the future
+	std::string* listLoadLevels = nullptr;
+	int numLoadLevels = 0;
 
 	namedlist_t* listassets = nullptr;
 	int numAssetlists = 0;
@@ -50,6 +52,7 @@ struct AtlanModConfig {
 	namedlist_t* listnewmaps = nullptr;
 
 	~AtlanModConfig() {
+		delete[] listLoadLevels;
 		delete[] listassets;
 		delete[] listmapspec;
 		delete[] listedits;

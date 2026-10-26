@@ -146,10 +146,13 @@ typedef EntNode enode;
 #define CFG_LOADPRIORITY "loadPriority"
 #define CFG_ALIASES "aliasing"
 
-void AtlanModConfig__ReadListBuffer(AtlanModConfig::namedlist_t*& list, int& num, EntNode& node) {
+void AtlanModConfig__ReadListBuffer(AtlanModConfig::namedlist_t*& list, int& num, const EntNode& node) {
 
-    if(node.getChildCount() == 0)
+    // Edge Case: we've already read the list because node
+    // is duplicated in the config file
+    if (node.getChildCount() <= 0 || list) {
         return;
+    }
 
     list = new AtlanModConfig::namedlist_t[node.getChildCount()];
     for (EntNode& anode : node) {
@@ -168,14 +171,25 @@ void AtlanModConfig__ReadListBuffer(AtlanModConfig::namedlist_t*& list, int& num
     }
 }
 
-bool AtlanModConfig::TryRead_Internal(EntNode& root) {
+void AtlanModConfig__ReadStringList(std::string*& list, int& num, const EntNode& node) {
 
-    /*
-    * Read config properties
-    */
-    EntNode& modInfo = root["modinfo"];
-    bool foundReqVersion = modInfo[CFG_REQUIREDVERSION].ValueInt(requiredVersion, INT_MIN, INT_MAX);
-    bool foundLoadPriority = modInfo[CFG_LOADPRIORITY].ValueInt(loadPriority, INT_MIN, INT_MAX);
+    // Edge Case: we've already read the list because node
+    // is duplicated in the config file
+    if (node.getChildCount() <= 0 || list) {
+        return;
+    }
+
+    list = new std::string[node.getChildCount()];
+    for (const EntNode& s : node) {
+        if(s.IsComment())
+            continue;
+        list[num++] = s.getNameUQ();
+    }
+}
+
+void AtlanModConfig__ReadModInfo(AtlanModConfig& cfg, const EntNode& modInfo) {
+    bool foundReqVersion = modInfo[CFG_REQUIREDVERSION].ValueInt(cfg.requiredVersion, INT_MIN, INT_MAX);
+    bool foundLoadPriority = modInfo[CFG_LOADPRIORITY].ValueInt(cfg.loadPriority, INT_MIN, INT_MAX);
 
     std::string gamestring = std::string(modInfo["game"].getValue());
     if (gamestring.length()) {
@@ -185,17 +199,18 @@ bool AtlanModConfig::TryRead_Internal(EntNode& root) {
         }
 
         if (gamestring.find("eternal") != -1) {
-            gameid = game_eternal;
+            cfg.gameid = game_eternal;
         }
         else if (gamestring.find("dark") != -1) {
-            gameid = game_darkages;
+            cfg.gameid = game_darkages;
         }
         else {
             atlog("WARNING: Unknown game specified in config file");
-            gameid = game_all;
+            cfg.gameid = game_all;
         }
     }
 
+    // FIXME? If we never read the modinfo block these warnings won't fire
     if (!foundReqVersion)
     {
         atlog("WARNING: " CFG_REQUIREDVERSION  " not found. Using default value");
@@ -204,16 +219,13 @@ bool AtlanModConfig::TryRead_Internal(EntNode& root) {
     {
         atlog("WARNING: " CFG_LOADPRIORITY  " not found. Using default value");
     }
-    elevated = &modInfo["elevated_gameplay"] != EntNode::SEARCH_404;
-    installOnce = &root["install_once"] != EntNode::SEARCH_404;
-    levelfolder = root["load_level"].getValueUQ();
 
-    /*
-    * Read optional filepath aliases
-    */
-    EntNode& aliasNode = root[CFG_ALIASES];
-    for (int i = 0, max = aliasNode.getChildCount(); i < max; i++) {
-        EntNode& currentAlias = *aliasNode.ChildAt(i);
+    cfg.elevated = modInfo["elevated_gameplay"].getParent() == &modInfo;
+}
+
+void AtlanModConfig__ReadAliasing(AtlanModConfig& cfg, const EntNode& aliasNode) {
+
+    for (const EntNode& currentAlias : aliasNode) {
         if (currentAlias.IsComment())
             continue;
 
@@ -239,33 +251,42 @@ bool AtlanModConfig::TryRead_Internal(EntNode& root) {
             c++;
         }
 
-        alias.emplace(normalizedname, normalizedvalue);
+        cfg.alias.emplace(normalizedname, normalizedvalue);
     }
-    if (alias.size() > 0)
-        atlog("Found %llu alias definitions", alias.size());
+    if (cfg.alias.size() > 0)
+        atlog("Found %llu alias definitions", cfg.alias.size());
+}
 
-    //for (auto& pair : cfg.alias) {
-    //	atlog_deprecated << "\n" << pair.first << "-" << pair.second;
-    //}
+bool AtlanModConfig::TryRead_Internal(EntNode& root) {
 
-    EntNode& mapspecnode = root["mapspec"];
-    if (mapspecnode.getChildCount() > 0) {
-        listmapspec = new std::string[mapspecnode.getChildCount()];
-        for (const EntNode& m : mapspecnode) {
-            if(m.IsComment())
-                continue;
-            listmapspec[nummapspec++] = m.getNameUQ();
+    for (const EntNode& node : root) {
+        const std::string_view name = node.getName();
+
+        if (name == "modinfo") {
+            AtlanModConfig__ReadModInfo(*this, node);
+        }
+        else if (name == "aliasing") {
+            AtlanModConfig__ReadAliasing(*this, node);
+        }
+        else if (name == "assets") {
+            AtlanModConfig__ReadListBuffer(listassets, numAssetlists, node);
+        }
+        else if (name == "mapresources") {
+            AtlanModConfig__ReadListBuffer(listedits, numEdits, node);
+        }
+        else if (name == "mapspec") {
+            AtlanModConfig__ReadStringList(listmapspec, nummapspec, node);
+        }
+        else if (name == "load_level") {
+            AtlanModConfig__ReadStringList(listLoadLevels, numLoadLevels, node);
+        }
+        else if (name == "newmaps") {
+            AtlanModConfig__ReadListBuffer(listnewmaps, numnewmaps, node);
+        }
+        else if (name == "install_once") {
+            installOnce = true;
         }
     }
-
-    EntNode& assetnode = root["assets"];
-    AtlanModConfig__ReadListBuffer(listassets, numAssetlists, assetnode);
-
-    EntNode& resnode = root["mapresources"];
-    AtlanModConfig__ReadListBuffer(listedits, numEdits, resnode);
-
-    EntNode& newMapNode = root["newmaps"];
-    AtlanModConfig__ReadListBuffer(listnewmaps, numnewmaps, newMapNode);
 
     return true;
 }
