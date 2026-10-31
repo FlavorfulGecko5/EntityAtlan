@@ -47,10 +47,6 @@ void Deserializer::DeserialInit(const fspath& gamedir, const fspath& filedir, bo
 
 	idcl::ArchiveIterator archiveIterator(gamedir / "base/packagemapspec.json", false);
 
-	// For entitydef data
-	ResourceEntryBuffers_t entryBuffers;
-	entryBuffers.init(24000);
-
 	ResourceArchive& r = archiveIterator.archive;
 	for(const ResourceEntry& e : archiveIterator) {
 
@@ -87,7 +83,7 @@ void Deserializer::DeserialInit(const fspath& gamedir, const fspath& filedir, bo
 			classdef.filepath = (entitydir / archiveIterator.namestring).replace_extension(".bin").string();
 			assert(std::filesystem::exists(classdef.filepath));
 
-			const ResourceEntryData_t entrydata = Get_EntryData(e, r.filehandle, entryBuffers);
+			const ResourceData entrydata = r.GetData(e);
 			assert(entrydata.returncode == EntryDataCode::OK);
 
 			/*

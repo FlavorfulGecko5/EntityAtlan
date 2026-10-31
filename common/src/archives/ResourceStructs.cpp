@@ -100,7 +100,8 @@ bool idcl::compfile_create(const char* data, size_t length, charbuffer_t& out)
 	return compfile_isvalid(out.data, out.length);
 }
 
-ResourceEntryData_t Get_EntryData_Internal(const ResourceEntry& e, const char* raw, char*& buffer, size_t& buffersize) {
+ResourceData Get_EntryData_Internal(const ResourceEntry& e, const char* raw, heaparray<char>& decomp) {
+	u32 subtract = 0;
 	switch (e.compMode)
 	{
 		default:
@@ -111,62 +112,51 @@ ResourceEntryData_t Get_EntryData_Internal(const ResourceEntry& e, const char* r
 
 		case 4:
 		raw += 12;
+		subtract = 12;
 		case 2:
 		{
-			if (buffersize < e.uncompressedSize) {
-				delete[] buffer;
-				buffer = new char[e.uncompressedSize];
-				buffersize = e.uncompressedSize;
-			}
-			bool success = Oodle::DecompressBuffer(raw, e.dataSize - (e.compMode == 4 ? 12 : 0), buffer, e.uncompressedSize);
+			decomp.EnsureCapacity(e.uncompressedSize);
+			bool success = Oodle::DecompressBuffer(raw, e.dataSize - subtract, decomp.buffer, e.uncompressedSize);
 
 			if(success)
-				return {EntryDataCode::OK, buffer, e.uncompressedSize};
+				return {EntryDataCode::OK, decomp.buffer, e.uncompressedSize};
 			return {EntryDataCode::OODLE_ERROR, nullptr, 0};
 		}
 	}
 }
 
-ResourceEntryData_t Get_EntryDataPK5(const ResourceArchive& r, const ResourceEntry& e, char*& decompbuffer, size_t& decompsize)
+ResourceData ResourceArchive::GetData_PK5(const ResourceEntry& e, bool useSecondaryBuffer)
 {
-	if (!r.bufferData_pk5)
+	if (!bufferData_pk5)
 		return { EntryDataCode::DATA_NOT_READ, nullptr, 0 };
 
-	const char* raw = r.bufferData_pk5 + (e.dataOffset - r.header.dataOffset);
+	const char* raw = bufferData_pk5 + (e.dataOffset - header.dataOffset);
 
-	return Get_EntryData_Internal(e, raw, decompbuffer, decompsize);
+	return Get_EntryData_Internal(e, raw, useSecondaryBuffer ? databuffers.raw : databuffers.decompressed);
 }
 
-ResourceEntryData_t Get_EntryData(const ResourceEntry& e, FileReader& reader, ResourceEntryBuffers_t& buffers) {
+ResourceData ResourceArchive::GetData(const ResourceEntry& e) {
 
-	if (buffers.raw_length < e.dataSize) {
-		delete[] buffers.raw_buffer;
-		buffers.raw_buffer = new char[e.dataSize];
-		buffers.raw_length = e.dataSize;
-	}
+	databuffers.raw.EnsureCapacity(e.dataSize);
 
-	reader.seek(e.dataOffset);
-	reader.read(buffers.raw_buffer, e.dataSize);
+	filehandle.seek(e.dataOffset);
+	filehandle.read(databuffers.raw.buffer, e.dataSize);
 
-	return Get_EntryData_Internal(e, buffers.raw_buffer, buffers.decomp_buffer, buffers.decomp_length);
+	return Get_EntryData_Internal(e, databuffers.raw.buffer, databuffers.decompressed);
 
 }
 
-ResourceEntryData_t Get_EntryRaw(const ResourceEntry& e, FileReader& reader, ResourceEntryBuffers_t& buffers)
+ResourceData ResourceArchive::GetData_Raw(const ResourceEntry& e)
 {
-	if (buffers.raw_length < e.dataSize) {
-		delete[] buffers.raw_buffer;
-		buffers.raw_buffer = new char[e.dataSize];
-		buffers.raw_length = e.dataSize;
-	}
+	databuffers.raw.EnsureCapacity(e.dataSize);
 
-	reader.seek(e.dataOffset);
-	reader.read(buffers.raw_buffer, e.dataSize);
+	filehandle.seek(e.dataOffset);
+	filehandle.read(databuffers.raw.buffer, e.dataSize);
 
-	return {EntryDataCode::OK, buffers.raw_buffer, e.dataSize};
+	return {EntryDataCode::OK, databuffers.raw.buffer, e.dataSize};
 }
 
-bool Read_ResourceArchive_Internal(ResourceArchive& r, int flags) {
+bool Read_ResourceArchive_Internal(ResourceArchive& r, bool stopAfterEntries) {
 
 	FileReader& opener = r.filehandle;
 	// Read the Header
@@ -185,14 +175,11 @@ bool Read_ResourceArchive_Internal(ResourceArchive& r, int flags) {
 		check(0, "Unknown resource version");
 	}
 
-	if (flags & RF_HeaderOnly)
-		return true;
-
 	// Read the Resource Entries
 	r.entries.EnsureCapacity(r.header.numResources);
 	opener.seek(r.header.resourceEntriesOffset);
 	opener.read((char*)r.entries.buffer, r.header.numResources * sizeof(ResourceEntry));
-	if(flags & RF_StopAfterEntries)
+	if(stopAfterEntries)
 		return true;
 
 
@@ -230,7 +217,7 @@ bool Read_ResourceArchive_Internal(ResourceArchive& r, int flags) {
 }
 
 // TODO: Need to refine this function. Should refactor how buffers are stored in the archive
-bool idcl::ReadResource_PK5(ResourceArchive& r, const char* const Data, const size_t Length)
+bool ReadResource_PK5_Internal(ResourceArchive& r, const char* const Data, const size_t Length)
 {
 	const char* next = Data;
 	r.header = *(ResourceHeader*)next;
@@ -291,26 +278,23 @@ bool idcl::ReadResource_PK5(ResourceArchive& r, const char* const Data, const si
 	return true;
 }
 
-bool idcl::ReadResource(ResourceArchive& r, const wchar_t* pathString, int flags, bool KeepAlive)
+bool ResourceArchive::Read(const fspath& filepath, bool stopAfterEntries)
 {
-	check(r.filehandle.open(pathString));
-
-	bool result = Read_ResourceArchive_Internal(r, flags);
-	if (!KeepAlive) {
-		r.filehandle.close();
-	}
-	return result && r.filehandle.noerrors();
+	check(filehandle.open(filepath.c_str()));
+	bool result = Read_ResourceArchive_Internal(*this, stopAfterEntries);
+	return result && filehandle.noerrors();
 }
 
-bool idcl::ReadResource(ResourceArchive& r, const char* pathString, int flags, bool KeepAlive)
+bool ResourceArchive::Read(const char* filepath)
 {
-	check(r.filehandle.open(pathString));
+	check(filehandle.open(filepath));
+	bool result = Read_ResourceArchive_Internal(*this, false);
+	return result && filehandle.noerrors();
+}
 
-	bool result = Read_ResourceArchive_Internal(r, flags);
-	if (!KeepAlive) {
-		r.filehandle.close();
-	}
-	return result && r.filehandle.noerrors();
+bool ResourceArchive::ReadFromPK5(const char* const Data, const size_t Length)
+{
+	return ReadResource_PK5_Internal(*this, Data, Length);
 }
 
 void Audit_ResourceHeader(const ResourceHeader& h, const ResourceMetaHeader& metaheader)
@@ -488,14 +472,13 @@ void idclMaskFile::Read(const fspath gamedir)
 	// Read the container mask blob into memory
 	{
 		ResourceArchive meta;
-		ResourceEntryBuffers_t entrybuffers;
 		const fspath metapath = gamedir / "base/meta.resources";
 		if(!std::filesystem::exists(metapath))
 			return;
-		idcl::ReadResource(meta, metapath.c_str(), RF_SkipData, true);
+		meta.Read(metapath);
 		assert(meta.header.numResources == 1);
 
-		ResourceEntryData_t maskdata = Get_EntryData(meta.entries[0], meta.filehandle, entrybuffers);
+		ResourceData maskdata = meta.GetData(meta.entries[0]);
 		assert(maskdata.returncode == EntryDataCode::OK);
 
 		masksize = maskdata.length;
@@ -612,7 +595,7 @@ ResourceEntry* idcl::ArchiveIterator::nextarchive() {
 			}
 		}
 
-		if (!idcl::ReadResource(archive, nextpath.c_str(), RF_SkipData, true)) {
+		if (!archive.Read(nextpath)) {
 			return nullptr;
 		}
 
@@ -896,38 +879,30 @@ void idcl::String_ResourceArchive(const ResourceArchive& r, std::string& writeto
 	writeto.append("}\n");
 }
 
-ResourceEntryData_t idPackage::GetEntryData(const idPackageEntry& entry, ResourceEntryBuffers_t& buffers)
+ResourceData idPackage::GetEntryData(const idPackageEntry& entry)
 {
 	handle.seek(entry.offset);
 
-	if (buffers.decomp_length < entry.uncompressedSize) {
-		buffers.decomp_length = entry.uncompressedSize;
-		delete[] buffers.decomp_buffer;
-		buffers.decomp_buffer = new char[entry.uncompressedSize];
-	}
+	entrybuffers.decompressed.EnsureCapacity(entry.uncompressedSize);
 
 	if (entry.compressionMode) {
 		if(entry.compressionMode != 11)
 			return {EntryDataCode::UNKNOWN_COMPRESSION};
 
-		if (buffers.raw_length < entry.compressedSize) {
-			buffers.raw_length = entry.compressedSize;
-			delete[] buffers.raw_buffer;
-			buffers.raw_buffer = new char[entry.compressedSize];
-		}
+		entrybuffers.raw.EnsureCapacity(entry.compressedSize);
 
-		handle.read(buffers.raw_buffer, entry.compressedSize);
+		handle.read(entrybuffers.raw.buffer, entry.compressedSize);
 
-		bool result = Oodle::DecompressBuffer(buffers.raw_buffer, entry.compressedSize, 
-			buffers.decomp_buffer, entry.uncompressedSize);
+		bool result = Oodle::DecompressBuffer(entrybuffers.raw.buffer, entry.compressedSize, 
+			entrybuffers.decompressed.buffer, entry.uncompressedSize);
 		if(!result)
 			return {EntryDataCode::OODLE_ERROR};
 	}
 	else {
-		handle.read(buffers.decomp_buffer, entry.uncompressedSize);
+		handle.read(entrybuffers.decompressed.buffer, entry.uncompressedSize);
 	}
 
-	return {EntryDataCode::OK, buffers.decomp_buffer, entry.uncompressedSize };
+	return {EntryDataCode::OK, entrybuffers.decompressed.buffer, entry.uncompressedSize };
 
 }
 
@@ -984,7 +959,6 @@ std::string idPackage::ListEntries()
 	std::string list;
 	list.reserve(numentries * 128);
 
-	ResourceEntryBuffers_t entrybuffers;
 	ResourceArchive subarc;
 
 	for (u32 i = 0; i < numentries; i++) {
@@ -993,7 +967,7 @@ std::string idPackage::ListEntries()
 		list.append("\" ");
 		list.append(entries[i].compressionMode ? "1\n" : "0\n");
 
-		ResourceEntryData_t data = GetEntryData(entries[i], entrybuffers);
+		ResourceData data = GetEntryData(entries[i]);
 		check_debug(data.returncode == EntryDataCode::OK);
 
 		if(data.length < 4)
@@ -1001,7 +975,7 @@ std::string idPackage::ListEntries()
 		if(*(u32*)data.buffer != 'LCDI')
 			continue;
 		
-		bool result = idcl::ReadResource_PK5(subarc, data.buffer, data.length);
+		bool result = subarc.ReadFromPK5(data.buffer, data.length);
 		check_debug(result);
 
 		if (subarc.header.numMetaEntries) {

@@ -29,7 +29,6 @@ typedef std::unordered_map<std::string, std::string> mapresmap_t;
 void LevelPackager_LoadMapResources(ResourceArchive& r, mapresmap_t& EntryMap) {
 
 	MapResource mapres;
-	ResourceEntryBuffers_t buffers;
 
 	// .mapresources are among the last entries in the archives
 	for (int i = (int)r.header.numResources - 1; i > -1; i--) {
@@ -59,7 +58,7 @@ void LevelPackager_LoadMapResources(ResourceArchive& r, mapresmap_t& EntryMap) {
 
 		atlog("Loading %s", name);
 
-		ResourceEntryData_t entrydata = Get_EntryData(e, r.filehandle, buffers);
+		ResourceData entrydata = r.GetData(e);
 		mapres.Parse(entrydata.buffer, entrydata.length);
 
 		EntryMap.reserve(mapres.num_entries + 1048);
@@ -135,7 +134,7 @@ void AnalyzeGlobalMap(const fspath& basedir, const MapSpec_t& mapspec, const siz
 	atlog("Checking archive %ls", archivepath.c_str());
 
 	ResourceArchive r;
-	if (!idcl::ReadResource(r, archivepath.c_str(), RF_SkipData, true)) {
+	if (!r.Read(archivepath)) {
 		atlog("ERROR: Failed to open archive");
 		return;
 	}
@@ -189,7 +188,7 @@ void AnalyzeShell(const fspath& basedir, const MapSpec_t& mapspec, const size_t 
 
 	fspath shellarchive = basedir / "game/shell/shell.resources";
 	ResourceArchive r;
-	if (!idcl::ReadResource(r, shellarchive.c_str(), RF_SkipData, false)) {
+	if (!r.Read(shellarchive)) {
 		atlog("ERROR: Failed to open shell archive");
 		return;
 	}
@@ -296,7 +295,7 @@ void LevelOptimizer_BuildEntryArray(const ResourceArchive& original, ResourceArc
 void LevelPackager_OptimizeArchive(const fspath& archivepath, const AssetChecksumMap& lookupmap) 
 {
 	ResourceArchive original;
-	idcl::ReadResource(original, archivepath.c_str(), RF_SkipData, true);
+	original.Read(archivepath);
 
 	ResourceArchive newarc;
 	newarc.header = original.header;
@@ -326,7 +325,6 @@ void LevelPackager_OptimizeArchive(const fspath& archivepath, const AssetChecksu
 
 	std::ofstream outwriter(archivepath.string() + ".temp", std::ios_base::binary);
 
-	ResourceEntryBuffers_t entrybuffers;
 	uint64_t runningOffset = newarc.header.dataOffset;
 
 	/* Update Resource Entries and write entry data */
@@ -334,7 +332,7 @@ void LevelPackager_OptimizeArchive(const fspath& archivepath, const AssetChecksu
 		ResourceEntry& e = newarc.entries[i];
 
 		// Must fetch this before we update the data offset
-		ResourceEntryData_t entrydata = Get_EntryRaw(e, original.filehandle, entrybuffers);
+		ResourceData entrydata = original.GetData_Raw(e);
 
 		e.numDependencies = 0;
 		e.depIndices = 0;

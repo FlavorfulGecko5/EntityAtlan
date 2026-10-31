@@ -19,7 +19,7 @@
 // It consists of "real" assetpaths extracted from an entry's IDCL container
 std::set<std::string> G_PK5_MANIFEST;
 
-void pk5_zipDecl(mz_zip_archive* zptr, std::string name, ResourceEntryData_t data) {
+void pk5_zipDecl(mz_zip_archive* zptr, std::string name, ResourceData data) {
 	
 	// PK5 decl paths might use capitalized resource type strings?
 	// Need to verify if this is actually true or not
@@ -34,7 +34,7 @@ void pk5_zipDecl(mz_zip_archive* zptr, std::string name, ResourceEntryData_t dat
 	mz_zip_writer_add_mem(zptr, name.c_str() + 10 , data.buffer, data.length, MZ_DEFAULT_COMPRESSION);
 }
 
-void pk5_zipStrings(mz_zip_archive* zptr, const std::string& name, ResourceEntryData_t data) {
+void pk5_zipStrings(mz_zip_archive* zptr, const std::string& name, ResourceData data) {
 	
 	if (name.rfind(".lang") != -1) {
 		atlog("   WARNING: .lang files are ignored. Only .blang files are converted");
@@ -56,7 +56,7 @@ void pk5_zipStrings(mz_zip_archive* zptr, const std::string& name, ResourceEntry
 	mz_zip_writer_add_mem(zptr, zipname.c_str(), outcsv.data(), outcsv.size(), MZ_DEFAULT_COMPRESSION);
 }
 
-void pk5_zipSound(mz_zip_archive* zptr, const std::string& name, ResourceEntryData_t data) {
+void pk5_zipSound(mz_zip_archive* zptr, const std::string& name, ResourceData data) {
 	if (name.rfind(".wem") == -1) {
 		atlog("   ERROR: This audio file is currently unsupported");
 		return;
@@ -66,7 +66,7 @@ void pk5_zipSound(mz_zip_archive* zptr, const std::string& name, ResourceEntryDa
 	mz_zip_writer_add_mem(zptr, zipname.c_str(), data.buffer, data.length, MZ_DEFAULT_COMPRESSION);
 }
 
-void pk5_zipSingleArchive(mz_zip_archive* zptr, const ResourceArchive& r, const char* ExpectedType) {
+void pk5_zipSingleArchive(mz_zip_archive* zptr, ResourceArchive& r, const char* ExpectedType) {
 	if (r.header.numResources != 1) {
 		atlog("   ERROR: Expected 1 resource entry, found %u", r.header.numResources);
 		return;
@@ -84,8 +84,7 @@ void pk5_zipSingleArchive(mz_zip_archive* zptr, const ResourceArchive& r, const 
 		return;
 	}
 
-	charbuffer_t decompbuffer;
-	ResourceEntryData_t entrydata = Get_EntryDataPK5(r, r.entries[0], decompbuffer.data, decompbuffer.capacity);
+	ResourceData entrydata = r.GetData_PK5(r.entries[0], 0);
 
 	check_debug(entrydata.returncode == EntryDataCode::OK);
 
@@ -99,7 +98,7 @@ void pk5_zipSingleArchive(mz_zip_archive* zptr, const ResourceArchive& r, const 
 	mz_zip_writer_add_mem(zptr, zipname.c_str(), entrydata.buffer, entrydata.length, MZ_DEFAULT_COMPRESSION);
 }
 
-void pk5_zipImage(mz_zip_archive* zptr, const ResourceArchive& r) {
+void pk5_zipImage(mz_zip_archive* zptr, ResourceArchive& r) {
 
 	if (r.header.numResources != 2) {
 		if (r.header.numResources == 1 && r.entries[0].dataSize == 0) {
@@ -112,7 +111,6 @@ void pk5_zipImage(mz_zip_archive* zptr, const ResourceArchive& r) {
 	}
 
 	const char* typestring, *embname, *imgname;
-	charbuffer_t decomp_img, decomp_sfile;
 
 	Get_EntryStrings(r, r.entries[0], typestring, imgname);
 	if (strcmp(typestring, "image")) {
@@ -125,8 +123,8 @@ void pk5_zipImage(mz_zip_archive* zptr, const ResourceArchive& r) {
 		return;
 	}
 
-	ResourceEntryData_t data_img = Get_EntryDataPK5(r, r.entries[0], decomp_img.data, decomp_img.length);
-	ResourceEntryData_t data_sfile = Get_EntryDataPK5(r, r.entries[1], decomp_sfile.data, decomp_sfile.length);
+	ResourceData data_img = r.GetData_PK5(r.entries[0], 0);
+	ResourceData data_sfile = r.GetData_PK5(r.entries[1], 1);
 
 	check_debug(data_img.returncode == EntryDataCode::OK && data_sfile.returncode == EntryDataCode::OK);
 
@@ -143,7 +141,7 @@ void pk5_zipImage(mz_zip_archive* zptr, const ResourceArchive& r) {
 	mz_zip_writer_add_mem(zptr, zipname.c_str(), results.buffer, results.file_length, MZ_DEFAULT_COMPRESSION);
 }
 
-void pk5_zipModel(mz_zip_archive* zptr, const ResourceArchive& r) {
+void pk5_zipModel(mz_zip_archive* zptr, ResourceArchive& r) {
 	if (r.header.numResources != 2) {
 		if (r.header.numResources == 1 && r.entries[0].dataSize == 0) {
 			atlog("   WARNING: File is empty. Skipping");
@@ -155,7 +153,6 @@ void pk5_zipModel(mz_zip_archive* zptr, const ResourceArchive& r) {
 	}
 
 	const char* typestring, *embname, *modelname;
-	charbuffer_t decomp_model, decomp_sfile;
 
 	Get_EntryStrings(r, r.entries[0], typestring, modelname);
 	if (strcmp(typestring, "model")) {
@@ -168,8 +165,8 @@ void pk5_zipModel(mz_zip_archive* zptr, const ResourceArchive& r) {
 		return;
 	}
 
-	ResourceEntryData_t data_model = Get_EntryDataPK5(r, r.entries[0], decomp_model.data, decomp_model.length);
-	ResourceEntryData_t data_sfile = Get_EntryDataPK5(r, r.entries[1], decomp_sfile.data, decomp_sfile.length);
+	ResourceData data_model = r.GetData_PK5(r.entries[0], 0);
+	ResourceData data_sfile = r.GetData_PK5(r.entries[1], 1);
 	check_debug(data_model.returncode == EntryDataCode::OK && data_sfile.returncode == EntryDataCode::OK);
 
 	charbuffer_t output;
@@ -187,8 +184,6 @@ void pk5_zipModel(mz_zip_archive* zptr, const ResourceArchive& r) {
 void ZipPk5(mz_zip_archive* zptr, const fspath& pk5path) {
 
 	idPackage package;
-	ResourceEntryBuffers_t packagebuffers;
-	
 	ResourceArchive resarchive;
 
 	if (!package.Read(pk5path.c_str())) {
@@ -214,7 +209,7 @@ void ZipPk5(mz_zip_archive* zptr, const fspath& pk5path) {
 
 		atlog("%s", e.name.c_str());
 
-		ResourceEntryData_t entrydata = package.GetEntryData(e, packagebuffers);
+		ResourceData entrydata = package.GetEntryData(e);
 		if (entrydata.returncode != EntryDataCode::OK) {
 			atlog("   ERROR: Failed to extract file from pk5");
 			continue;
@@ -240,7 +235,7 @@ void ZipPk5(mz_zip_archive* zptr, const fspath& pk5path) {
 			atlog("   ERROR: Unsupported non-IDCL resource type");
 			continue;
 		}
-		if (!idcl::ReadResource_PK5(resarchive, entrydata.buffer, entrydata.length)) {
+		if (!resarchive.ReadFromPK5(entrydata.buffer, entrydata.length)) {
 			atlog("   ERROR: Failed to read entry into an IDCL archive");
 			continue;
 		}

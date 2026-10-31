@@ -643,8 +643,6 @@ void ExtractorMain() {
 		std::unordered_map<std::string, bool> extractedFileMap;
 
 		charbuffer_t extraBuffer;
-		ResourceEntryBuffers_t entryBuffers;
-		entryBuffers.init(24000);
 
 		// Aliasing system for logic object descriptors
 		// Many of their filenames are too long to export verbatim.
@@ -665,7 +663,7 @@ void ExtractorMain() {
 			atlog("Extracting from %ls", respath.filename().c_str());
 
 			ResourceArchive archive;
-			idcl::ReadResource(archive, respath.c_str(), RF_SkipData, true);
+			archive.Read(respath);
 
 			// A select few resource archives don't have a container mask blob. This is normal
 			const idclMaskFile::entry bitmask = containerMask.FindArchiveMask(respath);
@@ -713,7 +711,7 @@ void ExtractorMain() {
 				}
 
 				// Get the entry data
-				ResourceEntryData_t entrydata = Get_EntryData(e, archive.filehandle, entryBuffers);
+				ResourceData entrydata = archive.GetData(e);
 				if (entrydata.returncode != EntryDataCode::OK) {
 					if (entrydata.returncode == EntryDataCode::UNKNOWN_COMPRESSION) {
 						atlog("ERROR: Unknown compression format %hhu on file %s/%s", e.compMode, typestring, namestring);

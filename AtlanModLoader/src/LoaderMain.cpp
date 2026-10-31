@@ -574,7 +574,7 @@ bool Modify_BuildManifest(const fspath& gamedir, const std::vector<std::string>&
 #include "archives/MapResources.h"
 #include "archives/Blang.h"
 
-bool Query_Archives_Blang(GlobalConfig_t& config, ModDef& GlobalMod, ResourceEntryData_t EntryData, const char* blangname) {
+bool Query_Archives_Blang(GlobalConfig_t& config, ModDef& GlobalMod, ResourceData EntryData, const char* blangname) {
 	const std::vector<ModFile*>& Langcsvs = config.blanginfo[blangname];
 
 	idcl::blangmodargs langargs;
@@ -646,7 +646,7 @@ bool Query_Archives_Blang(GlobalConfig_t& config, ModDef& GlobalMod, ResourceEnt
 	return true;
 }
 
-bool Query_Archives_MapResources(GlobalConfig_t& config, ModDef& ModDef_MapResources, ResourceEntryData_t EntryData, const char* filename) {
+bool Query_Archives_MapResources(GlobalConfig_t& config, ModDef& ModDef_MapResources, ResourceData EntryData, const char* filename) {
 	MapResource CurrentMap;
 
 	if (!CurrentMap.Parse(EntryData.buffer, EntryData.length)) {
@@ -708,7 +708,6 @@ bool Query_Archives(std::unordered_map<std::string, ModFile*>& FileMap, GlobalCo
 
 	std::string lookupstring;
 	idcl::ArchiveIterator iter(path_mapspec, false);
-	ResourceEntryBuffers_t EntryBuffers;
 	for (const ResourceEntry& e : iter) {
 
 		// TODO: We can probably simplify the lookup string format since
@@ -723,7 +722,7 @@ bool Query_Archives(std::unordered_map<std::string, ModFile*>& FileMap, GlobalCo
 
 		// Nullptr --> a .mapresource or .blang file that we need
 		if(f == nullptr) {
-			ResourceEntryData_t EntryData = Get_EntryData(e, iter.archive.filehandle, EntryBuffers);
+			ResourceData EntryData = iter.archive.GetData(e);
 
 			atlog("Modifying %s", iter.namestring);
 
@@ -768,7 +767,7 @@ bool IsModded_MapSpec(const fspath& path) {
 
 bool IsModded_Meta(const fspath& path) {
 	ResourceArchive meta;
-	idcl::ReadResource(meta, path.c_str(), RF_StopAfterEntries, false);
+	meta.Read(path, true);
 	return meta.entries[0].generationTimeStamp == MODDED_TIMESTAMP;
 }
 

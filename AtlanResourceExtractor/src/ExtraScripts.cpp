@@ -45,8 +45,7 @@ void Script_DumpResourceTypes(const fspath& gamedir, const fspath& outputdir)
 		if (std::string(iter.namestring).find(".mapresources") == -1)
 			continue;
 
-		ResourceEntryBuffers_t temp;
-		ResourceEntryData_t entrydata = Get_EntryData(e, iter.archive.filehandle, temp);
+		ResourceData entrydata = iter.archive.GetData(e);
 		MapResource resfile;
 		resfile.Parse(entrydata.buffer, entrydata.length);
 

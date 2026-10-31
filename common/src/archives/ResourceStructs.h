@@ -4,12 +4,6 @@
 
 typedef std::filesystem::path fspath;
 
-typedef unsigned char uint8_t;
-typedef unsigned short uint16_t;
-typedef unsigned uint32_t;
-typedef long long int64_t;
-typedef unsigned long long uint64_t;
-
 struct ResourceHeader {
     char      magic[4];                    
     uint32_t  version;					 
@@ -38,7 +32,11 @@ struct ResourceHeader {
 // May also wish to consider: splitting metaOffset into an integer pair.
 #pragma pack(push, 1)
 struct ResourceMetaHeader {
-	uint32_t unknown;          // Always 0
+	// Always 0 in production archives
+	// Non-zero implies an array of 16-byte structs, length header.numDependencies
+	// placed in-between the ResourceDependencies and Dependency Indices arrays
+	uint32_t unknown;
+	
 	uint64_t metaOffset;       // Address of the 'I' char in the second "IDCL" magic
 };
 #pragma pack(pop)
@@ -92,27 +90,85 @@ struct ResourceDependency {
 	//uint64_t hashOrTimestamp;
 };
 
+
+enum class EntryDataCode {
+	OK,
+	DATA_NOT_READ,
+	UNKNOWN_COMPRESSION,
+	OODLE_ERROR,
+	UNUSED
+};
+
+struct ResourceDataBuffers {
+	heaparray<char> raw;
+	heaparray<char> decompressed;
+
+	void init(size_t initialSizes) {
+		raw.EnsureCapacity(initialSizes);
+		decompressed.EnsureCapacity(initialSizes);
+	}
+};
+
+// Reference to a resource entry's data.
+// This structure does not own the data
+struct ResourceData {
+	EntryDataCode returncode = EntryDataCode::UNUSED;
+	const char* buffer = nullptr;
+	size_t length = 0;
+};
+
 struct ResourceArchive {
 	FileReader filehandle;
 
 	ResourceHeader     header;
 	ResourceMetaHeader metaheader;    // Not present in archive version 13
 
-	const char* bufferData_pk5 = nullptr; // Not owned by this struct
-
 	heaparray<ResourceEntry> entries;
 	StringChunk stringChunk;          // Offset: header.stringTableOffset
 
-	//FSeek(header.resourceDepsOffset);
-	heaparray<ResourceDependency> dependencies;
+	heaparray<ResourceDependency> dependencies; // header.numDependencies: Offset is header.resourceDepsOffset
 	heaparray<uint32_t> dependencyIndex; // header.numDepIndices: Array of indices into ResourceDependency array
 	heaparray<uint64_t> stringIndex; // header.numStringIndices: Array of indices into string chunk offsets array
+
+	ResourceDataBuffers databuffers; // For storing the most recently fetched entry from a GetData call
+	const char* bufferData_pk5 = nullptr; // Not owned by this struct
+
+
+	/* Functions */
+
+	public:
 
 	ResourceArchive() = default;
 	ResourceArchive(const ResourceArchive& other) = delete;
 	ResourceArchive(const ResourceArchive&& other) = delete;
 	ResourceArchive& operator=(const ResourceArchive& other) = delete;
 	ResourceArchive& operator=(const ResourceArchive&& other) = delete;
+
+	// Get decompressed (if applicable) data for an entry. File handle must be valid
+	// Entry's data offset, size, compressed size, and compmode must be valid
+	// Returned data is owned by the input buffers
+	// Returned data should be copied elsewhere if it needs to be preserved before another GetData call
+	ResourceData GetData(const ResourceEntry& e);
+
+	// Gets raw data for an entry without decompressing it. File handle must be valid.
+	// Entry's data offset, size, compressed size, and compmode must be valid
+	// Returned data is owned by the archive's entry buffers.
+	// Returned data should be copied elsewhere if it needs to be preserved before another GetData call
+	ResourceData GetData_Raw(const ResourceEntry& e);
+
+	// Get entry data. To use this function, this archive must have been read from a PK5 file entry
+	// Entry's data offset, size, compressed size, and compmode must be valid
+	// Returned data is owned by the archive's entry buffers.
+	// Two files can be safely extracted at once without the need for copying.
+	// Use the boolean arg to toggle which buffer is used.
+	ResourceData GetData_PK5(const ResourceEntry& e, bool useSecondBuffer);
+
+	// Read an archive from the filepath
+	bool Read(const char* filepath);
+
+	bool Read(const fspath& filepath, bool stopAfterEntries = false);
+
+	bool ReadFromPK5(const char* const Data, const size_t Length);
 };
 
 struct containerMaskEntry_t {
@@ -157,26 +213,6 @@ struct idclMaskFile {
 void Audit_ResourceHeader(const ResourceHeader& h, const ResourceMetaHeader& metaheader);
 void Audit_ResourceArchive(const ResourceArchive& r);
 
-enum ResourceFlags {
-	//RF_ReadEverything = 0,
-	RF_SkipData = 1 << 0,
-	RF_HeaderOnly = 1 << 1,
-	RF_StopAfterEntries = 1 << 2
-};
-
-namespace idcl {
-	bool ReadResource(ResourceArchive& r, const wchar_t* pathString, int flags, bool KeepAlive);
-	bool ReadResource(ResourceArchive& r, const char* pathString, int flags, bool KeepAlive);
-	bool ReadResource_PK5(ResourceArchive& r, const char* const Data, const size_t Length);
-}
-
-
-/*
-* Writes the given archive to a file
-* @param entries A list of buffers, one per resource entry. If nullptr, will write out the archive's data buffer instead
-*/
-//void Write_ResourceArchive(const ResourceArchive& r, const fspath outpath, char** entries);
-
 void Get_EntryStrings(const ResourceArchive& r, const ResourceEntry& e, const char*& typeString, const char*& nameString);
 
 void Get_DependencyStrings(const ResourceArchive& r, const ResourceDependency& d, const char*& typestring, const char*& namestring);
@@ -193,72 +229,6 @@ inline uint64_t Get_ExpectedMetaOffset(const ResourceHeader& h)
 		+ h.numDepIndices    * sizeof(uint32_t)
 		+ h.numStringIndices * sizeof(uint64_t);
 }
-
-// Returns the byte size of the gap between the archive's meta chunk and data chunk
-// Starts at the 'I' in the "IDCL" magic and exclusively ends at the start of the data chunk
-inline uint64_t Get_GapSize(const ResourceHeader& h)
-{
-	return h.dataOffset - Get_ExpectedMetaOffset(h);
-}
-
-
-enum class EntryDataCode {
-	OK,
-	DATA_NOT_READ,
-	UNKNOWN_COMPRESSION,
-	OODLE_ERROR,
-	UNUSED
-};
-
-struct ResourceEntryBuffers_t {
-	char* raw_buffer = nullptr;
-	char* decomp_buffer = nullptr;
-	size_t raw_length = 0;
-	size_t decomp_length = 0;
-
-	~ResourceEntryBuffers_t() {
-		delete[] raw_buffer;
-		delete[] decomp_buffer;
-	}
-
-	void init(size_t initialSizes) {
-		if (nullptr == raw_buffer) {
-			raw_length = initialSizes;
-			raw_buffer = new char[raw_length];
-		}
-		if (nullptr == decomp_buffer) {
-			decomp_length = initialSizes;
-			decomp_buffer = new char[decomp_length];
-		}
-	}
-};
-
-struct ResourceEntryData_t {
-	EntryDataCode returncode = EntryDataCode::UNUSED;
-	const char* buffer = nullptr;
-	size_t length = 0;
-};
-
-// If the resource archive was extracted from a pk5, use this Get Data function
-ResourceEntryData_t Get_EntryDataPK5(const ResourceArchive& r, const ResourceEntry& e, char*& decompbuffer, size_t& decompsize);
-
-/*
-* Returns the correctly decompressed data for a given resource entry
-*
-* (Use this overload when you haven't read the archive's entire data section to memory
-*	and are reading the entry's data individually to improve performance)
-*
-* If the data is uncompressed or compression is unknown, returns the raw buffer
-* If the data is compressed, it will be decompressed to the decomp buffer
-*
-* If either buffer is too small, it will be deallocated and replaced with a new buffer to hold the data
-*
-*/
-
-ResourceEntryData_t Get_EntryData(const ResourceEntry& e, FileReader& reader, ResourceEntryBuffers_t& buffers);
-
-// Gets a resource entry's data without decompressing it
-ResourceEntryData_t Get_EntryRaw(const ResourceEntry& e, FileReader& reader, ResourceEntryBuffers_t& buffers);
 
 namespace idcl {
 
@@ -407,11 +377,13 @@ struct idPackage {
 	uint32_t numentries = 0;
 	FileReader handle;
 
+	ResourceDataBuffers entrybuffers;
+
 	~idPackage() {
 		delete[] entries;
 	}
 
-	ResourceEntryData_t GetEntryData(const idPackageEntry& entry, ResourceEntryBuffers_t& buffers);
+	ResourceData GetEntryData(const idPackageEntry& entry);
 	bool Read(const wchar_t* filepath);
 
 	std::string ListEntries();

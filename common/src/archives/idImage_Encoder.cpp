@@ -788,8 +788,6 @@ bool idImageHeaderMap_Build(const std::string& gamedir, std::string* AssetPaths,
 		return false;
 	iter.typefilter = "image";
 
-	ResourceEntryBuffers_t entrybuffers;
-
 	for (const ResourceEntry& e : iter) {
 		if (e.uncompressedSize == 0) {
 			continue;
@@ -824,7 +822,7 @@ bool idImageHeaderMap_Build(const std::string& gamedir, std::string* AssetPaths,
 			AssetPaths[Index] = iter.namestring;
 		}
 
-		ResourceEntryData_t entrydata = Get_EntryData(e, iter.archive.filehandle, entrybuffers);
+		ResourceData entrydata = iter.archive.GetData(e);
 		if (entrydata.returncode != EntryDataCode::OK) {
 			return false;
 		}
