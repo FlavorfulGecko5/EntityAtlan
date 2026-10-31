@@ -59,9 +59,8 @@ namespace PackageMapSpec
 	* 
 	* WARNING: Not guaranteed to be prioritized correctly if the packagemapspec is modded
 	*/
-	std::vector<std::string> GetPrioritizedArchiveList(const fspath gamedir, bool IncludeModArchives);
 
-	std::vector<std::string> GetStreamDBList(const fspath gamedir, bool IncludeModArchives);
+	std::vector<fspath> GetStreamDBList(const fspath& mapspecpath, bool IncludeModArchives);
 
 	std::vector<fspath> GetArchiveList(const fspath& mapspecpath, bool IncludeModFiles = false);
 }

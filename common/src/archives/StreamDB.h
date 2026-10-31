@@ -81,4 +81,6 @@ struct idStreamDB_Database {
     bool Build(const wchar_t* gamedir);
 
     bool GetData(const uint64_t hash, const int DecompressedSize, charbuffer_t& output, charbuffer_t& decompbuffer) const;
+
+    bool FindHash(const uint64_t hash) const;
 };

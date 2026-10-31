@@ -331,49 +331,6 @@ void PackageMapSpec::ToString(const fspath gamedir) {
 	atlog("Files: %zu Maps: %zu", filenames.size(), mapnames.size());
 }
 
-std::vector<std::string> PackageMapSpec_MakeFileList(const fspath gamedir, bool IncludeModArchives, std::string extString)
-{
-	fspath pathMapSpec = gamedir / "base/packagemapspec.json";
-	if(!std::filesystem::exists(pathMapSpec))
-		return {};
-
-	std::vector<std::string> packages;
-	try {
-		EntityParser parser(pathMapSpec.string(), ParsingMode::JSON);
-
-		EntNode* root = parser.getRoot()->ChildAt(0);
-		EntNode& files = (*root)["\"files\""];
-		packages.reserve(files.getChildCount());
-		// Get all resource archive names and their priorities
-		for (int i = 0; i < files.getChildCount(); i++) {
-			EntNode& name = (*files.ChildAt(i))["\"name\""];
-
-			assert(&name != EntNode::SEARCH_404);
-
-			std::string_view nameString = name.getValueUQ();
-			if (nameString.find("modarchives") != std::string::npos) {
-				if(!IncludeModArchives)
-					continue;
-			}
-
-			// All of this...because the C++ 17 STL doesn't have EndsWith
-			size_t extIndex = nameString.rfind(extString);
-			if (extIndex != std::string_view::npos && extIndex + extString.length() == nameString.length())
-			{
-				//printf("%.*s\n", (int)nameString.length(), nameString.data());
-				packages.push_back(std::string(nameString));
-			}
-		}
-	}
-	catch (std::exception e) {
-		return {};
-	}
-
-	return packages;
-}
-
-// TODO: This is a refactor-in-progress. Eventual goal is to fully
-// replace the above function with this one and other functions that call it
 std::vector<fspath> PackageMapSpec_MakeFileList2(const fspath& mapspecpath, bool IncludeModFiles, std::string extString) {
 	if (!std::filesystem::exists(mapspecpath)) {
 		atlog("ERROR: PackageMapSpec_MakeFileList: PackageMapSpec not found");
@@ -419,14 +376,9 @@ std::vector<fspath> PackageMapSpec_MakeFileList2(const fspath& mapspecpath, bool
 	return packages;
 }
 
-std::vector<std::string> PackageMapSpec::GetPrioritizedArchiveList(const fspath gamedir, bool IncludeModArchives)
+std::vector<fspath> PackageMapSpec::GetStreamDBList(const fspath& mapspecpath, bool IncludeModArchives)
 {
-	return PackageMapSpec_MakeFileList(gamedir, IncludeModArchives, ".resources");
-}
-
-std::vector<std::string> PackageMapSpec::GetStreamDBList(const fspath gamedir, bool IncludeModArchives)
-{
-	return PackageMapSpec_MakeFileList(gamedir, IncludeModArchives, ".streamdb");
+	return PackageMapSpec_MakeFileList2(mapspecpath, IncludeModArchives, ".streamdb");
 }
 
 std::vector<fspath> PackageMapSpec::GetArchiveList(const fspath& mapspecpath, bool IncludeModFiles)

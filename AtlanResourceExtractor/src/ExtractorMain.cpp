@@ -479,19 +479,8 @@ void SoundBankExtractor(const fspath& inputdir, fspath outputdir) {
 	}
 }
 
-/*
-* CONSOLIDATED RESOURCE EXTRACTOR FUNCTION
-*/
-void ExtractorMain() {
-	/*
-	* REMEMBER TO UPDATE VERSION NUMBER
-	*/
-	atlog("Atlan Resource Extractor v4.1 by FlavorfulGecko5");
-
-	/*
-	* Parse and validate config file
-	*/
-	configdata_t config;
+bool Extractor_ReadConfig(configdata_t& config) 
+{
 	try
 	{
 		#ifdef _DEBUG
@@ -511,12 +500,12 @@ void ExtractorMain() {
 		if (!std::filesystem::is_directory(config.inputdir)) {
 			atlog("FATAL ERROR: %ls is not a valid directory\n"
 				  "Did you remember to set your input/output folders in " configpath "?", config.inputdir.c_str());
-			return;
+			return false;
 		}
 		if (!std::filesystem::is_directory(config.outputdir)) {
 			atlog("FATAL ERROR: %ls is not a valid directory\n"
 				"Did you remember to set your input/output folders in " configpath "?", config.outputdir.c_str());
-			return;
+			return false;
 		}
 
 		config.inputdir = std::filesystem::absolute(config.inputdir);
@@ -526,7 +515,7 @@ void ExtractorMain() {
 			atlog("FATAL ERROR: Output directory must be less than 40 characters.\n"
 				  "This is to prevent export errors due to long filepaths.\n"
 				  "Your output directory %ls is %llu characters", config.outputdir.c_str(), config.outputdir.string().size());
-			return;
+			return false;
 		}
 
 		if (!core["run_extractor"].ValueBool(config.run_extractor)) {
@@ -595,28 +584,51 @@ void ExtractorMain() {
 			atlog("WARNING: Failed to read config bool deserializer/include_originals: assuming default");
 		}
 
-
+		return true;
 	}
 	catch(...) {
 		atlog("FATAL ERROR: failed to parse " configpath);
-		return;
+		return false;
 	}
+}
+
+/*
+* CONSOLIDATED RESOURCE EXTRACTOR FUNCTION
+*/
+void ExtractorMain() {
+	/*
+	* REMEMBER TO UPDATE VERSION NUMBER
+	*/
+	atlog("Atlan Resource Extractor v4.1 by FlavorfulGecko5");
+
+	/*
+	* Parse and validate config file
+	*/
+	configdata_t config;
+	if(!Extractor_ReadConfig(config))
+		return;
+	config.outputdir /= "atlan";
+
 
 	/*
 	* Read and verify PackageMapSpec data
 	*/
-	config.outputdir /= "atlan";
-	std::vector<std::string> packages = PackageMapSpec::GetPrioritizedArchiveList(config.inputdir, false);
 
-	if (packages.empty()) {
+	idcl::ArchiveIterator iter(config.inputdir / "base/packagemapspec.json", true);
+	iter.allowDisabled = true;
+	iter.allowUnmasked = true;
+
+	if (iter.archivepaths.empty()) {
 		atlog("FATAL ERROR: Could not find PackageMapSpec.json\n"
-			  "Did you enter the correct path to your Dark Ages folder?");
+			"Did you enter the correct path to your game folder?");
 		return;
 	}
-	else {
-		atlog("Found DOOM The Dark Ages Folder\n"
-			  "Dumping data to %ls", config.outputdir.c_str());
+	if(iter.maskfile.maskcount == 0) {
+		atlog("FATAL ERROR: Failed to read container.mask");
+		return;
 	}
+	atlog("Found game folder\nDumping data to %ls", config.outputdir.c_str());
+
 	std::filesystem::create_directories(config.outputdir);
 
 	/*
@@ -631,15 +643,6 @@ void ExtractorMain() {
 
 		FixLegacyDeclPath(config.outputdir);
 
-		idclMaskFile containerMask;
-		containerMask.Read(config.inputdir);
-
-		if (containerMask.maskcount == 0) {
-			atlog("FATAL ERROR: Could not read container.mask");
-			return;
-		}
-
-		const fspath basepath = config.inputdir / "base";
 		std::unordered_map<std::string, bool> extractedFileMap;
 
 		charbuffer_t extraBuffer;
@@ -656,155 +659,155 @@ void ExtractorMain() {
 
 		std::ofstream outputstream;
 
-		for(size_t i = 0; i < packages.size(); i++) {
-			fspath respath = basepath / packages[i];
-			int filecount = 0;
+		bool firstArchiveCleared = false;
+		int filecount = 0;
 
-			atlog("Extracting from %ls", respath.filename().c_str());
+		for(const ResourceEntry& e : iter) {
 
-			ResourceArchive archive;
-			archive.Read(respath);
+			// Unfortunately there's no better way to do this at the moment....
+			if(iter.newarchiveloaded) {
+				iter.newarchiveloaded = false;
 
-			// A select few resource archives don't have a container mask blob. This is normal
-			const idclMaskFile::entry bitmask = containerMask.FindArchiveMask(respath);
-			const bool hasBitmask = bitmask.size >= archive.header.numResources;
-
-			for(uint32_t entryindex = 0; entryindex < archive.header.numResources; entryindex++) {
-				const ResourceEntry& e = archive.entries[entryindex];
-
-				const char* typestring, *namestring;
-				Get_EntryStrings(archive, e, typestring, namestring);
-
-				// Don't extract files with undesired types
-				if (config.restypes.count(typestring) == 0)
-					continue;
-
-				// Only proceed if a higher-priority archive doesn't have this file
-				{
-					std::string setstring = typestring;
-					setstring.push_back('/');
-					setstring.append(namestring);
-
-					const bool isloaded = hasBitmask ? bitmask.IsLoaded(entryindex) : true;
-
-					const auto& tryresult = extractedFileMap.try_emplace(setstring, isloaded);
-					if (!tryresult.second) { // Key already exists in map
-
-						// Rare Edge Case: The first copy of the file we extracted is disabled by the container mask
-						// But another version in a lower-priority archive is enabled instead.
-						// We re-extract the enabled version of the file under the assumption that it's more accurate.
-						// MONITOR: If all copies of a file are disabled, there's no real way to determine which is the most
-						// "up-to-date" version. Best we can do is go in order of archive priority like we already are.
-						// TODO: investigate using generatedTimeStamps
-						if (isloaded && !tryresult.first->second) {
-							tryresult.first->second = true;
-							#ifdef _DEBUG
-							atlog("Container Mask: Re-Extracting %s", setstring.c_str());
-							#endif
-						}
-						else {
-							continue;
-						}
-
-					}
-					filecount++;
+				if (firstArchiveCleared) {
+					atlog("Extracted %d files from archive", filecount);
 				}
+				firstArchiveCleared = true;
+				filecount = 0;
 
-				// Get the entry data
-				ResourceData entrydata = archive.GetData(e);
-				if (entrydata.returncode != EntryDataCode::OK) {
-					if (entrydata.returncode == EntryDataCode::UNKNOWN_COMPRESSION) {
-						atlog("ERROR: Unknown compression format %hhu on file %s/%s", e.compMode, typestring, namestring);
+				atlog("Extracting from %ls", iter.CurrentArchive().filename().c_str());
+			}
+
+			// Don't extract files with undesired types
+			if (config.restypes.count(iter.typestring) == 0)
+				continue;
+
+			// Only proceed if a higher-priority archive doesn't have this file
+			{
+				std::string setstring = iter.typestring;
+				setstring.push_back('/');
+				setstring.append(iter.namestring);
+
+				const bool isloaded = iter.isEnabled;
+
+				const auto& tryresult = extractedFileMap.try_emplace(setstring, isloaded);
+				if (!tryresult.second) { // Key already exists in map
+
+					// Rare Edge Case: The first copy of the file we extracted is disabled by the container mask
+					// But another version in a lower-priority archive is enabled instead.
+					// We re-extract the enabled version of the file under the assumption that it's more accurate.
+					// MONITOR: If all copies of a file are disabled, there's no real way to determine which is the most
+					// "up-to-date" version. Best we can do is go in order of archive priority like we already are.
+					// TODO: investigate using generatedTimeStamps
+					if (isloaded && !tryresult.first->second) {
+						tryresult.first->second = true;
+						#ifdef _DEBUG
+						atlog("Container Mask: Re-Extracting %s", setstring.c_str());
+						#endif
 					}
 					else {
-						atlog("ERROR: Failure code %d on file %s/%s", (int)entrydata.returncode, typestring, namestring);
 						continue;
 					}
+
 				}
+				filecount++;
+			}
 
-				// Make adjustments to the output name string depending on the resource type
-				std::string adjustedNameString;
-				if (strcmp(typestring, "rs_streamfile") == 0) {
-
-					adjustedNameString = namestring;
-
-					if (adjustedNameString._Starts_with("generated/decls/")) {
-						adjustedNameString = adjustedNameString.substr(16); // Remove "generated/decls/"
-						typestring = "decls";
-					}
+			// Get the entry data
+			ResourceData entrydata = iter.archive.GetData(e);
+			if (entrydata.returncode != EntryDataCode::OK) {
+				if (entrydata.returncode == EntryDataCode::UNKNOWN_COMPRESSION) {
+					atlog("ERROR: Unknown compression format %hhu on file %s/%s", e.compMode, iter.typestring, iter.namestring);
 				}
-				else if (strcmp(typestring, "mapentities") == 0) {
-					adjustedNameString = namestring;
+				else {
+					atlog("ERROR: Failure code %d on file %s/%s", (int)entrydata.returncode, iter.typestring, iter.namestring);
+					continue;
+				}
+			}
+
+			// Make adjustments to the output name string depending on the resource type
+			std::string adjustedNameString;
+			if (strcmp(iter.typestring, "rs_streamfile") == 0) {
+
+				adjustedNameString = iter.namestring;
+
+				if (adjustedNameString._Starts_with("generated/decls/")) {
+					adjustedNameString = adjustedNameString.substr(16); // Remove "generated/decls/"
+					iter.typestring = "decls";
+				}
+			}
+			else if (strcmp(iter.typestring, "mapentities") == 0) {
+				adjustedNameString = iter.namestring;
+				for (char& c : adjustedNameString) {
+					if (c == '/')
+						c = '@';
+				}
+			}
+			else if (strcmp(iter.typestring, "compfile") == 0) {
+				adjustedNameString = iter.namestring;
+				if (adjustedNameString.find(".entities") != -1) {
 					for (char& c : adjustedNameString) {
-						if (c == '/')
+						if(c == '/')
 							c = '@';
 					}
 				}
-				else if (strcmp(typestring, "compfile") == 0) {
-					adjustedNameString = namestring;
-					if (adjustedNameString.find(".entities") != -1) {
-						for (char& c : adjustedNameString) {
-							if(c == '/')
-								c = '@';
-						}
-					}
-					// Decompress and swap the data we're outputting
-					if (idcl::compfile_decompress((char*)entrydata.buffer, entrydata.length, extraBuffer)) {
-						entrydata.buffer = extraBuffer.data;
-						entrydata.length = extraBuffer.length;
-					}
+				// Decompress and swap the data we're outputting
+				if (idcl::compfile_decompress((char*)entrydata.buffer, entrydata.length, extraBuffer)) {
+					entrydata.buffer = extraBuffer.data;
+					entrydata.length = extraBuffer.length;
 				}
-				else if (strcmp(typestring, "binaryFile") == 0) {
-					if (std::string(namestring).find(".blang") != -1) {
-						idcl::blang_decrypt((char*)entrydata.buffer, entrydata.length, namestring, extraBuffer);
-						entrydata.buffer = extraBuffer.data;
-						entrydata.length = extraBuffer.length;
+			}
+			else if (strcmp(iter.typestring, "binaryFile") == 0) {
 
-						std::string txt;
-						idcl::blang_totxt(entrydata.buffer, entrydata.length, txt);
+				// Every binaryFile can be decrypted using this function (both Eternal's and Dark Ages)
+				idcl::blang_decrypt((char*)entrydata.buffer, entrydata.length, iter.namestring, extraBuffer);
+				entrydata.buffer = extraBuffer.data;
+				entrydata.length = extraBuffer.length;
 
-						fspath txt_outpath = config.outputdir / typestring / namestring;
-						txt_outpath.replace_extension(".txt");
-						outputstream.open(txt_outpath, std::ios_base::binary);
-						outputstream << txt;
-						outputstream.close();
-					}
+				if (std::string(iter.namestring).find(".blang") != -1) {
+					std::string txt;
+					idcl::blang_totxt(entrydata.buffer, entrydata.length, txt);
+
+					fspath txt_outpath = config.outputdir / iter.typestring / iter.namestring;
+					txt_outpath.replace_extension(".txt");
+
+					std::filesystem::create_directories(txt_outpath.parent_path());
+					outputstream.open(txt_outpath, std::ios_base::binary);
+					outputstream << txt;
+					outputstream.close();
 				}
-				else if(strcmp( typestring, "logicObjectDescriptor") == 0) {
-					adjustedNameString = "logicObjectDescriptor_";
-					adjustedNameString.append(std::to_string(descriptorData.total));
-					adjustedNameString.append(".bin");
+			}
+			else if(strcmp( iter.typestring, "logicObjectDescriptor") == 0) {
+				adjustedNameString = "logicObjectDescriptor_";
+				adjustedNameString.append(std::to_string(descriptorData.total));
+				adjustedNameString.append(".bin");
 
-					descriptorData.total++;
-					descriptorData.aliases.push_back('"');
-					descriptorData.aliases.append(adjustedNameString);
-					descriptorData.aliases.append("\" = \"logicObjectDescriptor/");
-					descriptorData.aliases.append(namestring);
-					descriptorData.aliases.append("\"\n");
-				}
-
-				// Setup the output path
-				fspath output_path = (config.outputdir / typestring) / (adjustedNameString.empty() ? namestring : adjustedNameString.c_str());
-				{
-					if (!output_path.has_extension()) {
-						output_path.replace_extension(".bin");
-					}
-					std::filesystem::create_directories(output_path.parent_path());
-
-					if (output_path.string().length() > 250)
-						atlog("WARNING: Filepath %ls exceeding safe limit. Unexpected behavior may occur", output_path.c_str());
-				}
-
-				// Write the file
-				outputstream.open(output_path, std::ios_base::binary);
-				if(!outputstream.good()) {
-					atlog("ERROR: Failed to open file %ls for writing", output_path.c_str());
-				}
-				outputstream.write(entrydata.buffer, entrydata.length);
-				outputstream.close();
+				descriptorData.total++;
+				descriptorData.aliases.push_back('"');
+				descriptorData.aliases.append(adjustedNameString);
+				descriptorData.aliases.append("\" = \"logicObjectDescriptor/");
+				descriptorData.aliases.append(iter.namestring);
+				descriptorData.aliases.append("\"\n");
 			}
 
-			atlog("Extracted %d files from archive", filecount);
+			// Setup the output path
+			fspath output_path = (config.outputdir / iter.typestring) / (adjustedNameString.empty() ? iter.namestring : adjustedNameString.c_str());
+			{
+				if (!output_path.has_extension()) {
+					output_path.replace_extension(".bin");
+				}
+				std::filesystem::create_directories(output_path.parent_path());
+
+				if (output_path.string().length() > 250)
+					atlog("WARNING: Filepath %ls exceeding safe limit. Unexpected behavior may occur", output_path.c_str());
+			}
+
+			// Write the file
+			outputstream.open(output_path, std::ios_base::binary);
+			if(!outputstream.good()) {
+				atlog("ERROR: Failed to open file %ls for writing", output_path.c_str());
+			}
+			outputstream.write(entrydata.buffer, entrydata.length);
+			outputstream.close();
 		}
 
 		// Write the LogicObjectDescriptor alias file, if it's populated

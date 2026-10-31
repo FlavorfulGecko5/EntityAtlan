@@ -79,18 +79,18 @@ bool idStreamDB::Read_Internal()
 
 bool idStreamDB_Database::Build(const wchar_t* gamedir)
 {
-    const fspath basedir = fspath(gamedir) / "base";
+    const fspath mapspec = fspath(gamedir) / "base/packagemapspec.json";
 
-    std::vector<std::string> StreamDBNames = PackageMapSpec::GetStreamDBList(gamedir, false);
+    std::vector<fspath> StreamDBNames = PackageMapSpec::GetStreamDBList(mapspec, false);
 
     check(StreamDBNames.size() > 0);
 
     this->dbptr = new idStreamDB[StreamDBNames.size()];
 
-    for (const std::string& StreamName : StreamDBNames) {
-        printf("%s\n", StreamName.data());
+    for (const fspath& StreamName : StreamDBNames) {
+        printf("%ls\n", StreamName.c_str());
         idStreamDB& ptr = dbptr[numdbs++];
-        check(ptr.Read((basedir / StreamName).c_str(), true));
+        check(ptr.Read(StreamName.c_str(), true));
     }
 }
 
@@ -143,6 +143,36 @@ bool idStreamDB_Database::GetData(const uint64_t targethash, const int Decompres
         check(Oodle::DecompressBuffer(decompbuffer.data, foundEntry.length, outbuffer.data, DecompressedSize));
 
         return true;
+    }
+
+    return false;
+}
+
+bool idStreamDB_Database::FindHash(const uint64_t targethash) const
+{
+    for (int FILE_INDEX = 0; FILE_INDEX < numdbs; FILE_INDEX++) {
+        idStreamDB& file = dbptr[FILE_INDEX];
+
+        //const idStreamDB::entry_t *low = file.entries,
+        //    *high = file.entries + file.header.numEntries - 1;
+
+        int low = 0, high = file.header.numEntries - 1;
+
+        bool found = false;
+        idStreamDB::entry_t foundEntry;
+        while (low <= high) {
+            int index = (high + low) / 2;
+
+            if (file.entries[index].id < targethash) {
+                low = index + 1;
+            }
+            else if (file.entries[index].id > targethash) {
+                high = index - 1;
+            }
+            else {
+                return true;
+            }
+        }
     }
 
     return false;

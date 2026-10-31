@@ -49,6 +49,21 @@ bool idcl::blang_decrypt(char* data, size_t datalength, const char* filename, ch
 	AES_init_ctx_iv(&aes, (u8*)SHA_KEY, (u8*)IV);
 	AES_CBC_decrypt_buffer(&aes, (u8*)out_buffer.data, out_buffer.length);
 
+	// Strip the EOF block padding
+	const u8* padding = (const u8*)out_buffer.data + out_buffer.length - 1;
+	u8 padCode = *padding;
+	if(padCode > 16)
+		return true;
+
+	for(u8 i = 0; i < padCode; i++) {
+		if(*padding != padCode) {
+			check_debug(0 && "blang_decrypt padding mismatch?");
+			return true;
+		}
+		padding--;
+	}
+
+	out_buffer.length -= padCode;
 	return true;
 }
 
