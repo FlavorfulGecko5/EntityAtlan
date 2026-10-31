@@ -200,7 +200,188 @@ void AnalyzeShell(const fspath& basedir, const MapSpec_t& mapspec, const size_t 
 	}
 }
 
-bool LevelPackager_AddArchives(mz_zip_archive* zptr, const fspath& basedir, const std::string& LEVEL_FOLDER) {
+const AssetChecksumMap LevelOptimizer_BuildMap(const fspath& gamedir) {
+
+	AssetChecksumMap output;
+
+	idcl::ArchiveIterator iter(gamedir / "base/packagemapspec.json", true);
+
+	for (const ResourceEntry& e : iter) {
+		if (iter.newarchiveloaded) {
+			iter.newarchiveloaded = false;
+
+			std::string archivename = iter.CurrentArchive().filename().string();
+			if (archivename.find("gameresources") == -1 && archivename.find("warehouse") == -1) {
+				iter.SkipArchive();
+				continue;
+			}
+
+			//printf("%s\n", archivename.c_str());
+		}
+
+		uint64_t hash = HashLib::DeclHash(iter.typestring, iter.namestring);
+		output[hash] = {e.dataCheckSum, e.defaultHash};
+	}
+
+	return output;
+}
+
+#include "archives/ResourceStringTable.h"
+
+void LevelOptimizer_BuildStringChunk(const ResourceArchive& original, ResourceArchive& newarc) 
+{
+	StringTable stable;
+
+	newarc.header.numStringIndices = newarc.header.numResources * 2;
+	newarc.stringIndex.EnsureCapacity(newarc.header.numStringIndices);
+
+	uint64_t* ptr = newarc.stringIndex.buffer;
+
+	for (u32 i = 0; i < newarc.header.numResources; i++) {
+		const ResourceEntry& e = newarc.entries[i];
+
+		const char* type, *name;
+
+		// The New archive's entries are still identical to
+		// the old archive's at this point
+		Get_EntryStrings(original, e, type, name);
+
+		*ptr = stable.indexof(type);
+		*(ptr + 1) = stable.indexof(name);
+		ptr += 2;
+	}
+
+	stable.finalize(newarc.stringChunk, newarc.header.stringTableSize);
+}
+
+void LevelOptimizer_BuildEntryArray(const ResourceArchive& original, ResourceArchive& newarc, const AssetChecksumMap& lookupmap) 
+{
+	int numDefaultHashMismatches = 0;
+
+	newarc.entries.EnsureCapacity(original.header.numResources);
+	newarc.header.numResources = 0;
+	for (u32 i = 0; i < original.header.numResources; i++) {
+		const ResourceEntry& e = original.entries[i];
+		const char* type, * name;
+
+		Get_EntryStrings(original, e, type, name);
+
+		uint64_t hash = HashLib::DeclHash(type, name);
+
+		const auto iter = lookupmap.find(hash);
+		if (iter != lookupmap.end() && iter->second.v0 == e.dataCheckSum) {
+			if (iter->second.v1 == e.defaultHash)
+				continue;
+			numDefaultHashMismatches++;
+		}
+
+		newarc.entries[newarc.header.numResources++] = e;
+	}
+
+	// There are instances where the checksum matches up, but not
+	// the default hash. This log is here to monitor how rare it is.
+	atlog("   Encountered %d defaultHash mismatches", numDefaultHashMismatches);
+}
+
+#include <fstream>
+
+/*
+* Optimizes the level-specific archives by culling duplicates of globally-loaded resources
+* By doing this, we can reduce the final archive size by a minimum of ~127 megabytes
+* 
+* There's seemingly no need to optimize the .streamdb file in a similar way. 
+* Analysis suggests that idStudio already excludes duplicate streamdb entries.
+* This would explain why packaging a level mod gets messed up when custom streamdbs exist in your game folder
+*/
+void LevelPackager_OptimizeArchive(const fspath& archivepath, const AssetChecksumMap& lookupmap) 
+{
+	ResourceArchive original;
+	idcl::ReadResource(original, archivepath.c_str(), RF_SkipData, true);
+
+	ResourceArchive newarc;
+	newarc.header = original.header;
+
+	/* Determine what Resource Entries we're keeping */
+	LevelOptimizer_BuildEntryArray(original, newarc, lookupmap);
+
+	/* Build the string table */
+	LevelOptimizer_BuildStringChunk(original, newarc);
+
+	/* Change header values from the original */
+	{
+		ResourceHeader& h = newarc.header;
+		h.stringTableOffset = h.resourceEntriesOffset + h.numResources * sizeof(ResourceEntry);
+		h.resourceDepsOffset = h.stringTableOffset + h.stringTableSize;
+		h.numDependencies = 0;
+		h.numDepIndices = 0;
+		h.metaEntriesOffset = h.resourceDepsOffset;
+		h.resourceSpecialHashOffset = h.resourceDepsOffset + h.numDependencies * sizeof(ResourceDependency);
+
+		newarc.metaheader.unknown = 0;
+		newarc.metaheader.metaOffset = Get_ExpectedMetaOffset(h);
+		h.dataOffset = newarc.metaheader.metaOffset + 4;
+		h.dataOffset += 8 - h.dataOffset % 8;
+		assert(h.dataOffset % 8 == 0);
+	}
+
+	std::ofstream outwriter(archivepath.string() + ".temp", std::ios_base::binary);
+
+	ResourceEntryBuffers_t entrybuffers;
+	uint64_t runningOffset = newarc.header.dataOffset;
+
+	/* Update Resource Entries and write entry data */
+	for (u32 i = 0; i < newarc.header.numResources; i++) {
+		ResourceEntry& e = newarc.entries[i];
+
+		// Must fetch this before we update the data offset
+		ResourceEntryData_t entrydata = Get_EntryRaw(e, original.filehandle, entrybuffers);
+
+		e.numDependencies = 0;
+		e.depIndices = 0;
+		e.strings = i * 2;
+		e.dataOffset = runningOffset;
+
+		runningOffset += e.dataSize;
+		runningOffset += 8 - runningOffset % 8;
+		assert(runningOffset % 8 == 0);
+
+		outwriter.seekp(e.dataOffset, std::ios_base::beg);
+		outwriter.write(entrydata.buffer, entrydata.length);
+	}
+
+	// TODO: This is copied verbatim from the mod loader
+	// create a shared function somehow?
+	/* Write meta chunk */
+	outwriter.seekp(0, std::ios_base::beg);
+	outwriter.write((char*)&newarc.header, sizeof(ResourceHeader));
+	outwriter.write((char*)&newarc.metaheader, sizeof(ResourceMetaHeader));
+	outwriter.write((char*)newarc.entries.buffer, sizeof(ResourceEntry) * newarc.header.numResources);
+	
+	// String Chunk
+	uint64_t blobSize = newarc.header.stringTableSize - sizeof(uint64_t) - sizeof(uint64_t) * newarc.stringChunk.numStrings - newarc.stringChunk.paddingCount;
+	outwriter.write((char*)&newarc.stringChunk.numStrings, sizeof(uint64_t));
+	outwriter.write((char*)newarc.stringChunk.offsets.buffer, newarc.stringChunk.numStrings * sizeof(uint64_t));
+	outwriter.write(newarc.stringChunk.dataBlock.buffer, blobSize);
+	for (uint64_t i = 0; i < newarc.stringChunk.paddingCount; i++)
+		outwriter.put('\0');
+	outwriter.write((char*)newarc.stringIndex.buffer, newarc.header.numStringIndices * sizeof(uint64_t));
+
+	// IDCL
+	outwriter.write("IDCL", 4);
+	outwriter.close();
+
+	#ifdef _DEBUG
+	Audit_ResourceArchive(newarc);
+
+	std::string manifest;
+	idcl::String_ResourceArchive(newarc, manifest, {0, 0, nullptr});
+	outwriter.open(archivepath.string() + ".manifest.txt", std::ios_base::binary);
+	outwriter.write(manifest.data(), manifest.length());
+	outwriter.close();
+	#endif
+}
+
+bool LevelPackager_AddArchives(mz_zip_archive* zptr, const fspath& basedir, const std::string& LEVEL_FOLDER, const fspath& gamedir) {
 	MapSpec_t mapspec(basedir / "packagemapspec.json");
 
 	if (mapspec.listmaps.size() < 5
@@ -247,6 +428,13 @@ bool LevelPackager_AddArchives(mz_zip_archive* zptr, const fspath& basedir, cons
 	}
 	atlanmod.append("}");
 
+	atlog("Creating Global Asset Map");
+	const AssetChecksumMap globalResMap = LevelOptimizer_BuildMap(gamedir);
+	if (globalResMap.size() == 0) {
+		atlog("FATAL ERROR: Failed to construct Global Resource Map");
+		return false;
+	}
+
 	std::string path_txt_mapspec = "modarchives/" + LEVEL_FOLDER;
 	path_txt_mapspec.push_back('/');
 	path_txt_mapspec.append(CFG_NAME_V2);
@@ -260,7 +448,19 @@ bool LevelPackager_AddArchives(mz_zip_archive* zptr, const fspath& basedir, cons
 		zipname.push_back('/');
 		zipname.append(relative);
 		check_debug(std::filesystem::exists(fullpath));
-		mz_zip_writer_add_file(zptr, zipname.c_str(), fullpath.string().c_str(), NULL, 0, COMPMODE_LARGE_FILES);
+
+		if (relative.find(".resources") != -1) {
+			atlog("   Optimizing Archive");
+			LevelPackager_OptimizeArchive(fullpath, globalResMap);
+
+			std::string temppath = fullpath.string() + ".temp";
+
+			mz_zip_writer_add_file(zptr, zipname.c_str(), temppath.c_str(), NULL, 0, COMPMODE_LARGE_FILES);
+			std::filesystem::remove(temppath);
+		}
+		else {
+			mz_zip_writer_add_file(zptr, zipname.c_str(), fullpath.string().c_str(), NULL, 0, COMPMODE_LARGE_FILES);
+		}
 	}
 
 	return true;
@@ -319,7 +519,7 @@ install_once
 	mz_zip_writer_add_mem(zptr, CFG_NAME_V2, atlanmod, strlen(atlanmod), MZ_DEFAULT_COMPRESSION);
 }
 
-void ZipLevel(const fspath& modfolder, const fspath& leveldir) {
+void ZipLevel(const fspath& modfolder, const fspath& leveldir, const fspath& gamedir) {
 
 	std::string load_folder = LevelPackager_GetArchiveDir(modfolder);
 	if (!load_folder.size())
@@ -335,12 +535,21 @@ void ZipLevel(const fspath& modfolder, const fspath& leveldir) {
 		return;
 	}
 
-	LevelPackager_AddArchives(zptr, leveldir, load_folder);
+	if (!LevelPackager_AddArchives(zptr, leveldir, load_folder, gamedir)) {
+		atlog("Level packaging failed due to fatal error in AddArchives");
+		mz_zip_writer_finalize_archive(zptr);
+		mz_zip_writer_end(zptr);
+		return;
+	}
 
 	LevelPackager_AddVirtualTextures(zptr, modfolder);
 
 	LevelPackager_AddConfig(zptr);
 
-	mz_zip_writer_finalize_archive(zptr);
+	if (!mz_zip_writer_finalize_archive(zptr)) {
+		atlog("FATAL ERROR: Failed to finalize zip archive");
+	}
 	mz_zip_writer_end(zptr);
+
+	atlog("\nLevel Packaging Completed");
 }

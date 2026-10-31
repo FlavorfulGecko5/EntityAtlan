@@ -9,6 +9,7 @@
 #include "hash/HashLib.h"
 #include "io/BinaryReader.h"
 #include "io/BinaryWriter.h"
+#include "archives/ResourceStringTable.h"
 #include "archives/ResourceStructs.h"
 #include "archives/SlugFont.h"
 #include "atlan/AtlanLogger.h"
@@ -24,64 +25,6 @@
 #undef assert
 #define assert(OP) (OP)
 #endif
-
-class StringTable {
-	private:
-	std::string blob;
-	std::vector<uint64_t> offsets;
-	std::unordered_map<std::string, uint64_t> offsetmap; // Maps strings to their index in the table / offset list
-
-	public:
-	StringTable() {
-		blob.reserve(100000);
-		offsets.reserve(1000);
-		offsetmap.reserve(1000);
-	}
-
-
-	/*
-	* Returns the offset for a string
-	* Adds the string to the table if it doesn't exist
-	*/
-	uint64_t indexof(const std::string_view s) {
-		const auto iter = offsetmap.find(std::string(s));
-		if (iter == offsetmap.end())
-		{
-			uint64_t index = offsets.size();
-
-			offsets.push_back(blob.size());
-			blob.append(s);
-			blob.push_back('\0');
-			offsetmap.emplace(s, index);
-			return index;
-		}
-		else 
-		{
-			return iter->second;
-		}
-	}
-
-	/*
-	* Copies data over to a string chunk
-	* Once this is called, you can still use this object for locating
-	* offsets but you shouldn't modify it any further
-	*/
-	void finalize(StringChunk& s, uint32_t& finalSize) const {
-		s.numStrings = offsets.size();
-		
-		s.offsets.EnsureCapacity(offsets.size());
-		memcpy(s.offsets.buffer, offsets.data(), offsets.size() * sizeof(uint64_t));
-		
-		s.dataBlock.EnsureCapacity(blob.size());
-		memcpy(s.dataBlock.buffer, blob.data(), blob.size());
-
-		// String Count + Offset Chunk + String Blob
-		finalSize = static_cast<uint32_t>(sizeof(uint64_t) + s.numStrings * sizeof(uint64_t) + blob.size());
-
-		s.paddingCount = 8 - finalSize % 8;
-		finalSize += static_cast<uint32_t>(s.paddingCount);
-	}
-};
 
 void BuildArchive_StringChunk(const std::vector<ModFile*>& modfiles, ResourceArchive& r) {
 	StringTable stable;
@@ -350,8 +293,10 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 
 	archive.metaheader.unknown = 0;
 	archive.metaheader.metaOffset = Get_ExpectedMetaOffset(h);
-	uint64_t idclsize = 4 + (archive.metaheader.metaOffset + 4) % 8; // Ensure data offset has an 8 byte alignment
-	h.dataOffset = archive.metaheader.metaOffset + idclsize;
+
+	// Leave room for "IDCL" and ensure data offset has an 8 byte aligment
+	h.dataOffset = archive.metaheader.metaOffset + 4; 
+	h.dataOffset += 8 - h.dataOffset % 8;
 	assert(h.dataOffset % 8 == 0);
 
 	outstreams.reswriter.open(outarchivepath, std::ios_base::binary);
@@ -471,9 +416,6 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 
 	// IDCL
 	outstreams.reswriter.write("IDCL", 4);
-	for(int i = 0; i < idclsize - 4; i++) // Todo: can probably cut this
-		outstreams.reswriter.put('\0');
-
 	outstreams.reswriter.close();
 
 	/*

@@ -451,10 +451,10 @@ void PackagerInitialize(int argc, char* argv[]) {
 		LegacyConverterMain(in_zipfiles.data(), in_zipfiles.size(), gamedir.c_str());
 	}
 	else if (modinfojson) {
-		extern void idStudioPackagerMain(const char* modfolder);
+		extern void idStudioPackagerMain(const char* modfolder, const char* gamedir);
 
 		std::string studiofolder = fspath(modinfojson).parent_path().string();
-		idStudioPackagerMain(studiofolder.c_str());
+		idStudioPackagerMain(studiofolder.c_str(), gamedir.c_str());
 	}
 	else {
 		PackagerMain(gamedir.c_str(), inputdir, outputpath);

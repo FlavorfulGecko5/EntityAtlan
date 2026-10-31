@@ -297,9 +297,7 @@ void ZipPK5Files(const fspath& modfolder) {
 	mz_zip_writer_end(zptr);
 }
 
-extern void ZipLevel(const fspath& modfolder, const fspath& leveldir);
-
-void idStudioPackagerMain(const char* modfolder) {
+void idStudioPackagerMain(const char* modfolder, const char* gamedir) {
 	
 	atlog("Running idStudio Mod Packager on %s", modfolder);
 
@@ -310,7 +308,10 @@ void idStudioPackagerMain(const char* modfolder) {
 	const fspath leveldir = modpath / "dvdpc/base";
 	if (std::filesystem::is_directory(leveldir)) {
 		atlog("\nRunning Level Packager\n-----");
-		ZipLevel(modpath, leveldir);
+
+		extern void ZipLevel(const fspath& modfolder, const fspath& leveldir, const fspath& gamedir);
+
+		ZipLevel(modpath, leveldir, gamedir);
 	}
 }
 

@@ -209,5 +209,8 @@
     <ClInclude Include="src\atlan\AtlanDB.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\archives\ResourceStringTable.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

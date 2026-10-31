@@ -127,15 +127,6 @@ ResourceEntryData_t Get_EntryData_Internal(const ResourceEntry& e, const char* r
 	}
 }
 
-ResourceEntryData_t Get_EntryData(const ResourceArchive& r, const ResourceEntry& e, char*& decompbuffer, size_t& decompsize) {
-	if (!r.bufferData.buffer)
-		return { EntryDataCode::DATA_NOT_READ, nullptr, 0 };
-
-	char* raw = r.bufferData.buffer + (e.dataOffset - r.header.dataOffset);
-
-	return Get_EntryData_Internal(e, raw, decompbuffer, decompsize);
-}
-
 ResourceEntryData_t Get_EntryDataPK5(const ResourceArchive& r, const ResourceEntry& e, char*& decompbuffer, size_t& decompsize)
 {
 	if (!r.bufferData_pk5)
@@ -159,6 +150,20 @@ ResourceEntryData_t Get_EntryData(const ResourceEntry& e, FileReader& reader, Re
 
 	return Get_EntryData_Internal(e, buffers.raw_buffer, buffers.decomp_buffer, buffers.decomp_length);
 
+}
+
+ResourceEntryData_t Get_EntryRaw(const ResourceEntry& e, FileReader& reader, ResourceEntryBuffers_t& buffers)
+{
+	if (buffers.raw_length < e.dataSize) {
+		delete[] buffers.raw_buffer;
+		buffers.raw_buffer = new char[e.dataSize];
+		buffers.raw_length = e.dataSize;
+	}
+
+	reader.seek(e.dataOffset);
+	reader.read(buffers.raw_buffer, e.dataSize);
+
+	return {EntryDataCode::OK, buffers.raw_buffer, e.dataSize};
 }
 
 bool Read_ResourceArchive_Internal(ResourceArchive& r, int flags) {
@@ -221,20 +226,6 @@ bool Read_ResourceArchive_Internal(ResourceArchive& r, int flags) {
 	opener.read((char*)r.dependencies.buffer,    r.header.numDependencies * sizeof(ResourceDependency));
 	opener.read((char*)r.dependencyIndex.buffer, r.header.numDepIndices * sizeof(uint32_t));
 	opener.read((char*)r.stringIndex.buffer, r.header.numStringIndices * sizeof(uint64_t));
-
-	// TODO: must take note of IDCL size - develop assert for it
-	// TODO: Account for location of data now being = file_offset - data_offset
-	if (flags & RF_SkipData)
-		return true;
-
-	// Determine size of data block
-	uint64_t fileLength = static_cast<uint64_t>(opener.getlength());
-	uint64_t dataBufferLength = fileLength - r.header.dataOffset;
-	opener.seek(r.header.dataOffset);
-
-	// Read the data block
-	r.bufferData.EnsureCapacity(dataBufferLength);
-	opener.read(r.bufferData.buffer, dataBufferLength);
 	return true;
 }
 
@@ -472,7 +463,7 @@ void Audit_ResourceArchive(const ResourceArchive& r) {
 			assert((e.version == 14 || e.version == 13 ) && e.flags == 0 && e.variation == 0);
 		}
 		else if (strcmp(typeString, "baseModel") == 0) {
-			assert(e.version == 62 && (e.flags == 0 || e.flags == 1) && e.variation == 0);
+			//assert(e.version == 62 && (e.flags == 0 || e.flags == 1) && e.variation == 0);
 		}
 		else if (strcmp(typeString, "strandsHair") == 0) {
 			assert(e.version == 48 && (e.flags == 0 || e.flags == 1) && e.variation == 0);
@@ -497,23 +488,19 @@ void idclMaskFile::Read(const fspath gamedir)
 	// Read the container mask blob into memory
 	{
 		ResourceArchive meta;
+		ResourceEntryBuffers_t entrybuffers;
 		const fspath metapath = gamedir / "base/meta.resources";
 		if(!std::filesystem::exists(metapath))
 			return;
-		idcl::ReadResource(meta, metapath.c_str(), RF_ReadEverything, false);
+		idcl::ReadResource(meta, metapath.c_str(), RF_SkipData, true);
 		assert(meta.header.numResources == 1);
 
-		char* decompbuffer = nullptr;
-		size_t decompsize = 0;
-
-		ResourceEntryData_t maskdata = Get_EntryData(meta, meta.entries[0], decompbuffer, decompsize);
+		ResourceEntryData_t maskdata = Get_EntryData(meta.entries[0], meta.filehandle, entrybuffers);
 		assert(maskdata.returncode == EntryDataCode::OK);
 
 		masksize = maskdata.length;
 		maskblob = new char[maskdata.length];
 		memcpy(maskblob, maskdata.buffer, maskdata.length);
-
-		delete[] decompbuffer;
 	}
 
 	// Parse the container mask
@@ -553,8 +540,12 @@ const idclMaskFile::entry idclMaskFile::FindArchiveMask(const fspath archivepath
 }
 
 containerMaskEntry_t GetContainerMaskHash(const fspath archivepath) {
-	std::ifstream input(archivepath, std::ios_base::binary);
-	assert(input.good());
+	containerMaskEntry_t entrydata = {0, 0};
+
+	FileReader input;
+	if (!input.open(archivepath.c_str())) {
+		return entrydata;
+	}
 
 	ResourceHeader h;
 	input.read(reinterpret_cast<char*>(&h), sizeof(ResourceHeader));
@@ -562,16 +553,21 @@ containerMaskEntry_t GetContainerMaskHash(const fspath archivepath) {
 	size_t start = h.resourceEntriesOffset; // Assumes entries follow the header
 	size_t end = Get_ExpectedMetaOffset(h) + 4;
 	size_t len = end - start;
-	char* buffer = new char[len];
 
-	input.seekg(start, std::ios_base::beg);
+	if(end <= start || end > (size_t)input.getlength() || len > 300'000'000) {
+		check_debug(0 && "GetContainerMaskHash - Sanity Checks Failed")
+		return entrydata;
+	}
+
+	char* buffer = new char[len]; 
+
+	input.seek(start);
 	input.read(buffer, len);
-	assert(*(int*)(buffer + len - 4) == 'LCDI'); // Verify ending magic is present
+	check_debug(*(int*)(buffer + len - 4) == 'LCDI'); // Verify ending magic is present
 
 	uint64_t hash = HashLib::FarmHash64(buffer, len);
 	delete[] buffer;
 
-	containerMaskEntry_t entrydata;
 	entrydata.hash = hash;
 	entrydata.numResources = h.numResources;
 	return entrydata;

@@ -98,8 +98,6 @@ struct ResourceArchive {
 	ResourceHeader     header;
 	ResourceMetaHeader metaheader;    // Not present in archive version 13
 
-	// TODO: Merge/simplify these
-	heaparray<char> bufferData; // If we read the entire archive, this is the data chunk
 	const char* bufferData_pk5 = nullptr; // Not owned by this struct
 
 	heaparray<ResourceEntry> entries;
@@ -160,7 +158,7 @@ void Audit_ResourceHeader(const ResourceHeader& h, const ResourceMetaHeader& met
 void Audit_ResourceArchive(const ResourceArchive& r);
 
 enum ResourceFlags {
-	RF_ReadEverything = 0,
+	//RF_ReadEverything = 0,
 	RF_SkipData = 1 << 0,
 	RF_HeaderOnly = 1 << 1,
 	RF_StopAfterEntries = 1 << 2
@@ -241,19 +239,6 @@ struct ResourceEntryData_t {
 	size_t length = 0;
 };
 
-
-/*
-* Returns the correctly decompressed data for a given resource entry.
-* Resource Archive must have it's data section read to memory
-*
-* If data is uncompressed or compression is unknown, returns a pointer within the archive's data buffer
-*
-* If data is compressed, it will be decompressed to the provided dynamically allocated buffer.
-* If the provided buffer is too small, it will be deallocated and replaced with a new buffer to hold the data
-*
-*/
-ResourceEntryData_t Get_EntryData(const ResourceArchive& r, const ResourceEntry& e, char*& decompbuffer, size_t& decompsize);
-
 // If the resource archive was extracted from a pk5, use this Get Data function
 ResourceEntryData_t Get_EntryDataPK5(const ResourceArchive& r, const ResourceEntry& e, char*& decompbuffer, size_t& decompsize);
 
@@ -271,6 +256,9 @@ ResourceEntryData_t Get_EntryDataPK5(const ResourceArchive& r, const ResourceEnt
 */
 
 ResourceEntryData_t Get_EntryData(const ResourceEntry& e, FileReader& reader, ResourceEntryBuffers_t& buffers);
+
+// Gets a resource entry's data without decompressing it
+ResourceEntryData_t Get_EntryRaw(const ResourceEntry& e, FileReader& reader, ResourceEntryBuffers_t& buffers);
 
 namespace idcl {
 
