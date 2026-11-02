@@ -190,45 +190,6 @@ bool BuildArchive_Image(ResourceEntry& e, const ModFile& f, BuildArchiveStreams&
 	return true;
 }
 
-// md6 mesh mod wrapper, produced by the external Md6MeshTool. Layout:
-// [Md6ModWrapperHeader][Md6ModStreamInfo * numStreams][def bytes][compressed stream blobs...]
-struct Md6ModStreamInfo    { uint32_t lod; uint32_t compressedSize; };
-struct Md6ModWrapperHeader { uint32_t magic; uint32_t defSize; uint32_t numStreams; };
-#define MD6_WRAPPER_MAGIC 0x574D364DU // 'M6MW'
-
-bool BuildArchive_BaseModel(ResourceEntry& e, const ModFile& f, BuildArchiveStreams& out) {
-	const Md6ModWrapperHeader* wh = (const Md6ModWrapperHeader*)f.dataBuffer;
-	if (f.dataLength < sizeof(Md6ModWrapperHeader) || wh->magic != MD6_WRAPPER_MAGIC) {
-		atlog("FATAL ERROR: baseModel mod file is not a valid md6 wrapper: %s", f.realPath.c_str());
-		return false;
-	}
-	const size_t defOffset = sizeof(Md6ModWrapperHeader) + (size_t)wh->numStreams * sizeof(Md6ModStreamInfo);
-	e.dataSize = wh->defSize;
-	e.uncompressedSize = wh->defSize;
-	e.compMode = 0;
-
-	const char* BufferToWrite = (char*)f.dataBuffer + defOffset; // the def; streams follow it
-	out.WriteResource(BufferToWrite, e);
-
-	// StreamDB
-	// md6 geometry: one compressed blob per LOD, keyed by darkage_miphash(defaultHash, 4 - lod, 0)
-	// TODO: If support for this is brought to Eternal, will need to swap hash algorithms
-	const Md6ModStreamInfo* streams = (const Md6ModStreamInfo*)((char*)f.dataBuffer + sizeof(Md6ModWrapperHeader));
-	const char* streamPtr = BufferToWrite + wh->defSize; // BufferToWrite points at the def
-
-	for (uint32_t i = 0; i < wh->numStreams; i++) {
-		idStreamDB::entry_t streamdb_entry;
-		streamdb_entry.id = HashLib::darkage_miphash(f.defaulthash, 4 - streams[i].lod, 0);
-		streamdb_entry.length = streams[i].compressedSize;
-		streamdb_entry.offset16 = (u32)(out.streamDataOffset / 16);
-		out.streamEntries.push_back(streamdb_entry);
-		out.WriteStreamDB(streamPtr, streamdb_entry.length);
-		streamPtr += streamdb_entry.length;
-	}
-
-	return true;
-}
-
 // Build the resources and streamdb archive. 
 // If this returns false something went wrong and we should abort mod loading
 bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILES, fspath outarchivepath, fspath outstreamdbpath) {
@@ -366,9 +327,6 @@ bool BuildArchive(const std::vector<ModFile*>& modfiles, const size_t NUM_DBFILE
 		}
 		else if(f.typeenum == rt_generic_atdb) {
 			buildResult = BuildArchive_DBFile(e, f, outstreams);
-		}
-		else if (f.typeenum == rt_baseModel) {
-			buildResult = BuildArchive_BaseModel(e, f, outstreams);
 		}
 		else if(IsAtlanCompressed) {
 			const size_t ATCF_SIZE = Oodle::AtlanCompHeaderSize();
