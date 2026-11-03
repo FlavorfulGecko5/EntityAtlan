@@ -18,9 +18,10 @@ enum ResourceType : uint32_t
 	rt_file            = 1 << 11,
 	rt_compfile        = 1 << 12,
 	rt_binaryFile      = 1 << 13,
-	rt_cswf            = 1 << 16,
+	rt_cswf            = 1 << 14,
 
 	rt_generic_atdb    = 1 << 17, // Any resource type that uses the Atlan StreamDB file format
+	rt_generic_res     = 1 << 18, // Resource archive only
 };
 
 enum ResourceTypeComboFlags : uint32_t 

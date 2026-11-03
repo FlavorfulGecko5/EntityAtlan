@@ -133,7 +133,10 @@ void PackagerMain(const char* DIR_GAME, fspath DIR_INPUT, fspath ZIP_OUTPUT)
 		{"compfile",      rt_compfile},
 		{"binaryFile",    rt_binaryFile},
 		{"cswf",          rt_cswf},
-		{"model",         rt_generic_atdb}
+		{"model",         rt_generic_atdb},
+		{"binarymd6def",  rt_generic_atdb},
+		{"anim",          rt_generic_atdb},
+		{"skeleton",      rt_generic_atdb}
 	};
 
 	AtlanModConfig ModConfig;

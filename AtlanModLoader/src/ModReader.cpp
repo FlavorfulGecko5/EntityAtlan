@@ -28,12 +28,16 @@ const std::unordered_map<std::string, resourcetypeinfo_t> ValidResourceTypes = {
 	{"mapentities",   {"mapentities",   rt_mapentities,   game_darkages, 86}},
 	{"image",         {"image",         rt_image,         game_all, 26, 21}},
 	{"slug_font",     {"slug_font",     rt_slug_font,     game_darkages, 14}},
-	{"baseModel",     {"baseModel",     rt_generic_atdb,  game_darkages, 62}},
+	{"baseModel",     {"baseModel",     rt_generic_atdb,  game_all, 62, 31}},
 	{"strandsHair",   {"strandsHair",   rt_generic_atdb,  game_darkages, 48}},
 	{"compfile",      {"compfile",      rt_compfile,      game_eternal, 1, 1}},
 	{"binaryFile",    {"binaryFile",    rt_binaryFile,    game_eternal, 1, 1}},
 	{"cswf",          {"cswf",          rt_cswf,          game_eternal, 9, 9}},
 	{"model",         {"model",         rt_generic_atdb,  game_eternal, 0, 67}},
+
+	{"anim",          {"anim",          rt_generic_atdb,  game_eternal, 0, 17}},
+	{"skeleton",      {"skeleton",      rt_generic_atdb,  game_eternal, 0, 12}},
+	{"binarymd6def",  {"binarymd6def",  rt_generic_atdb,  game_eternal, 0, 0}},
 
 	// Audio will be handled differently by the loader
 	{"audio", {"audio", rt_audio, game_all}}
@@ -126,8 +130,12 @@ bool ModReader_ValidatePath(ModFile& modfile, const AtlanModConfig& cfg, std::st
 			*nameEnd += 32;
 			hasBadChars = true;
 		}
+
+		// Apparently spaces are actually fine, at least in Eternal?
+		// However, warnings should probably still be thrown about it
+		// Some idStudio-converted mods will break if we replace spaces
 		else if (' ' == c) {
-			*nameEnd = '_';
+			//*nameEnd = '_';
 			hasBadChars = true;
 		}
 		nameEnd++;

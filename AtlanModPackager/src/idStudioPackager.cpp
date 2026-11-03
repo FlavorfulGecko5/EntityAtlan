@@ -66,7 +66,9 @@ void pk5_zipSound(mz_zip_archive* zptr, const std::string& name, ResourceData da
 	mz_zip_writer_add_mem(zptr, zipname.c_str(), data.buffer, data.length, MZ_DEFAULT_COMPRESSION);
 }
 
-void pk5_zipSingleArchive(mz_zip_archive* zptr, ResourceArchive& r, const char* ExpectedType) {
+// Some file types don't have streamdb entries in Eternal, but do in Dark Ages
+// To prevent future troubles, we should wrap them in the AtlanDB format
+void pk5_zipSingleArchive(mz_zip_archive* zptr, ResourceArchive& r, const char* ExpectedType, const bool UseAtlanDB) {
 	if (r.header.numResources != 1) {
 		atlog("   ERROR: Expected 1 resource entry, found %u", r.header.numResources);
 		return;
@@ -92,10 +94,21 @@ void pk5_zipSingleArchive(mz_zip_archive* zptr, ResourceArchive& r, const char* 
 	zipname.push_back('/');
 	zipname += namestring;
 
-	atlog("   %s", zipname.c_str());
-
+	//atlog("   %s", zipname.c_str());
 	G_PK5_MANIFEST.insert(zipname);
-	mz_zip_writer_add_mem(zptr, zipname.c_str(), entrydata.buffer, entrydata.length, MZ_DEFAULT_COMPRESSION);
+
+	if (UseAtlanDB) {
+		charbuffer_t atlandbfile;
+		if (!AtlanDBFile::FromGeneric_NoEntries(entrydata.buffer, entrydata.length, r.entries[0].version, atlandbfile)) {
+			atlog("   ERROR: Failed to make AtlanDB File");
+			return;
+		}
+
+		mz_zip_writer_add_mem(zptr, zipname.c_str(), atlandbfile.data, atlandbfile.length, MZ_DEFAULT_COMPRESSION);
+	}
+	else {
+		mz_zip_writer_add_mem(zptr, zipname.c_str(), entrydata.buffer, entrydata.length, MZ_DEFAULT_COMPRESSION);
+	}
 }
 
 void pk5_zipImage(mz_zip_archive* zptr, ResourceArchive& r) {
@@ -181,6 +194,49 @@ void pk5_zipModel(mz_zip_archive* zptr, ResourceArchive& r) {
 	mz_zip_writer_add_mem(zptr, zipname.c_str(), output.data, output.length, MZ_DEFAULT_COMPRESSION);
 }
 
+void pk5_zipBaseModel(mz_zip_archive* zptr, ResourceArchive& r) {
+	if (r.header.numResources != 2) {
+		if (r.header.numResources == 1 && r.entries[0].dataSize == 0) {
+			atlog("   WARNING: File is empty. Skipping");
+		}
+		else {
+			atlog("   ERROR: Expected 2 resource entries, found %u", r.header.numResources);
+		}
+		return;
+	}
+
+	const char* typestring, *embname, *modelname;
+
+	Get_EntryStrings(r, r.entries[0], typestring, modelname);
+	if (strcmp(typestring, "baseModel")) {
+		atlog("   ERROR: Expected 'baseModel' type as first entry");
+		return;
+	}
+	Get_EntryStrings(r, r.entries[1], typestring, embname);
+	if (strcmp(typestring, "rs_emb_sfile")) {
+		atlog("   ERROR: Expected 'rs_emb_sfile' type as second entry");
+		return;
+	}
+	check_debug(r.entries[0].version == 31);
+
+	ResourceData data_model = r.GetData_PK5(r.entries[0], 0);
+	ResourceData data_sfile = r.GetData_PK5(r.entries[1], 1);
+	check_debug(data_model.returncode == EntryDataCode::OK && data_sfile.returncode == EntryDataCode::OK);
+
+	charbuffer_t output;
+	if (!AtlanDBFile::FromBaseModel(data_model.buffer, data_model.length, data_sfile.buffer, data_sfile.length, output)) {
+		atlog("   ERROR: Failed to convert basemodel to AtlanDB file");
+		return;
+	}
+
+	std::string zipname = "baseModel/";
+	zipname += modelname;
+	G_PK5_MANIFEST.insert(zipname);
+	mz_zip_writer_add_mem(zptr, zipname.c_str(), output.data, output.length, MZ_DEFAULT_COMPRESSION);
+
+	//atlog("   %s", zipname.c_str());
+}
+
 void ZipPk5(mz_zip_archive* zptr, const fspath& pk5path) {
 
 	idPackage package;
@@ -241,12 +297,12 @@ void ZipPk5(mz_zip_archive* zptr, const fspath& pk5path) {
 		}
 
 		if (e.name._Starts_with("generated/compfile/")) {
-			pk5_zipSingleArchive(zptr, resarchive, "compfile");
+			pk5_zipSingleArchive(zptr, resarchive, "compfile", false);
 			continue;
 		}
 
 		if (e.name._Starts_with("generated/cswf/")) {
-			pk5_zipSingleArchive(zptr, resarchive, "cswf");
+			pk5_zipSingleArchive(zptr, resarchive, "cswf", false);
 			continue;
 		}
 
@@ -257,6 +313,26 @@ void ZipPk5(mz_zip_archive* zptr, const fspath& pk5path) {
 
 		if (e.name._Starts_with("generated/model/")) {
 			pk5_zipModel(zptr, resarchive);
+			continue;
+		}
+
+		if (e.name._Starts_with("generated/basemodel/")) {
+			pk5_zipBaseModel(zptr, resarchive);
+			continue;
+		}
+
+		if (e.name._Starts_with("generated/anim/")) {
+			pk5_zipSingleArchive(zptr, resarchive, "anim", true);
+			continue;
+		}
+
+		if (e.name._Starts_with("generated/binarymd6def/")) {
+			pk5_zipSingleArchive(zptr, resarchive, "binarymd6def", true);
+			continue;
+		}
+
+		if (e.name._Starts_with("generated/skeleton/")) {
+			pk5_zipSingleArchive(zptr, resarchive, "skeleton", true);
 			continue;
 		}
 

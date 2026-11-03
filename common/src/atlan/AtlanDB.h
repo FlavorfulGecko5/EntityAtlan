@@ -28,4 +28,8 @@ struct AtlanDBFile {
 	
 	static bool FromStaticModel(const char* bmodel, const size_t bmodel_length, const char* sfile, const size_t sfile_length, charbuffer_t& output);
 
+	static bool FromBaseModel(const char* mesh, const size_t mesh_length, const char* sfile, const size_t sfile_length, charbuffer_t& output);
+
+	static bool FromGeneric_NoEntries(const char* res, const size_t res_length, const u32 resversion, charbuffer_t& output);
+
 };

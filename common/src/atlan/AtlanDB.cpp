@@ -39,6 +39,32 @@ struct dbentrylist {
     int num = 0;
 };
 
+bool AtlanDB_Finalize(const char* archive, const size_t archive_length, const char* sfile, const size_t sfile_length, u32 resversion, dbentrylist& entries, charbuffer_t& output)
+{
+    // Add header size to the offsets
+    for (u32 i = 0; i < entries.num; i++) {
+        entries.entries[i].offset += 32 + 64 * entries.num + archive_length;
+    }
+
+    BinaryWriter writer;
+    writer.EnsureMaxCapacity(archive_length + sfile_length + 2048);
+
+    writer.WriteBytes("ATDB", 4);
+    writer << (u32)1 << resversion << entries.num << archive_length << archive_length;
+    writer.WriteBytes((char*)entries.entries, entries.num * sizeof(AtlanDBFile::entry));
+    writer.WriteBytes(archive, archive_length);
+    writer.WriteBytes(sfile, sfile_length);
+
+    AtlanDBFile validator;
+    check(validator.ReadFrom(writer.GetBuffer(), writer.GetFilledSize()));
+
+    output.capacity = writer.GetMaxCapacity();
+    output.length = writer.GetFilledSize();
+    output.data = writer.Finalize();
+
+    return true;
+}
+
 // Static Model Definitions: https://github.com/jandk/valen/blob/main/templates/model.bt
 bool GetEntries_StaticModel(BinaryReader r, const size_t sfile_length, dbentrylist& output) {
     u32 num_lods, num_surfaces, streamable;
@@ -126,25 +152,113 @@ bool AtlanDBFile::FromStaticModel(const char* bmodel, const size_t bmodel_length
         return false;
     }
 
-    for (u32 i = 0; i < entries.num; i++) {
-        entries.entries[i].offset += 32 + 64 * entries.num + bmodel_length;
+    return AtlanDB_Finalize(bmodel, bmodel_length, sfile, sfile_length, 67, entries, output);
+}
+
+// Doom Eternal BaseModel definitions: https://github.com/jandk/valen/blob/main/templates/md6mesh.bt
+bool GetEntries_BaseModel(BinaryReader r, const size_t sfile_length, dbentrylist& output) 
+{
+    u32 length32;
+    u16 length16;
+
+    // Md6Header
+    r >> length32;
+    r.GoRight(length32 + 29); 
+
+    // Md6boneInfo
+    r >> length16;
+    r.GoRight(length16 + 88);
+
+    // Md6MeshInfos
+    u32 numStructures;
+    r >> numStructures;
+    for (u32 i = 0; i < numStructures; i++) {
+
+        r >> length32;
+        r.GoRight(length32);
+        r >> length32;
+        r.GoRight(length32 + 21);
+
+        // Md6LodInfos
+        for (u32 i = 0; i < 5; i++) {
+            u32 absent;
+            r >> absent;
+            if (!absent) {
+                r.GoRight(72);
+            }
+        }
+
+        r.GoRight(5);
     }
 
-    BinaryWriter writer;
-    writer.EnsureMaxCapacity(bmodel_length + sfile_length + 2048);
+    // Md6MaterialInfo
+    r >> numStructures;
+    for (u32 i = 0; i < numStructures; i++) {
+        r >> length32;
+        r.GoRight(length32 + 12);
+    }
 
-    writer.WriteBytes("ATDB", 4);
-    writer << (u32)1 << (u32)67 << entries.num << bmodel_length << bmodel_length;
-    writer.WriteBytes((char*)entries.entries, entries.num * sizeof(AtlanDBFile::entry));
-    writer.WriteBytes(bmodel, bmodel_length);
-    writer.WriteBytes(sfile, sfile_length);
+    // Md6GeoDecal
+    r >> length32;
+    r.GoRight(length32);
 
-    AtlanDBFile validator;
-    check(validator.ReadFrom(writer.GetBuffer(), writer.GetFilledSize()));
+    length32 = 0;
+    r >> numStructures;
+    for (u32 i = 0; i < numStructures; i++) {
+        u32 n;
+        r >> n;
+        length32 += n;
+    }
+    r.GoRight(4 * length32);
 
-    output.capacity = writer.GetMaxCapacity();
-    output.length = writer.GetFilledSize();
-    output.data = writer.Finalize();
+    // GeometryMemoryLayouts
+    r >> numStructures;
+    for (u32 i = 0; i < numStructures; i++) {
+        r.GoRight(8);
+        r >> length32;
+        r.GoRight(8 * length32 + 4);
+    }
 
+    u32 compsum = 0;
+
+    // GeometryDiskLayouts
+    output.num = 0;
+    for (u32 i = 0; i < numStructures; i++) {
+
+        u32 compsize, offset;
+        
+        r.GoRight(8);
+        r >> compsize >> offset;
+
+        check(offset == compsum);
+        compsum += compsize;
+
+        if(compsize == 0)
+            continue;
+        output.num++;
+        output.entries[i] = {0, 0, i, 0, 0, 0, 0, offset, compsize};
+    }
+
+    check(compsum == sfile_length);
+    check(r.ReachedEOF());
     return true;
+}
+
+bool AtlanDBFile::FromBaseModel(const char* mesh, const size_t mesh_length, const char* sfile, const size_t sfile_length, charbuffer_t& output)
+{
+    dbentrylist entries;
+
+    if (!GetEntries_BaseModel(BinaryReader(mesh, mesh_length), sfile_length, entries)) {
+        return false;
+    }
+
+    return AtlanDB_Finalize(mesh, mesh_length, sfile, sfile_length, 31, entries, output);
+}
+
+bool AtlanDBFile::FromGeneric_NoEntries(const char* res, const size_t res_length, const u32 resversion, charbuffer_t& output)
+{
+    dbentrylist entries;
+    entries.num = 0;
+
+    return AtlanDB_Finalize(res, res_length, nullptr, 0, resversion, entries, output);
 }
