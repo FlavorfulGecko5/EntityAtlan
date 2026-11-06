@@ -221,6 +221,7 @@ void AtlanModConfig__ReadModInfo(AtlanModConfig& cfg, const EntNode& modInfo) {
     }
 
     cfg.elevated = modInfo["elevated_gameplay"].getParent() == &modInfo;
+    cfg.total_overhaul = modInfo["total_overhaul"].getParent() == &modInfo;
 }
 
 void AtlanModConfig__ReadAliasing(AtlanModConfig& cfg, const EntNode& aliasNode) {

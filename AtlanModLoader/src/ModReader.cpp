@@ -64,6 +64,15 @@ bool ModReader_CanLoadMod(ModDef& moddef, const AtlanModConfig& cfg, GlobalConfi
 		atlog("Elevated Gameplay Enabled");
 		globalconfig.elevatedmod = &moddef;
 	}
+	if(cfg.total_overhaul) {
+		if(globalconfig.totalOverhaulMod) {
+			atlog("ERROR: Cannot load two Total Overhaul mods at the same time! Please remove one of them!"
+				"\nActive Total Overhaul Mod: %s", globalconfig.totalOverhaulMod->modName.c_str());
+			return false;
+		}
+		globalconfig.totalOverhaulMod = &moddef;
+		atlog("Total Overhaul Mod Found");
+	}
 	return true;
 }
 

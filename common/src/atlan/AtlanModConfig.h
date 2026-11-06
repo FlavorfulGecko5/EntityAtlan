@@ -29,6 +29,10 @@ struct AtlanModConfig {
 
 	// If set, no other mod may have gameplay-affecting files loaded
 	bool elevated = false;
+
+	// Only one total_overhaul mod may be installed at once
+	bool total_overhaul = false;
+
 	gamebit_t gameid = game_all;
 	int requiredVersion = 1;
 	int loadPriority = 0;

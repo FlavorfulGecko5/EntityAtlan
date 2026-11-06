@@ -95,6 +95,7 @@ struct GlobalConfig_t {
 	std::vector<MapSpec_t::AddOn> mapspec_addons;
 
 	ModDef* elevatedmod = nullptr;
+	const ModDef* totalOverhaulMod = nullptr;
 
 	void ReadLevelConfigs(const fspath& gamedir);
 	void AddCommonFiles(bool includeStreamDB);
