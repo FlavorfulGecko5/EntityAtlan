@@ -75,6 +75,36 @@ bool idStreamDB::Read_Internal()
     return true;
 }
 
+idStreamDB::query idStreamDB::Find(const u64 targethash) {
+    int low = 0, high = static_cast<int>(header.numEntries) - 1;
+
+    while (low <= high) {
+        int index = (high + low) / 2;
+
+        if (entries[index].id < targethash) {
+            low = index + 1;
+        }
+        else if (entries[index].id > targethash) {
+            high = index - 1;
+        }
+        else {
+            return {this, (u32)index};
+        }
+    }
+
+    return {nullptr, 0};
+}
+
+void idStreamDB::GetData_Raw(u32 entryIndex, heaparray<char>& buffer) {
+    const entry_t& e = entries[entryIndex];
+    buffer.EnsureCapacity(e.length);
+
+    u64 offset = e.offset16 * 16ULL;
+
+    reader.seek(offset);
+    reader.read(buffer.buffer, e.length);
+}
+
 
 
 bool idStreamDB_Database::Build(const wchar_t* gamedir)

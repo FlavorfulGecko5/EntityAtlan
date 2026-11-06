@@ -210,7 +210,7 @@ const AssetChecksumMap LevelOptimizer_BuildMap(const fspath& gamedir) {
 			iter.newarchiveloaded = false;
 
 			std::string archivename = iter.CurrentArchive().filename().string();
-			if (archivename.find("gameresources") == -1 && archivename.find("warehouse") == -1) {
+			if (archivename.find("e5m1_spear") == -1 && archivename.find("gameresources") == -1 && archivename.find("warehouse") == -1) {
 				iter.SkipArchive();
 				continue;
 			}
@@ -283,6 +283,126 @@ void LevelOptimizer_BuildEntryArray(const ResourceArchive& original, ResourceArc
 }
 
 #include <fstream>
+#include <archives/StreamDB.h>
+
+// We can hyper-optimize both the resource archive and the streamdb file sizes
+// by excluding entries found in a DLC2 level, and importing the DLC 2 level
+// files into the modded level via packagemapspec editing.
+// If a level mod uses all DLC2 AI, this approach reduces the streamdb size by ~300 megabytes.
+// It appears these AI assets aren't in a globally loaded streamdb file.
+//
+// Because there's only one streamdb file shared by all levels in a mod, we have to analyze
+// every rebuilt archive to finalize a list of cullable streamdb entries.
+// As level mods become more expansive, it may become less optimal to use a DLC2 level versus
+// a level with better overlap in level geometry kit pieces.
+// (i.e. if it's a hell-themed level, maybe Nekravol would be a better level choice)
+//
+// For multi-level mods, with each level having a different theme, this approach will
+// give diminishing returns. In these cases, it may be worth constructing one streamdb per level.
+// and allowing users to specify different maps they want to import for each level via the config.
+// Exploring this approach would be pretty overkill at the moment
+// 
+// Currently, this approach will suffice, and swapping the DLC2 level we use should be enough
+// to support Sentinel/Earth/Immora-themed levels
+struct OptimizedDB {
+	idStreamDB dbfile;
+	fspath realpath;
+	std::string zipname;
+	std::vector<u8> include;
+};
+
+void LevelOptimizer_RebuildStreamDB(mz_zip_archive* zptr, OptimizedDB& db) {
+	atlog("Optimizing StreamDB file %s", db.zipname.c_str());
+
+	const fspath TEMP_PATH = db.realpath.string() += ".temp";
+
+	/* Update the header chunk */
+	u32 oldEntryCount = db.dbfile.header.numEntries;
+	db.dbfile.header.numEntries = 0;
+	for (const u8 i : db.include) {
+		if(i) db.dbfile.header.numEntries++;
+	}
+
+	db.dbfile.header.headerLength = sizeof(idStreamDB::header_t) + sizeof(idStreamDB::prefetchheader_t)
+		+ sizeof(idStreamDB::entry_t) * db.dbfile.header.numEntries;
+
+	// Ensure we've culled all prefetch blocks (unclear how important these are. The empty archive doesn't produce these.)
+	// But we would need to cull the hashes of any removed entries if these exist
+	if (db.dbfile.prefetchheader.numblocks > 0) {
+		atlog("WARNING: StreamDB has prefetch blocks");
+	}
+	db.dbfile.prefetchheader.numblocks = 0;
+	db.dbfile.prefetchheader.totalLength = sizeof(idStreamDB::prefetchheader_t);
+
+	heaparray<char> entrybuffer;
+
+	idStreamDB::entry_t* newEntries = new idStreamDB::entry_t[db.dbfile.header.numEntries];
+	u64 runningDataOffset = db.dbfile.header.headerLength;
+	runningDataOffset += 16 - runningDataOffset % 16;
+
+	std::ofstream outwriter(TEMP_PATH, std::ios_base::binary);
+
+	/* Copy over the entries*/
+
+	idStreamDB::entry_t* nextEntry = newEntries;
+	for (u32 i = 0; i < oldEntryCount; i++) {
+		if(!db.include[i])
+			continue;
+
+		outwriter.seekp(runningDataOffset, std::ios_base::beg);
+
+		*nextEntry = db.dbfile.entries[i];
+
+		//atlog("WRITING: %zu %u", runningDataOffset, nextEntry->length);
+
+		nextEntry->offset16 = (u32)(runningDataOffset / 16);
+		runningDataOffset += nextEntry->length;
+		runningDataOffset += 16 - runningDataOffset % 16;
+
+		db.dbfile.GetData_Raw(i, entrybuffer);
+
+		outwriter.write(entrybuffer.buffer, nextEntry->length);
+
+		nextEntry++;
+	}
+
+	outwriter.seekp(0, std::ios_base::beg);
+	outwriter.write((char*)&db.dbfile.header, sizeof(idStreamDB::header_t));
+	outwriter.write((char*)newEntries, db.dbfile.header.numEntries * sizeof(idStreamDB::entry_t));
+	outwriter.write((char*)&db.dbfile.prefetchheader, sizeof(idStreamDB::prefetchheader_t));
+	outwriter.close();
+
+	delete[] newEntries;
+
+	#ifdef _DEBUG
+	idStreamDB validator;
+	check_debug(validator.Read(TEMP_PATH.c_str(), false));
+
+	#endif
+
+	atlog("Zipping StreamDb");
+	mz_zip_writer_add_file(zptr, db.zipname.c_str(), TEMP_PATH.string().c_str(), NULL, 0, COMPMODE_LARGE_FILES);
+	std::filesystem::remove(TEMP_PATH);
+}
+
+void LevelOptimizer_CheckStreamDB(const ResourceArchive& newarc, OptimizedDB& StreamDB) {
+	
+	for (u32 i = 0; i < newarc.header.numResources; i++) {
+		const ResourceEntry& e = newarc.entries[i];
+
+		if(e.defaultHash == e.dataCheckSum)
+			continue;
+
+		for (u32 i = 0; i < 16; i++) {
+			u64 lookup = e.defaultHash << 4 | i;
+
+			idStreamDB::query result = StreamDB.dbfile.Find(lookup);
+			if (result.found()) {
+				StreamDB.include[result.index] = 1;
+			}
+		}
+	}
+}
 
 /*
 * Optimizes the level-specific archives by culling duplicates of globally-loaded resources
@@ -292,7 +412,7 @@ void LevelOptimizer_BuildEntryArray(const ResourceArchive& original, ResourceArc
 * Analysis suggests that idStudio already excludes duplicate streamdb entries.
 * This would explain why packaging a level mod gets messed up when custom streamdbs exist in your game folder
 */
-void LevelPackager_OptimizeArchive(const fspath& archivepath, const AssetChecksumMap& lookupmap) 
+void LevelPackager_OptimizeArchive(const fspath& archivepath, const AssetChecksumMap& lookupmap, OptimizedDB& StreamDB) 
 {
 	ResourceArchive original;
 	original.Read(archivepath);
@@ -377,11 +497,12 @@ void LevelPackager_OptimizeArchive(const fspath& archivepath, const AssetChecksu
 	outwriter.write(manifest.data(), manifest.length());
 	outwriter.close();
 	#endif
+
+	LevelOptimizer_CheckStreamDB(newarc, StreamDB);
 }
 
-bool LevelPackager_AddArchives(mz_zip_archive* zptr, const fspath& basedir, const std::string& LEVEL_FOLDER, const fspath& gamedir) {
-	MapSpec_t mapspec(basedir / "packagemapspec.json");
-
+// Validates the mapspec and initializes the streamdb
+bool LevelPackager_ValidateMapspec(const MapSpec_t& mapspec, OptimizedDB& streamdb, const fspath& basedir, const std::string& ZIP_FOLDER) {
 	if (mapspec.listmaps.size() < 5
 		|| mapspec.listmaps[0] != "common"
 		|| mapspec.listmaps[1] != "warehouse"
@@ -392,7 +513,38 @@ bool LevelPackager_AddArchives(mz_zip_archive* zptr, const fspath& basedir, cons
 		return false;
 	}
 
-	// --- Analyze archives and build up global asset lists ---
+	// Since we're doing streamdb optimization we need to account for this now
+	int numDBs = 0;
+	for (const std::string& s : mapspec.listfiles) {
+		if (s.find(".streamdb") != -1) {
+			numDBs++;
+			streamdb.realpath = basedir / s;
+			streamdb.zipname = ZIP_FOLDER + s;
+		}
+	}
+
+	if (numDBs != 1) {
+		atlog("ERROR: Found %d StreamDB archives, 1 expected", numDBs);
+		return false;
+	}
+
+	// Initialize the streamdb
+	streamdb.dbfile.Read(streamdb.realpath.c_str(), true);
+	streamdb.include.resize(streamdb.dbfile.header.numEntries);
+	memset(streamdb.include.data(), 0, streamdb.include.size());
+
+	return true;
+}
+
+bool LevelPackager_AddArchives(mz_zip_archive* zptr, const fspath& basedir, const std::string& ZIP_FOLDER, const fspath& gamedir) {
+	OptimizedDB streamdb;
+	MapSpec_t mapspec(basedir / "packagemapspec.json");
+
+	if (!LevelPackager_ValidateMapspec(mapspec, streamdb, basedir, ZIP_FOLDER)) {
+		return false;
+	}
+
+	// --- Analyze archives and build config's asset lists ---
 	std::string atlanmod = "assets {\ngenerated_common {\n";
 	AnalyzeGlobalMap(basedir, mapspec, 0, EMPTYMAP_GAMERESOURCES, atlanmod);
 	atlanmod.append("}\ngenerated_warehouse{\n");
@@ -400,8 +552,10 @@ bool LevelPackager_AddArchives(mz_zip_archive* zptr, const fspath& basedir, cons
 	AnalyzeShell(basedir, mapspec, 2);
 	AnalyzeInit(basedir, mapspec, mapspec.listmaps.size() - 1);
 
+	// Config Map Resources
 	atlanmod.append("}\n}\nmapresources {\ncommon {\ngenerated_common\n}\nwarehouse {\ngenerated_warehouse\n}\n}");
 
+	// --- Config NewMaps List ---
 	atlanmod.append("\nnewmaps {\n");
 
 	std::set<std::string> addlist;
@@ -416,15 +570,22 @@ bool LevelPackager_AddArchives(mz_zip_archive* zptr, const fspath& basedir, cons
 			addlist.insert(mapspec.listfiles[fileindex]);
 
 			atlanmod.append("\t\"");
-			atlanmod.append("modarchives/");
-			atlanmod.append(LEVEL_FOLDER);
-			atlanmod.push_back('/');
+			atlanmod.append(ZIP_FOLDER);
 			atlanmod.append(mapspec.listfiles[fileindex]);
 			atlanmod.append("\"\n");
 		}
 		atlanmod.append("}\n");
 	}
-	atlanmod.append("}");
+
+	// Config MapSpec import statements
+	atlanmod.append("}\nmapspec {\n");
+	for (size_t i = 3; i < mapspec.listmaps.size() - 1; i++) {
+		atlanmod.append("\"game/dlc2/e5m1_spear/e5m1_spear$");
+		atlanmod.append(mapspec.listmaps[i]);
+		atlanmod.append("\"\n");
+
+	}
+	atlanmod.append("}\n");
 
 	atlog("Creating Global Asset Map");
 	const AssetChecksumMap globalResMap = LevelOptimizer_BuildMap(gamedir);
@@ -433,34 +594,26 @@ bool LevelPackager_AddArchives(mz_zip_archive* zptr, const fspath& basedir, cons
 		return false;
 	}
 
-	std::string path_txt_mapspec = "modarchives/" + LEVEL_FOLDER;
-	path_txt_mapspec.push_back('/');
-	path_txt_mapspec.append(CFG_NAME_V2);
+	std::string path_txt_mapspec = ZIP_FOLDER + CFG_NAME_V2;
 	mz_zip_writer_add_mem(zptr, path_txt_mapspec.c_str(), atlanmod.c_str(), atlanmod.size(), MZ_DEFAULT_COMPRESSION);
 	for (const std::string& relative : addlist) {
 		fspath fullpath = basedir / relative;
-		atlog("Zipping %s", relative.c_str());
 
-		std::string zipname = "modarchives/";
-		zipname.append(LEVEL_FOLDER);
-		zipname.push_back('/');
-		zipname.append(relative);
+		std::string zipname = ZIP_FOLDER + relative;
 		check_debug(std::filesystem::exists(fullpath));
 
 		if (relative.find(".resources") != -1) {
-			atlog("   Optimizing Archive");
-			LevelPackager_OptimizeArchive(fullpath, globalResMap);
+			atlog("Zipping and Optimizing %s", relative.c_str());
+			LevelPackager_OptimizeArchive(fullpath, globalResMap, streamdb);
 
 			std::string temppath = fullpath.string() + ".temp";
 
 			mz_zip_writer_add_file(zptr, zipname.c_str(), temppath.c_str(), NULL, 0, COMPMODE_LARGE_FILES);
 			std::filesystem::remove(temppath);
 		}
-		else {
-			mz_zip_writer_add_file(zptr, zipname.c_str(), fullpath.string().c_str(), NULL, 0, COMPMODE_LARGE_FILES);
-		}
 	}
 
+	LevelOptimizer_RebuildStreamDB(zptr, streamdb);
 	return true;
 }
 
@@ -522,6 +675,9 @@ void ZipLevel(const fspath& modfolder, const fspath& leveldir, const fspath& gam
 	std::string load_folder = LevelPackager_GetArchiveDir(modfolder);
 	if (!load_folder.size())
 		return;
+	std::string zip_folder = "modarchives/";
+	zip_folder.append(load_folder);
+	zip_folder.push_back('/');
 
 	std::string outpath = (modfolder / "AtlanPackage_InstallOnce.zip").string();
 	mz_zip_archive ziparchive;
@@ -533,7 +689,7 @@ void ZipLevel(const fspath& modfolder, const fspath& leveldir, const fspath& gam
 		return;
 	}
 
-	if (!LevelPackager_AddArchives(zptr, leveldir, load_folder, gamedir)) {
+	if (!LevelPackager_AddArchives(zptr, leveldir, zip_folder, gamedir)) {
 		atlog("Level packaging failed due to fatal error in AddArchives");
 		mz_zip_writer_finalize_archive(zptr);
 		mz_zip_writer_end(zptr);

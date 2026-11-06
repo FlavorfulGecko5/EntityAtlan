@@ -46,6 +46,13 @@ struct idStreamDB {
         u32 numItems;
     };
 
+    struct query {
+        idStreamDB* file;
+        u32 index;
+
+        bool found() const {return file != nullptr;}
+    };
+
     header_t header;
     entry_t* entries = nullptr; // Length == header.numEntries
     prefetchheader_t prefetchheader; // Always included
@@ -65,6 +72,11 @@ struct idStreamDB {
     }
 
     bool Read(const wchar_t* filepath, bool KeepAlive = false);
+
+    // Find a hash
+    idStreamDB::query Find(const u64 hash);
+
+    void GetData_Raw(u32 entryIndex, heaparray<char>& buffer);
 
     private:
     bool Read_Internal();
