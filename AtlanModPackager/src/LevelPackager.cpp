@@ -267,11 +267,20 @@ void LevelOptimizer_BuildEntryArray(const ResourceArchive& original, ResourceArc
 
 		uint64_t hash = HashLib::DeclHash(type, name);
 
-		const auto iter = lookupmap.find(hash);
-		if (iter != lookupmap.end() && iter->second.v0 == e.dataCheckSum) {
-			if (iter->second.v1 == e.defaultHash)
+		auto iter = lookupmap.find(hash);
+		if (iter != lookupmap.end()) {
+
+			if (iter->second.v0 == e.dataCheckSum && iter->second.v1 == e.defaultHash) {
 				continue;
-			numDefaultHashMismatches++;
+			}
+			if(iter->second.v0 == e.dataCheckSum)
+				numDefaultHashMismatches++;
+
+			// Keep check inside this conditional incase some files we're culling don't exist in the vanilla levels we're importing
+			iter = EMPTYMAP_STREAMDB_FILES.find(hash);
+			if (iter != EMPTYMAP_STREAMDB_FILES.end() && iter->second.v0 == e.dataCheckSum && iter->second.v1 == e.defaultHash) {
+				continue;
+			}
 		}
 
 		newarc.entries[newarc.header.numResources++] = e;

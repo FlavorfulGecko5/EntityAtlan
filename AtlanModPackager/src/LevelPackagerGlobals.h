@@ -26,3 +26,15 @@ extern const AssetChecksumMap EMPTYMAP_WAREHOUSE;
 // When packaging an empty idStudio level, these are all the assets
 // that get put into the gameresources archive
 extern const AssetChecksumMap EMPTYMAP_GAMERESOURCES;
+
+// An empty map gets packaged with ~400 UI image assets. These images
+// comprise the entirety of the empty map's ~15 megabyte streamdb file.
+// 
+// This implies these are are level-specific resources, packaged into every 
+// vanilla level in the game. However, these don't normally get culled, because
+// their checksums don't match their vanilla counterparts. For whatever reason,
+// idStudio regenerates them differently. But this shouldn't ultimately matter.
+// We can still cull them, using this list to identify them
+// 
+// In this map, v1 is the defaulthash, NOT a second checksum
+extern const AssetChecksumMap EMPTYMAP_STREAMDB_FILES;
