@@ -129,39 +129,36 @@ bool idImage::Read(const char* data, size_t length, bool FullyValidate)
 	return true;
 }
 
-#define addprop(PROP) {addto.append("\t" #PROP " = "); addto.append(std::to_string(PROP)); addto.push_back('\n');}
+// We must keep variable names short and sweet
+// or the aggregated header dump file becomes very large, very quick
+#define addprop2(CONDITION, DISPLAY_NAME, VAR) {if(CONDITION) {addto.append(DISPLAY_NAME "="); addto.append(std::to_string(VAR)); addto.push_back('\n');}}
 
-void idImage::tostring(std::string& addto, const char* imageName) const
+void idImage::tostring(std::string& addto) const
 {
-	addto.push_back('"');
-	addto.append(imageName);
-	addto.append("\"= {\n");
-
 	header.tostring(addto);
 	for (uint32_t i = 0; i < header.mipCount; i++) {
-		addto.append("mipinfo[");
+		addto.append("m");
 		addto.append(std::to_string(i));
-		addto.append("] = {\n");
+		addto.append("{\n");
 
 		mipinfos[i].tostring(addto);
 		addto.append("}\n");
 	}
-
-	addto.append("}\n");
 }
 
 
 void ImageMipInfo::tostring(std::string& addto) const
 {
-	addprop(mipLevel);
-	addprop(mipSlice);
-	addprop(mipPixelWidth);
-	addprop(mipPixelHeight);
-	addprop(mipPixelDepth);
-	addprop(decompressedSize);
-	addprop(flagIsCompressed);
-	addprop(compressedSize);
-	addprop(cumulativeSizeStreamDB);
+	addprop2(1, "lvl", mipLevel);
+	addprop2(1, "slice", mipSlice);
+	addprop2(1, "w", mipPixelWidth);
+	addprop2(1, "h", mipPixelHeight);
+	addprop2(1, "d", mipPixelDepth);
+	addprop2(1, "size", decompressedSize);
+	//if(flagIsCompressed)
+	//	addto.append("comp\n");
+	addprop2(flagIsCompressed || compressedSize != decompressedSize, "csize", compressedSize);
+	addprop2(1, "sum", cumulativeSizeStreamDB);
 }
 
 void ImageHeader::tostring(std::string& addto) const
@@ -169,44 +166,39 @@ void ImageHeader::tostring(std::string& addto) const
 	//addto.append("\tmagic = ");
 	//addto.push_back(magic[0]); addto.push_back(magic[1]); addto.push_back(magic[2]); addto.append("\n");
 
-	addprop(version)
+	addto.push_back('v');
+	addto.append(std::to_string(version));
+	addto.push_back('\n');
 
-	addto.append("\ttype = ");
 	addto.append(textureType_tostring(textureType));
+	addto.push_back('\n');
 
-	addto.append("\n\tmtlkind = ");
 	addto.append(textureMaterialKind_tostring(textureMaterialKind));
-	addto.append("\n");
+	addto.push_back('\n');
 
-	addprop(pixelWidth) addprop(pixelHeight) addprop(depth)
-	addprop(mipCount) 
-	if(unkFlags)
-		addprop(unkFlags) 
-	addprop(albedoSpecularBias)
-	addprop(albedoSpecularScale)
-	if(isEnvironmentMap)
-		addprop(isEnvironmentMap)
-
-	addto.append("\tformat = ");
 	addto.append(textureFormat_tostring(textureFormat));
-	addto.append("\n");
+	addto.push_back('\n');
 
-	addprop(engineVersion);
-	if(nullpadding)
-		addprop(nullpadding);
-	if(atlaspadding)
-		addprop(atlaspadding);
-	addprop(streamed);
-	addprop(singleStream);
-	addprop(noMips);
-	addprop(fftBloom);
-	
-	if(version >= 24)
-		addprop(prefiltermips);
+	addprop2(1, "w", pixelWidth);
+	addprop2(1, "h", pixelHeight);
+	addprop2(1, "d", depth);
+	addprop2(1, "mips", mipCount);
+	addprop2(1, "dbmips", streamDBMipCount);
+	addprop2(minimumMip, "minmip", minimumMip);
+	addprop2(unkFlags, "unkFlags", unkFlags);
+	addprop2(albedoSpecularBias != 0.0f, "bias", albedoSpecularBias);
+	addprop2(albedoSpecularScale != 1.0f, "scale", albedoSpecularScale);
+	//addprop2(1, "eng", engineVersion);
+	addprop2(nullpadding, "nullpad", nullpadding);
+	addprop2(atlaspadding, "atlaspad", atlaspadding);
 
-	addprop(streamDBMipCount);
-	if(minimumMip)
-		addprop(minimumMip);
+	if (isEnvironmentMap) addto.append("EnvMap\n");
+	if(!streamed) addto.append("noStream\n");
+	if(singleStream) addto.append("singleStream\n");
+	if(noMips) addto.append("noMips\n");
+	if(fftBloom) addto.append("fftBloom\n");
+	if(version >= 24 && prefiltermips) addto.append("prefiltermips\n");
+
 }
 
 void ImageHeader::DefaultInitialize(gamebit_t gameid) {

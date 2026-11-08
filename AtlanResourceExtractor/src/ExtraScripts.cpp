@@ -6,6 +6,7 @@
 #include "archives/MapResources.h"
 #include "archives/PackageMapSpec.h"
 #include "archives/ResourceStructs.h"
+#include <archives/idImage.h>
 #include "atlan/AtlanLogger.h"
 
 typedef std::filesystem::path fspath;
@@ -218,6 +219,49 @@ void Script_DumpManifests(const fspath& gamedir, const fspath& outputdir) {
 	headerdump.close();
 }
 
+void Script_DumpImageHeaders(const fspath& gamedir, const fspath& outputdir) {
+	atlog("Running Script: Dump Image Headers");
+
+	std::unordered_map<std::string, std::set<std::string>> stringmap;
+	stringmap.reserve(50'000);
+
+	idcl::ArchiveIterator iter(gamedir / "base/packagemapspec.json", true);
+	iter.allowDisabled = true;
+	iter.allowUnmasked = true;
+	iter.typefilter = "image";
+
+	std::string writeto;
+	for (const ResourceEntry& e : iter) {
+		if(e.dataSize == 0)
+			continue;
+		
+		ResourceData data = iter.archive.GetData(e);
+		idImage image;
+		image.Read(data.buffer, data.length, true);
+
+		writeto.clear();
+		writeto.append(iter.isEnabled ? "\"1\"{\n" : "\"0\"{\n");
+		//writeto.append("{\n");
+
+		image.tostring(writeto);
+
+		writeto.append("}\n");
+
+		stringmap[iter.namestring].insert(writeto);
+	}
+
+	std::ofstream outwriter(outputdir / "ImageHeaders.txt");
+
+	for (const auto& pair : stringmap) {
+		outwriter << "\"" << pair.first << "\" {\n";
+
+		for (const std::string& s : pair.second) {
+			outwriter << s;
+		}
+		outwriter << "}\n";
+	}
+}
+
 void RunExtraScripts(fspath gamedir, fspath outputdir)
 {
 	atlog("Running Extra Scripts");
@@ -231,4 +275,6 @@ void RunExtraScripts(fspath gamedir, fspath outputdir)
 	Script_AggregateEntryVars(gamedir, outputdir);
 
 	Script_DumpManifests(gamedir, outputdir);
+
+	Script_DumpImageHeaders(gamedir, outputdir);
 }

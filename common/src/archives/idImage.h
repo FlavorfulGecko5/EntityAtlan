@@ -223,7 +223,7 @@ struct idImage {
 
     bool Read(const char* data, size_t length, bool FullyValidate);
 
-    void tostring(std::string& addto, const char* imageName) const;
+    void tostring(std::string& addto) const;
 };
 
 typedef std::unordered_map<std::string, ImageHeader> idImageHeaderMap_t;

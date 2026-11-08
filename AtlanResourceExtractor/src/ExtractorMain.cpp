@@ -623,9 +623,8 @@ void ExtractorMain() {
 			"Did you enter the correct path to your game folder?");
 		return;
 	}
-	if(iter.maskfile.maskcount == 0) {
-		atlog("FATAL ERROR: Failed to read container.mask");
-		return;
+	if(iter.maskfile.maskcount == 0) { // Don't fatal error here because level mods don't have a container mask
+		atlog("WARNING: Failed to read container.mask. Extraction may not proceed correctly");
 	}
 	atlog("Found game folder\nDumping data to %ls", config.outputdir.c_str());
 
