@@ -218,6 +218,7 @@ bool BuildOriginalImageHeader(const std::string& AssetPath, const std::string& E
 		header.prefiltermips = ext.m_prefiltermips;
 		header.streamed = ext.m_streamed;
 
+		out_realFormat = header.textureFormat;
 		return true;
 	}
 }
