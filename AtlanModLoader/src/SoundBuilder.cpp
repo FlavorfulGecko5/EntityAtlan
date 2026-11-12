@@ -116,19 +116,34 @@ void BuildSoundMetadata(const fspath soundsfolder, const uint32_t numSamples)
 
 void ModBuilder::BuildAudioArchives(const fspath soundsfolder, const std::vector<ModFile*>& samplefiles, gamebit_t gameid)
 {
+	// To optimally support deferred loading of audio files, we assume that writing
+	// the meta blob containing every wem's RIFF header chunks is unnecessary
 	charbuffer_t DeferredBuffer;
-	const uint32_t samplecount = static_cast<uint32_t>(samplefiles.size());
 
-	BinaryWriter headerchunk(1000000);
-	headerchunk << 6;
-	headerchunk.pushSizeStack();
-	headerchunk.pushSizeStack();
+	struct filestart_t {
+		const u32 version = 6;
+		u32 metasize;
+		const u32 metablobsize = 4;
+		u32 samplecount;
+	} fileheader;
 
-	aksnd::entry* const entries = new aksnd::entry[samplecount];
-	aksnd::entry* eptr = entries;
+	fileheader.samplecount = static_cast<uint32_t>(samplefiles.size());
+	fileheader.metasize = sizeof(fileheader.metablobsize) + sizeof(fileheader.samplecount) + sizeof(aksnd::entry) * fileheader.samplecount;
 
-	for (ModFile* sample : samplefiles)
+	u32 runningDataOffset =  sizeof(fileheader.version) + sizeof(fileheader.metasize) + fileheader.metasize;
+
+	heaparray<aksnd::entry> entries;
+	entries.EnsureCapacity(fileheader.samplecount);
+
+	// We write the entries first, then the finalized meta chunk
+	std::ofstream outwriter(soundsfolder / "ATLANMOD.snd", std::ios_base::binary);
+	outwriter.seekp(runningDataOffset);
+
+	for (u32 INDEX = 0; INDEX < fileheader.samplecount; INDEX++)
 	{
+		ModFile* sample = samplefiles[INDEX];
+		aksnd::entry* eptr = entries.buffer + INDEX;
+
 		if (!ModReader::LoadModData(*sample, DeferredBuffer)) {
 			atlog("ERROR: Failed to load sample data for '%s'", sample->assetPath.c_str());
 			continue;
@@ -148,7 +163,7 @@ void ModBuilder::BuildAudioArchives(const fspath soundsfolder, const std::vector
 		}
 
 		const char* samplebuffer = sample->dataBuffer;
-		const size_t samplelen = sample->dataLength;
+		const uint32_t samplelen = (uint32_t)sample->dataLength;
 
 		if (samplelen < 4) {
 			atlog("FATAL ERROR: Bad audio sample size");
@@ -160,52 +175,30 @@ void ModBuilder::BuildAudioArchives(const fspath soundsfolder, const std::vector
 			return;
 		}
 
-		// TODO: We can probably remove both the farmhash and the meta chunk writing
 		// The meta chunk seems to only be used when samples are opus files
-		eptr->farmhash = HashLib::FarmHash64(samplebuffer, samplelen); // TODO: Test if necessary
-		eptr->encodedSize = (uint32_t)samplelen;
-		eptr->decodedSize = (uint32_t)samplelen;
-		eptr->metaoffset  = (uint32_t)(headerchunk.GetPosition() - 0x0C);
+		eptr->farmhash = -1;
+		eptr->encodedSize = samplelen;
+		eptr->decodedSize = samplelen;
+		eptr->metaoffset = 0;
 
 		if (gameid == game_darkages) {
-			eptr->metaunion.da_metasize = (uint32_t)GetSampleMetaSize(samplebuffer, samplelen);
-			headerchunk.WriteBytes(samplebuffer, eptr->metaunion.da_metasize);
+			eptr->metaunion.da_metasize = 0;
 		}
 		else {
 			eptr->metaunion.de.encoding = 3;
-			eptr->metaunion.de.metasize = (u16)GetSampleMetaSize(samplebuffer, samplelen);
-			headerchunk.WriteBytes(samplebuffer, eptr->metaunion.de.metasize);
+			eptr->metaunion.de.metasize = 0;
 		}
-
-		*eptr++;
+		
+		eptr->offset = runningDataOffset;
+		runningDataOffset += samplelen;
+		outwriter.write(samplebuffer, samplelen);
 	}
 
-	// After the metadata, we write the number of samples in the archive
-	headerchunk << samplecount;
-	headerchunk.popSizeStack();
-
-
-	// Calculate the offset of each sample's entry in the archive
-	uint32_t runningoffset = static_cast<uint32_t>(headerchunk.GetPosition() + samplecount * sizeof(aksnd::entry));
-	eptr = entries;
-	for (uint32_t i = 0; i < samplecount; i++) {
-		eptr->offset = runningoffset;
-		runningoffset += eptr->encodedSize;
-		eptr++;
-	}
-
-	// Write the entries and header chunk length
-	headerchunk.WriteBytes(reinterpret_cast<char*>(entries), samplecount * sizeof(aksnd::entry));
-	headerchunk.popSizeStack();
-
-	// Write to disk
-	std::ofstream outwriter(soundsfolder / "ATLANMOD.snd", std::ios_base::binary);
-	outwriter.write(headerchunk.GetBuffer(), headerchunk.GetFilledSize());
-	for (const ModFile* f : samplefiles) {
-		outwriter.write((char*) f->dataBuffer, f->dataLength);
-	}
+	// write to disk
+	outwriter.seekp(0, std::ios_base::beg);
+	outwriter.write((char*)&fileheader, sizeof(fileheader));
+	outwriter.write((char*)entries.buffer, fileheader.samplecount * sizeof(aksnd::entry));
 	outwriter.close();
-	delete[] entries;
 
-	BuildSoundMetadata(soundsfolder, samplecount);
+	BuildSoundMetadata(soundsfolder, fileheader.samplecount);
 }
