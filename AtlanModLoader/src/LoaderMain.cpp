@@ -1277,7 +1277,7 @@ void InjectorMain(int argc, char* argv[], int& argflags) {
 
 	atlog(R"(
 ----------------------------------------------
-Atlan Mod Loader v%d.0 for DOOM: The Dark Ages
+Atlan Mod Loader v%d.0 for DOOM: Eternal and DOOM: The Dark Ages
 By FlavorfulGecko5
 With Special Thanks to: Proteh, Zwip-Zwap-Zapony, Tjoener, and many other talented modders!
 https://github.com/FlavorfulGecko5/EntityAtlan/
@@ -1287,7 +1287,6 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 	// Do not end in a / or there may be problems when running system commands 
 	// (it won't translate string literal slashes to the appropriate slash like it does when using the / operator)
 	fspath gamedirectory = ".";
-	bool allowEternal = false;
 	bool uninstallLevelMods = false;
 
 	/*
@@ -1313,11 +1312,6 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 
 		else if (arg == "--uninstall") {
 			uninstallLevelMods = true;
-		}
-
-		else if (arg == "--eternal") {
-			atlog("ARGS: Experimental Doom Eternal support enabled");
-			allowEternal = true;
 		}
 
 		#if 0
@@ -1365,12 +1359,6 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 	else if (std::filesystem::exists(gamedirectory / "DOOMEternalx64vk.exe")) {
 		g_archiveversion = 12;
 		g_game = game_eternal;
-
-		// Turn this off when Eternal is supported
-		if (!allowEternal) {
-			atlog("FATAL ERROR: Doom Eternal not supported");
-			return;
-		}
 	}
 	else {
 		atlog("FATAL ERROR: Could not locate valid game executable");

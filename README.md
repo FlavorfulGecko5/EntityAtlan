@@ -1,9 +1,9 @@
 
 # Atlan Modding Tools
-A collection of modding tools for id Software's DOOM: The Dark Ages. Official releases and explanations for every available tool can be found on the [Releases Page](https://github.com/FlavorfulGecko5/EntityAtlan/releases)
+A collection of modding tools for id Software's DOOM: The Dark Ages and DOOM: Eternal. Official releases and explanations for every available tool can be found on the [Releases Page](https://github.com/FlavorfulGecko5/EntityAtlan/releases)
 
 ## Atlan Mod Loader
-An entirely new mod loader with vast improvements over the DOOM Eternal mod loader. Available on the [Releases Page](https://github.com/FlavorfulGecko5/EntityAtlan/releases)
+An entirely new mod loader with vast improvements over Eternal Mod Injector. Available on the [Releases Page](https://github.com/FlavorfulGecko5/EntityAtlan/releases)
 
 ## Atlan Resource Extractor
 
@@ -11,9 +11,14 @@ A limited resource extractor intended for files that control game logic. Availab
 
 ## Atlan Mod Packager
 
-A tool for packaging your mods into a ZIP file ready for publishing. This process includes reserializing your entity files. Available on the [Releases Page](https://github.com/FlavorfulGecko5/EntityAtlan/releases/tag/Extractor)
+A three-in-one tool that does the following:
+1. Packages your mods into a ZIP file ready for publishing. This process includes reserializing your entity files.
+2. Converts legacy Eternal Mod Injector mods into Atlan mods
+3. Converts idStudio mods (including level mods) into Atlan mods.
 
-## Technical Details
+Available on the [Releases Page](https://github.com/FlavorfulGecko5/EntityAtlan/releases/tag/Extractor)
+
+## idLib Reflection Code
 
 Unlike in DOOM Eternal, map entities are pre-serialized into a binary format. For level modding to be achievable, it's critical that a tool exists to decode these files, and re-encode our modded ones.
 
@@ -41,7 +46,7 @@ Note: The `reflector` project is intended to only run with Debug build configura
 
 ## Credits
 * FlavorfulGecko5 - Author of the Atlan Modding Tools
-* Proteh - Author of [DarkAgesPatcher](https://github.com/dcealopez/DarkAgesPatcher) and DarkAgesModManager, which both ship with Atlan Mod Loader
+* Proteh - Author of [DarkAgesPatcher](https://github.com/dcealopez/DarkAgesPatcher) and DarkAgesModManager, the foundation for [Atlan Mod Manager](https://github.com/FlavorfulGecko5/AtlanModManager)
 * jandk / tjoener - Extracting RTTI data from the game executable. Provided additional help with file formats, hashing algorithms, and other challenges. Author of idTech resource extractor [Valen](https://github.com/jandk/valen)
 
 
