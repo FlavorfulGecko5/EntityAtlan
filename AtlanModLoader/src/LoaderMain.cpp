@@ -1340,7 +1340,7 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 		else {
 			LABEL_EXIT_HELP:
 			atlog("AtlanModLoader.exe [--verbose] [--notimer] [--nolaunch] [--gamedir <Dark Ages Installation Folder>]");
-			return;
+			//return;
 		}
 	}
 
@@ -1404,7 +1404,7 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 		return;
 	}
 
-	const fspath absdir = std::filesystem::absolute(gamedirectory);
+	fspath absdir = std::filesystem::absolute(gamedirectory);
 	if(std::filesystem::exists(gamedirectory / "steam_api64.dll")) {
 		atlog("Launching Game with Steam");
 
@@ -1414,6 +1414,14 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 		else {
 			std::system("start \"\" \"steam://run/782330//\"");
 		}
+	}
+	else if (std::filesystem::exists(gamedirectory / "gog.ico")) {
+		atlog("GOG: Please launch game through the GOG launcher");
+
+		//if (g_game == game_eternal) {
+		//	absdir /= "DOOMEternalx64vk.exe";
+		//	std::system(absdir.string().c_str());
+		//}
 	}
 	else {
 		atlog("Could not determine how to automatically launch your game\n"

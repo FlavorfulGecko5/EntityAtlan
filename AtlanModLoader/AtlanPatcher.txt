@@ -71,14 +71,31 @@ patches {
         vanilla = "FF5068483BC57443"
         patch   = "FF50684889C5EB43"
     }
+    {
+        name = "Fix Entity Offsets"
+        description = "Fix off-by-one error causing network-replicated entities to have incorrect positions in multiplayer (by tjoener)"
+        games = "DOOMEternalx64vk.exe"
+        vanilla = "77CC2B320100803B3E0A573F"
+        patch = "77CC2B328180803B3E0A573F"
+    }	
 }
 checksums {
     "eternal_steam_03042026"         = "baa2815a445bfdc8784c7bd62f78d291"
     "eternal_steam_03042026_patched" = "6d12e4973061ccd3bba8463e5777cd2d"
+	"eternal_uwp_19032026"			 = "a50d12f0b104036df67086e9f6367acc"
+	"eternal_sandbox_uwp_07052026"   = "12a140aa2dd58d1bdd5e52b665259e9b"
+	"eternal_gog_14042026"			 = "2779176f10354f0d5b6399bbaf31325d"	
+	"eternal_steam_11082026"		 = "382a4d5bb648b56f9cd9194b5e0be348"
+	"eternal_sandbox_steam_17082026" = "b6968cefb4e9c601c26e7b15e31f8992"
+	"eternal_sandbox_steam_09092026" = "8386336fc43266b5a148f16757828763"
     "sandbox_steam_06052026"         = "361bb11d4860b7de68a27202b998bdb6"
     "sandbox_steam_06052026_patched" = "07742801e2fed29062a59d0d41b3edb1"
     "darkage_steam_07092026"         = "0349c41bcab5b19a9b435d73a80958db"
     "darkage_steam_07092026_patched" = "98f8f76824e29b680b4b18bb08383a63"
     "darkage_steam_07292026"         = "367e13fe5cbc971a4babdb249f58f72b"
     "darkage_steam_07292026_patched" = "848d82671209b1aa2d37848b5f1de077"
+	"darkage_steam_09142026"         = "80058c89e213b3aa34364985ef070570"
+	"darkage_steam_09142026_patched" = "fbb5932b0cdb878f71520cc3d9d06f19"
+	"darkage_steam_10072026"         = "d8f5ec326910d4b3197615683c562ac0"
+	"darkage_steam_10072026_patched" = "da4f7efb134c82f46e022cf439de1025"
 }
