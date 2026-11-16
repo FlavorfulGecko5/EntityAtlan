@@ -98,4 +98,5 @@ checksums {
 	"darkage_steam_09142026_patched" = "fbb5932b0cdb878f71520cc3d9d06f19"
 	"darkage_steam_10072026"         = "d8f5ec326910d4b3197615683c562ac0"
 	"darkage_steam_10072026_patched" = "da4f7efb134c82f46e022cf439de1025"
+    "darkage_steam_11162026"         = "ff1e0169486eeda29b1f9e1f14b7c9a0"
 }

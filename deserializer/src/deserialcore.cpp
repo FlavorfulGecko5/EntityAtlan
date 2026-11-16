@@ -1287,6 +1287,7 @@ dsfunc_m(deserial::ds_idHandle_T_short___invalidEvent_t___INVALID_EVENT_HANDLE_T
 		{1544150481U, "goreEnableFullBodyByName"},
 		{3426108905U, "spawnSummoner"},
 		{1965779763U, "migrateAIFromExternalScript"},
+		{1844482948U, "runHordeMode"},
 	};
 
 	uint32_t hash;
