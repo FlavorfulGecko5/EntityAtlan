@@ -856,7 +856,7 @@ bool CleanupLevelMods(const fspath& gamedir) {
 		return false;
 
 	dir = gamedir / "virtualtextures/maps";
-	if(!std::filesystem::is_directory(gamedir))
+	if(!std::filesystem::is_directory(dir))
 		return true;
 
 	// This folder also contains the game's vanilla lightmaps
@@ -877,6 +877,43 @@ bool CleanupLevelMods(const fspath& gamedir) {
 
 	atlog("Level mod uninstaller completed. The program will now exit.");
 	return true;
+}
+
+// Cleanup deprecated files
+void CleanupOldFiles(const fspath& gamedir) {
+
+	const wchar_t* names[] = {
+		// From older versions of Atlan
+		L"DarkAgesModManager.exe",
+		L"modloader_cache.bin",
+
+		// Eternal Mod Injector
+		L"EternalModManager.exe",
+		L"EternalModInjector.bat",
+		L"base/EternalPatcher.exe.config",
+		L"base/EternalPatcher.def",
+		L"base/BlangParser.dll",
+		L"base/EternalPatcher.exe",
+		L"base/idRehash.exe",
+		L"base/zlib64.dll",
+		L"base/DEternal_loadMods.exe",
+		L"base/DEternal_patchManifest.exe",
+		L"base/opusenc.exe",
+		L"base/Newtonsoft.Json.dll",
+		L"base/opusdec.exe",
+		L"base/rs_data"
+	};
+
+	atlog("Removing outdated files");
+	for (int i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+
+		fspath f = gamedir / names[i];
+
+		if(std::filesystem::exists(f)) {
+			atlog("Removing %ls", names[i]);
+			std::filesystem::remove(f);
+		}
+	}
 }
 
 struct modlist_t {
@@ -1373,6 +1410,7 @@ https://github.com/FlavorfulGecko5/EntityAtlan/
 	// a vanilla packagemapspec to know what lightmaps should be deleted
 	if (uninstallLevelMods) {
 		CleanupLevelMods(gamedirectory);
+		CleanupOldFiles(gamedirectory);
 		return;
 	}
 
