@@ -137,7 +137,8 @@ int main()
 	/*
 	* This assumes the files were originally deserialized with include_originals = false
 	*/
-	Deserializer::DeserialInit(gamedir, filedir, false);
+	bool dummy = false;
+	Deserializer::DeserialInit(gamedir, filedir, false, dummy);
 
 	//RunTest(filedir / "entityDef", ".decl", rt_entityDef);
 	//RunTest(filedir / "logicClass", ".decl", rt_logicClass);

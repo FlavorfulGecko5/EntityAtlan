@@ -596,10 +596,6 @@ bool Extractor_ReadConfig(configdata_t& config)
 * CONSOLIDATED RESOURCE EXTRACTOR FUNCTION
 */
 void ExtractorMain() {
-	/*
-	* REMEMBER TO UPDATE VERSION NUMBER
-	*/
-	atlog("Atlan Resource Extractor v4.1 by FlavorfulGecko5");
 
 	/*
 	* Parse and validate config file
@@ -608,7 +604,6 @@ void ExtractorMain() {
 	if(!Extractor_ReadConfig(config))
 		return;
 	config.outputdir /= "atlan";
-
 
 	/*
 	* Read and verify PackageMapSpec data
@@ -623,19 +618,17 @@ void ExtractorMain() {
 			"Did you enter the correct path to your game folder?");
 		return;
 	}
-	if(iter.maskfile.maskcount == 0) { // Don't fatal error here because level mods don't have a container mask
-		atlog("WARNING: Failed to read container.mask. Extraction may not proceed correctly");
+	if(iter.maskfile.maskcount == 0) {
+		// idStudio level mods are wrapped in a "dvdpc" folder
+		// These don't have a container mask, and can be safely extracted from without it
+		if (config.inputdir.filename() != L"dvdpc") {
+			atlog("FATAL ERROR: Failed to read container.mask");
+			return;
+		}
 	}
 	atlog("Found game folder\nDumping data to %ls", config.outputdir.c_str());
 
 	std::filesystem::create_directories(config.outputdir);
-
-	/*
-	* Download and load Oodle
-	* (Do it here so it doesn't get downloaded to the wrong folder if install folder is input wrong)
-	*/
-	if(!Oodle::AtlanOodleInit(config.inputdir))
-		return;
 
 	if (config.run_extractor) {
 		atlog("Performing resource extraction");
@@ -848,29 +841,51 @@ void ExtractorMain() {
 	}
 }
 
+void main_inner(const fspath EXEDIR) {
+
+	/*
+	* REMEMBER TO UPDATE VERSION NUMBER
+	*/
+	atlog("Atlan Resource Extractor v4.2.1 by FlavorfulGecko5");
+
+	// TODO: This is not guaranteed to be reliable. But for all intents and purposes this should work
+	// Would need to add OS API calls to guarantee the right path
+	if (!std::filesystem::is_directory(EXEDIR) || !std::filesystem::exists(EXEDIR / "AtlanResourceExtractor.exe")) {
+		atlog("FATAL ERROR: Could not retrieve AtlanResourceExtractor.exe path? Please report this error.");
+		return;
+	}
+
+	// Need to load Oodle before running any extractor functions
+	if (!Oodle::AtlanOodleInit(EXEDIR))
+		return;
+
+	ExtractorMain();
+}
+
 int main(int argc, char* argv[]) {
 	#define logpath "extractor_log.txt"
 
-	#ifdef _DEBUG
-	AtlanLogger_Init(logpath);
-	ExtractorMain();
-	AtlanLogger_Shutdown();
-	#else
-
+	#ifndef _DEBUG
 	try {
+	#endif
+
 		AtlanLogger_Init(logpath);
-		ExtractorMain();
+		main_inner( fspath(argv[0]).parent_path() );
+
+	#ifndef _DEBUG
 	}
 	catch (std::exception e) {
 		atlog("\n\nFATAL ERROR: An unexpected crash has occurred\n"
 			  "This may have left your extracted files incomplete or corrupted.\n"
 			  "Error Message: %s", e.what());
 	}
+	#endif
 
 	atlog("\n\nThis window will close in 10 seconds");
 	atlog("Output written to " logpath);
 	AtlanLogger_Shutdown();
-	
+
+	#ifndef _DEBUG	
 	std::this_thread::sleep_for(std::chrono::seconds(10));
 	#endif
 }

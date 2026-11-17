@@ -34,11 +34,10 @@ void StaticsTest() {
 	StaticsParser::Parse(r);
 }
 
-void Deserializer::DeserialInit(const fspath& gamedir, const fspath& filedir, bool p_include_originals) {
+void Deserializer::DeserialInit(const fspath& gamedir, const fspath& filedir, bool p_include_originals, bool& DeserializingEntitydefs) {
 	atlog("Building Decl Farmhash Map");
 	deserial::include_originals = p_include_originals;
 
-	const fspath basepath = gamedir / "base";
 	const fspath entitydir = filedir / "entityDef";
 	const std::set<std::string> ValidTypes = { "mapentities", "entityDef", "logicFX", "logicLibrary", "logicClass", "logicUIWidget", "logicEntity" };
 	
@@ -81,7 +80,11 @@ void Deserializer::DeserialInit(const fspath& gamedir, const fspath& filedir, bo
 			entityclass_t classdef;
 
 			classdef.filepath = (entitydir / archiveIterator.namestring).replace_extension(".bin").string();
-			assert(std::filesystem::exists(classdef.filepath));
+			if (DeserializingEntitydefs && !std::filesystem::exists(classdef.filepath)) {
+				DeserializingEntitydefs = false;
+				atlog("ERROR: Cannot deserialize entityDefs because one or more entityDef binary files are missing!"
+					"\n   To fix this error, please re-extract the entityDefs.");
+			}
 
 			const ResourceData entrydata = r.GetData(e);
 			assert(entrydata.returncode == EntryDataCode::OK);
@@ -131,8 +134,10 @@ void Deserializer::DeserialInit(const fspath& gamedir, const fspath& filedir, bo
 
 		auto parentiter = deserial::entityclassmap.find(current.second.parent);
 		while (true) {
-			if(parentiter == deserial::entityclassmap.end())
-				assert(0); // Todo: Refactor so there's no infinite loop in release builds
+			if (parentiter == deserial::entityclassmap.end()) {
+				assert(0);
+				throw std::exception("FATAL ERROR: Entitydef is missing it's class hash!");
+			}
 
 			if (parentiter->second.typehash == 0) {
 				parentiter = deserial::entityclassmap.find(parentiter->second.parent);
@@ -366,7 +371,7 @@ void Deserializer::DeserialSingle(BinaryReader& reader, std::string& writeto, Re
 
 void Deserializer::DeserialMain(const fspath& gamedir, const fspath& filedir, deserialconfig_t config)
 {
-	DeserialInit(gamedir, filedir, config.include_original);
+	DeserialInit(gamedir, filedir, config.include_original, config.deserial_entitydefs);
 
 	if (config.deserial_entitydefs) {
 		atlog("Deserializing EntityDefs");

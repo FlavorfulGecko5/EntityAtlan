@@ -19,7 +19,7 @@ namespace Deserializer
 {
 	// Will be called by DeserialMain automatically
 	// This is here for using the Deserializer independently of DeserialMain
-	void DeserialInit(const fspath& gamedir, const fspath& filedir, bool p_include_originals);
+	void DeserialInit(const fspath& gamedir, const fspath& filedir, bool p_include_originals, bool& DeserializingEntitydefs);
 
 	void DeserialSingle(BinaryReader& reader, std::string& writeto, ResourceType restype);
 
